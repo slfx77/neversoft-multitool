@@ -1,5 +1,6 @@
 ﻿using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Font;
 using NeversoftMultitool.Core.Formats.Texture.N64;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
@@ -40,13 +41,17 @@ internal static class TextureTabTextureOperations
         return ext.Equals(".psx", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".pvr", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".tex", StringComparison.OrdinalIgnoreCase)
-               || ext.Equals(".img", StringComparison.OrdinalIgnoreCase);
+               || ext.Equals(".img", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".fnt", StringComparison.OrdinalIgnoreCase);
     }
 
     public static TextureFileFormat ClassifyFormat(string fileName)
     {
         if (OrdinalFileName.HasAnySuffix(fileName, N64TexExtensions))
             return TextureFileFormat.N64Tex;
+        // Must precede the PSX fallthrough below, which would otherwise claim .fnt.
+        if (OrdinalFileName.HasSuffix(fileName, ".fnt"))
+            return TextureFileFormat.Fnt;
         if (OrdinalFileName.HasAnySuffix(fileName, NgcTexExtensions))
             return TextureFileFormat.NgcTex;
         if (OrdinalFileName.HasAnySuffix(fileName, XboxTexExtensions))
@@ -73,6 +78,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.XbxImg => CountParsedTextures(ParseXbxTextures(data, format)),
             TextureFileFormat.Pvr => PvrFileDecoder.DecodeToRgba(data) != null ? 1 : 0,
             TextureFileFormat.N64Tex => N64TexFile.IsN64Texture(data) ? 1 : 0,
+            TextureFileFormat.Fnt => TryParseFnt(data)?.Glyphs.Length ?? 0,
             _ => PsxLibrary.EnumerateTextures(data).Count
         };
     }
@@ -88,6 +94,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.XbxTex or TextureFileFormat.XbxImg => BuildXboxEntries(data, parent),
             TextureFileFormat.Pvr => BuildPvrEntries(data, parent),
             TextureFileFormat.N64Tex => BuildN64Entries(data, parent),
+            TextureFileFormat.Fnt => BuildFntEntries(data, parent),
             _ => BuildPsxEntries(data, parent)
         };
     }
@@ -110,6 +117,14 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.XbxImg => ExtractXbxImage(data, outputDir, stem, createSubDirs),
             TextureFileFormat.Pvr => ExtractPvr(data, outputDir, stem, createSubDirs),
             TextureFileFormat.N64Tex => ExtractN64Texture(data, outputDir, stem, createSubDirs),
+            // A font is one packed atlas plus one metrics manifest rather than a PNG per glyph,
+            // and .fnt is a simple extension the compound-suffix stripper leaves intact.
+            TextureFileFormat.Fnt => ExtractFnt(
+                data,
+                outputDir,
+                Path.GetFileNameWithoutExtension(entry.FileName),
+                entry.FileName,
+                createSubDirs),
             _ => ExtractPsxTextures(data, entry.FileName, outputDir, createSubDirs, writeDds, writeMipAtlas)
         };
     }
@@ -140,6 +155,15 @@ internal static class TextureTabTextureOperations
                 // A record remains one selectable texture. Preview its
                 // authored level zero; extraction writes any stored mips.
                 return texture != null ? (texture.Rgba, texture.Width, texture.Height) : null;
+            }
+            case TextureFileFormat.Fnt:
+            {
+                var font = TryParseFnt(data);
+                if (font == null || textureIndex < 0 || textureIndex >= font.Glyphs.Length)
+                    return null;
+
+                var glyph = font.Glyphs[textureIndex];
+                return (FntAtlasBuilder.RenderGlyph(font, glyph), glyph.Width, glyph.Height);
             }
             default:
                 return PsxLibrary.ExtractTextureAt(data, textureIndex, source.EntryName);
@@ -255,6 +279,52 @@ internal static class TextureTabTextureOperations
                 }
             ]
             : [];
+    }
+
+    private static List<PsxTextureEntry> BuildFntEntries(byte[] data, PsxFileEntry parent)
+    {
+        var font = TryParseFnt(data);
+        if (font == null)
+            return [];
+
+        var paletteType = font.HasPalette ? "4bpp CLUT" : "4bpp intensity";
+        return font.Glyphs
+            .Select(glyph => new PsxTextureEntry
+            {
+                Parent = parent,
+                NameHash = 0,
+                Width = glyph.Width,
+                Height = glyph.Height,
+                PaletteType = paletteType,
+                Index = glyph.Index,
+                // Glyphs are addressed by index, never by character: Font::CharMap is runtime
+                // state and its ordering differs between builds of the same game.
+                ResolvedName = $"glyph {glyph.Index:D3}"
+            })
+            .ToList();
+    }
+
+    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractFnt(
+        byte[] data,
+        string outputDir,
+        string stem,
+        string sourceFile,
+        bool createSubDirs)
+    {
+        var font = TryParseFnt(data);
+        if (font == null)
+            return (0, 0, false, false);
+
+        // Honour the per-file subdirectory option the same way the single-texture formats do,
+        // keeping the atlas and its manifest together.
+        var directory = createSubDirs ? Path.Combine(outputDir, stem) : outputDir;
+        FntOutput.Write(directory, stem, sourceFile, font);
+        return (font.Glyphs.Length, font.Glyphs.Length, false, true);
+    }
+
+    private static FntFile? TryParseFnt(byte[] data)
+    {
+        return FntFile.TryParse(data, out var font) ? font : null;
     }
 
     private static N64TexFile.N64Texture? TryDecodeN64(byte[] data)

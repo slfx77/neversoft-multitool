@@ -84,18 +84,43 @@ immediates, two independent compilations of the same source (LE PS1 + BE N64) cr
 constants are source-level. Probe method retained here; runs list in the 2026-08-17 session notes.
 
 **Actionable small gaps (in rough value order):**
-1. **`.fnt` bitmap fonts** — 80 THPS2 + 19 THPS1 + 5 Spider-Man. Header = per-glyph metric records
-   (u32 width/height/cell rows); the engine loader is `FontTools.cpp`/`FONT.cpp` in the matched
-   decomp (`FontManager`, default `mainf.fnt`), so the layout can be read straight out of it.
-   Glyph art location (embedded vs companion BMP) to be established from the loader.
-   **Target format decided 2026-08-17 (final, user call)**: **PNG glyph atlas + schema-v1 JSON
-   metrics — the only output.** Measured basis: `FontTools.cpp` uploads glyphs as 4bpp CLUT
-   (Pal16X/GetFree16Slot/GetClut, upload depth 4, odd-NIBBLE padding) — 16-level paletted art
-   with anti-aliasing and palette colour. Every installable bitmap-font format on the FreeType
-   stack (`.fon`/FNT, BDF, PCF) is 1-bit monochrome, so any font-file export would threshold the
-   levels AND drop the colour; the user chose to skip the lossy companion rather than ship it.
-   If true-fidelity TYPING is ever wanted later, colour-bitmap OpenType (CBDT/CBLC) is the only
-   route — noted, not planned.
+1. ✅ **`.fnt` bitmap fonts — SHIPPED 2026-08-18.** `Core/Formats/Font/` + the `fnt` CLI command
+   + Texture-tab routing. Output is **PNG glyph atlas + schema-v1 JSON metrics, and nothing
+   else** (user call 2026-08-17: every installable bitmap-font format on the FreeType stack —
+   `.fon`/FNT, BDF, PCF — is 1-bit monochrome and would threshold the 16-level anti-aliased art
+   AND drop its palette colour; colour-bitmap OpenType (CBDT/CBLC) is the only true-fidelity
+   typing route, noted and not planned).
+   - **Layout** transcribed from the matched decomp's only reader, `Font::Font(unsigned char *)`
+     (`src/FONTTOOLS.cpp:194-330`): `u32 glyphCount`, then 16-byte records
+     `{u32 widthUnits, i32 height, i32 baseline, i32 advanceWidth}`, then a 16-entry `u16` CLUT,
+     then 4bpp low-nibble-first pixels at `widthUnits*4` wide, row stride `widthUnits*2` bytes,
+     per-glyph size `2*(widthUnits*height) + 2*((widthUnits*height)&1)` — the trailing pad is
+     the loader's own `oddPixelPadding`, not a row pad. Baseline is **signed** (18 corpus glyphs
+     are negative).
+   - **Corpus: 443 files → 383 parse on an exact-EOF gate, 19,777 glyphs, 0 errors, 0 ambiguous.**
+     382 are the canonical layout across 15 builds (THPS1/2/3/4 PSX, THPS2 DC, Spider-Man ×4 PSX
+     + DC + PC, SM2:EE ×3). The remaining 60 (48 THAW, 12 THPS3-PS2) are genuinely unrelated
+     formats sharing the extension and are reported as **skipped, not errors**.
+   - **One variant**, THPS2 DC `LEVSEL.FNT`: 12-byte records `{widthUnits, height, baseline}` —
+     no advance width — and **no embedded CLUT**, so its 4-bit values are an intensity ramp.
+     Established by exact EOF plus rendering (it decodes to legible `A-Z 0-9 ? : !`). Exported
+     as white with coverage alpha, since the file states no colour.
+   - **Transparency is by CLUT value**: `0x0000` is the PS1 GPU's not-drawn texel and every
+     paletted file carries one. Bit 15 (STP) is set on 91% of entries and is ignored —
+     `Font::draw` issues the glyph's main pass with `Transparent = 0`, so the hardware never
+     consults it. Two Spider-Man `sp_fnt01` copies hold a magenta entry (the key the PSX
+     *texture* path uses) but **no glyph in the corpus references one**, so it is dead data.
+   - **The character map is NOT file-derivable and is never inferred.** `Font::CharMap` is
+     runtime state game code assigns. Measured proof: the March-2000 THPS2 prototype's
+     `player/s2bio.fnt` has exactly 74 glyphs and maps 48→`a` precisely as decompiled, while
+     retail THPS2's `s2bio.fnt` has 94, puts `_` at 48, shifts lowercase to 49-74 and appends 19
+     accented glyphs. Same game, same filename, different ordering. The manifest therefore emits
+     `characterMapStatus: "notApplied"` with all three decompiled modes published as candidates;
+     `fnt --charmap 0|1|2` opts in and flips it to `"appliedFromCallerArgument"`.
+   - **Known limit, pinned by a test**: exact EOF makes the two layouts unambiguous across the
+     whole shipped corpus but is not a proof for arbitrary bytes — a truncated paletted font can
+     coincidentally satisfy the 12-byte reading. The paletted layout is always tried first, so
+     only an already-damaged file can fall through.
 2. ✅ **`.seq` PSY-Q MIDI sequences — SHIPPED 2026-08-17.** `SeqFile` (pQES header + MIDI event
    stream with running status), `VabProgramSet` (programs→tones→PCM with SPU loop points), and
    `SeqSynthesizer` (SsPitchFromNote pitch — the same formula the SFX cue resolver pins — SPU ADSR

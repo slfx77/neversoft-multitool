@@ -48,7 +48,8 @@ public static class Program
         GlbGifCommand.Create,
         GsDumpCommand.Create,
         SkaCommand.Create,
-        Thps2XFrontendAnimCommand.Create
+        Thps2XFrontendAnimCommand.Create,
+        FntCommand.Create
     ];
 
     private static readonly Lazy<HashSet<string>> CliCommandNames = new(

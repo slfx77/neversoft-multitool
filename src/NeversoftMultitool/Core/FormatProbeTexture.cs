@@ -1,4 +1,5 @@
 ﻿using System.Buffers.Binary;
+using NeversoftMultitool.Core.Formats.Font;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Pvr;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
@@ -58,6 +59,7 @@ internal static class FormatProbeTexture
             ".psx" => ProbePsxFile(filePath),
             ".tex" or ".img" => ProbePs2TexFile(filePath),
             ".pvr" => ProbePvrFile(filePath),
+            ".fnt" => ProbeFntFile(filePath),
             ".rle" or ".bmr" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "RLE Bitmap"),
             ".tdx" or ".txx" => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
@@ -68,6 +70,24 @@ internal static class FormatProbeTexture
                 "Unknown",
                 $"Unrecognized texture format: {ext}")
         };
+    }
+
+    /// <summary>
+    ///     Validates content rather than trusting the extension: <c>.fnt</c> is shared with
+    ///     unrelated THAW and THPS3-PS2 formats, so a scan must say which of them a file is
+    ///     instead of listing it as supported and failing later.
+    /// </summary>
+    private static FormatProbe.FormatProbeResult ProbeFntFile(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
+            return HeaderReadFailure();
+
+        return FntFile.IsFnt(data)
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Neversoft Bitmap Font")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Bitmap Font",
+                "Not a PS1-era Neversoft bitmap font (THAW and THPS3-PS2 reuse the .fnt extension)");
     }
 
     private static FormatProbe.FormatProbeResult ProbePsxFile(string filePath)

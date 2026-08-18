@@ -43,7 +43,8 @@ public sealed class ProgramCommandRegistryTests
         "glb-gif",
         "gsdump",
         "ska",
-        "thps2x-anim"
+        "thps2x-anim",
+        "fnt"
     ];
 
     [Fact]
@@ -54,7 +55,7 @@ public sealed class ProgramCommandRegistryTests
             .Select(static command => command.Name)
             .ToArray();
 
-        Assert.Equal(40, actualNames.Length);
+        Assert.Equal(41, actualNames.Length);
         Assert.Equal(ExpectedCommandNames, actualNames);
         Assert.Equal(
             actualNames.Length,
