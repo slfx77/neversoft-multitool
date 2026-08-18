@@ -45,17 +45,29 @@ content identity structurally cannot separate shared-rig characters. Each AI blo
 its model somehow (the PS1 side calls Spool_GetModel by name hash); if the N64 blocks carry a
 bundle-slot immediate or hash constant, that is per-character naming evidence for exactly the
 class the fallback cannot reach (82 unnamed Spider-Man slots). **Probe run 2026-08-17 — the
-constant-anchored route WORKS**: byte-identical signature matching cannot transfer (recompiled,
-measured), but scanning the CARVED boot.bin for split-immediate QbKey hashes (BE MIPS `lui`/`ori`
-pairs — note the earlier "no QbKey hash table exists" scan searched DATA only and never ruled out
-code-embedded constants, and the raw ROM shows nothing because the boot code is ERZ-compressed
-in-cart) finds a tight cluster at boot.bin 0x737C4–0x73818 materializing seven character-name
-hashes in a row: thug, hostage, cop, scorpion, rhino, jonah, mysterio — a registration table being
-built. Follow-ups: disassemble the cluster and its call target (that consumer is the N64's
-Spool-equivalent), walk every registration to harvest hash constants and resolve them against the
-~424k-name dictionary, and check why the other character spellings missed (docock/venom/carnage —
-different casing, pooled constants, or per-level code). The AI segment itself showed no hash
-constants — its model binding is elsewhere. The segment is referenced by NO master-directory
+constant-anchored route WORKS, and the mechanism is now mapped.** Byte-identical signature
+matching cannot transfer (recompiled, measured), but code-embedded constants survive: scanning the
+CARVED boot.bin (the raw ROM shows nothing — boot code is ERZ-compressed in-cart, and the earlier
+"no QbKey hash table exists" scan searched DATA only) for split-immediate QbKey hashes (BE MIPS
+`lui`/`ori` pairs) finds a spool/unload routine at boot.bin file 0x73700 whose body:
+  - loads SIXTEEN hash constants in a row, each fed to `jal 0x8008A674` — **all sixteen resolved**
+    by hashing boot.bin's own strings: thug, police, hostage, cop, scorpion, rhino, jonah,
+    Mysterio, simby, and the level-script overlays l2a1lsc/l5a5lsc/l5a6lsc/l5a7lsc/l6a1lsc/
+    l6a2lsc/l6a3lsc — the character+overlay roster, i.e. `0x8008A674` is the N64's
+    **spool-by-name-hash function** (the Spool equivalent asked about);
+  - then hashes strings AT RUNTIME: `lui/addiu` string pointers (VA 0x80020cdc…) through
+    `jal 0x800AA70C` (a string→hash routine) into the same spool call — so boot.bin carries
+    NAMES IN PLAINTEXT. Two tables located: the character/viewer model list at file 0x2F30
+    (spidey, parker, blackcat, ock_suit, brock, henchman, thug, jjviewer, scorpion, daredevl,
+    police, swat, rhino, venom, lizman2, lizard, mjviewer, symbi_02, mystview, punisher, docock,
+    carnage, superock, captain) and the overlay-FILE list at 0xA218 (cop, hostage, jonah,
+    l2a1lsc…l6a3lsc, simby — the PS1 `.bin` stems verbatim).
+  **Next blocker, named**: boot.bin is a MULTI-SEGMENT carve (concatenated decompressed boot
+  packages), so jal-target VAs (0x8008A674, 0x800AA70C) do not map to file offsets under any
+  single base (ROM entry 0x80000400 tried, off by segments). Recover the per-package load
+  addresses from the carver/boot loader, then disassemble the spool function to find the
+  hash→bundle-slot resolution — the direct naming lever. The AI segment itself showed no hash
+  constants — its model binding goes through this boot-side machinery. The segment is referenced by NO master-directory
 group — the whole-carve block scan finds none of it in any carved asset, so it must be DMA'd by
 hardcoded ROM address — meaning `N64AssetCarver` currently misses it entirely. The CODE is
 recompiled (distinct-block coverage of any PS1 overlay vs boot.bin is only 3–8%, all generic MIPS
