@@ -366,9 +366,21 @@ Per-item verdicts:
   Follow-up: TOD variant-pair selection beyond the additive-only NightOverlay rule.
 - **B6 (misaligned windows)** 🔶 — window MASK over wall OPAQUE at +0.359 (not coplanar);
   blend-appearance question for Phase 4.
-- **B7 (sunken chairs)** 🔶 — the probe's first hit at the pose IS a QB-placed prop leaf
-  (`0005D940_qb_leaf_00000`), so the QB instancing path is in play; the per-instance embed-depth
-  measurement (authored Y vs floor query, and the Y↔Z-swap comparison) remains TODO.
+- **B7 (sunken chairs)** 🔴 **cause confirmed 2026-08-17 (second pass)** — measured every QB
+  placement in z_ho against a floor query over the exported level mesh
+  (`ThawTriageProbeTests.B7_ZHo_QbPlacedProps_EmbedDepthAgainstTheLevelFloor`, report
+  `b7_z_ho_embed.csv`): all 39 chairs embed 19.0–24.5 units, all 13 tables 13.0–18.4, all 8
+  barricades 19.1–37.9 — while two plants seat within 0.1 of the floor. All four prop models are
+  **vertically CENTER-pivoted** (chair ±23.06, table ±17.19, barricade ±28.8, plant ±56.7) and the
+  conversion places each model origin exactly at the authored node Y (verified faithful to the QB
+  data). The authored node heights are INCONSISTENT relative to the floor — plants sit a
+  half-height above it (and seat correctly), chairs/tables/barricades sit AT floor level (and sink
+  by ~half their height). So the engine evidently normalizes seating at spawn (the PSX
+  `CPowerUp`/ground-query lesson again); the exporter needs the equivalent bottom-anchor/floor-seat
+  for QB props. The **Y↔Z basis hypothesis is REFUTED** — XZ placement is correct (the probe hits
+  chairs at the reported pose). Decisive oracle for the fix: the GameCube z_ho scene's baked world
+  placements, or the THAW gameobject spawn path (the THUG source has no gameobject ground-snap —
+  only skater physics — so this is THAW-side).
 - **B8 (chainlink missing alpha)** 🔴 **cause confirmed, fully evidenced** — fence leaf 3538
   (z_ho): engine state is standard source-alpha BLEND; texture 711D88D6's cutout is INTACT (84.6%
   of texels below half-alpha, holes at α≈2 — verified from the debug texture dump); the bimodal
@@ -418,15 +430,23 @@ Per-item verdicts:
   multi-source loss is structural. Follow-up: TEX0/VRAM-aware standalone companion resolution
   pooling all pak texture entries (reuse ZoneTextureCatalog). Note: z_mainmenu.pak.ps2 itself does
   not route as a worldzone ("Not a recognized THAW PS2 worldzone PAK" — no placement entry).
-- **C3 (front-down cutscene MDL)** 🔴 **cause confirmed** — render shows the model pitched ~90°
-  (identity-basis export; `PopulatePs2Geom` applies no PS2→glTF axis swap), 13 meshes / 555
-  triangles. The incompleteness census (parse declines) remains TODO alongside the basis fix.
+- **C3 (front-down cutscene MDL)** 🔴 **both halves resolved 2026-08-17 (second pass)** —
+  (1) "Incomplete": the pak holds **42 MDL entries** (+5 skins, 4 ske, 1 ska, 47 stex) — one
+  cutscene scene split across entries; `00034A60.mdl` itself parses 13 of 14 leaves (single parse
+  rejection; census in `ThawTriageProbeTests.C3_CutsceneMdl_DeclineCensusAndBasisFacts`), so the
+  fragment-look is per-entry conversion of a multi-entry scene, not a decode failure. The real
+  feature is whole-pak cutscene-scene assembly. (2) "Front down": the piece is the Santa Monica
+  pool-dig deck plane (998 × 2997 × 912 — a flat deck standing on its end in the render) exported
+  at identity — and it carries **no bone preamble** (bones=0, records=10), so there is no in-file
+  transform to borrow: the placement lives in the cutscene's companion data (its ske/ska/QB), which
+  is where the fix must read from. The earlier "just add the axis swap" note is superseded — a
+  blanket swap has no per-file evidence to stand on for these.
 
 **Still pending from the campaign plan**: Phase 4 in-app verification (decides the B2/B5/B13-family
-"fixed by current build?" question), B7 embed-depth measurement, C3 decline census, and the C2
-GUI-parity harness. The Phase-2 throwaway harness was largely obviated: extracted-directory
-listings answered C2's candidate census and the debug CSVs answered everything the leaf-level
-harness would have measured.
+"fixed by current build?" question) and the C2 GUI-parity harness. B7's embed measurement and C3's
+decline census landed in the second pass (`ThawTriageProbeTests`, `[CorpusFact]`-gated,
+reports under the test TestOutput's `triage-harness/`); the rest of the Phase-2 harness was
+obviated by extracted-directory listings and the debug CSVs.
 
 ## Follow-ups spawned by triage
 
@@ -443,7 +463,11 @@ harness would have measured.
 6. **Geometric quarantine refinement** for transition zones (B4).
 7. **z_testlevel level-MDL empty-batch decode** (B10).
 8. **Standalone-MDL texture pooling** — TEX0/VRAM-aware multi-source resolution (C2a/C2b).
-9. **Standalone/cutscene MDL basis** — PS2→glTF axis swap on `PopulatePs2Geom` (C3) + decline census.
+9. **Cutscene-scene assembly** (C3) — assemble a cutscene pak's full MDL set into one scene with
+   placements read from its companion ske/ska/QB data (a blanket axis swap has no per-file
+   evidence; the MDLs carry no bone preamble).
+9b. **QB prop seating** (B7) — bottom-anchor/floor-seat center-pivoted QB props; oracle = GameCube
+   scene baked placements or the THAW gameobject spawn path.
 10. **PS2 skin backface culling** (C1) — gated on THUG-source cull check + corpus render-diff; plus
     skinned-mesh draw-order extras.
 11. **THAW script-created-content visibility groups** (B9.1) — as originally scoped.
