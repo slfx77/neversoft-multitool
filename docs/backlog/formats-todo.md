@@ -34,6 +34,26 @@ tricksel/…` + `GAME.BIN`/`FRONT.BIN`/`EDITOR.BIN`). Not convertible as assets;
 residue is the DATA tables embedded per overlay (AI params, per-character anim indices — same class
 as the pickup tables RE'd out of the main EXEs), which is per-overlay RE work, not a converter.
 
+**N64 cross-reference lead for anim naming — measured 2026-08-17.** The Spider-Man N64 cart carries
+an **uncarved ~1.5 MB character-AI segment at ROM 0x1D59BB2–0x1DEBAEE+**, per-character in order
+(blackcat 0x1D72, carnage 0x1D79, chopper 0x1D80, cop 0x1D8B, docock 0x1D91, lizman 0x1DA1,
+mysterio 0x1DA9, rhino 0x1DAF, scorpion 0x1DB0/0x1DB8, simby 0x1DBA/0x1DC8, spclone 0x1DCB,
+superock 0x1DD1, thug 0x1DDE, turret 0x1DE2, venom 0x1DEB). It is referenced by NO master-directory
+group — the whole-carve block scan finds none of it in any carved asset, so it must be DMA'd by
+hardcoded ROM address — meaning `N64AssetCarver` currently misses it entirely. The CODE is
+recompiled (distinct-block coverage of any PS1 overlay vs boot.bin is only 3–8%, all generic MIPS
+idioms with no stable base — an earlier same-day "entire overlay present in boot.bin" reading was
+wrong: 11.5k raw hits collapsed to a handful of epilogue-shaped blocks matching thousands of
+positions; measure DISTINCT probe coverage and base-offset agreement, not hit counts). The DATA
+survives: 34 contiguous byte-mirrored runs ≥64 bytes (u16 tables under u16-swap, u32 tables under
+u32-swap, up to 808 bytes — carnage) pair 16+ PS1 overlay tails with their N64 blocks. docock's
+shared tail is a table of (u32 id, u32 index) pairs — exactly the shape a per-character
+anim/behaviour assignment would take, and docock's 43 anim clips are already cross-matched
+PS1↔N64 sample-for-sample. Uses: (1) carve the segment (name blocks by the run anchors); (2) mine
+anim-slot assignments from the shared tables on either platform; (3) where assignments are code
+immediates, two independent compilations of the same source (LE PS1 + BE N64) cross-check which
+constants are source-level. Probe method retained here; runs list in the 2026-08-17 session notes.
+
 **Actionable small gaps (in rough value order):**
 1. **`.fnt` bitmap fonts** — 80 THPS2 + 19 THPS1 + 5 Spider-Man. Header = per-glyph metric records
    (u32 width/height/cell rows); the engine loader is `FontTools.cpp`/`FONT.cpp` in the matched
