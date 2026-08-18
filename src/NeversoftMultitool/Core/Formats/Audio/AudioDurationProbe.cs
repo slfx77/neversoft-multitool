@@ -30,6 +30,7 @@ public static class AudioDurationProbe
                     .Where(static duration => duration is > 0)
                     .DefaultIfEmpty()
                     .Max(),
+                "SEQ" => ProbeSeq(data),
                 "VAB" or "KAT" => null,
                 _ => null
             };
@@ -46,6 +47,30 @@ public static class AudioDurationProbe
         return decodedFrameCount is > 0 && sampleRate > 0
             ? decodedFrameCount.Value / (double)sampleRate
             : null;
+    }
+
+    /// <summary>
+    ///     SEQ duration from the tempo map — cheap (no synthesis): walk the
+    ///     event ticks, converting through each tempo change.
+    /// </summary>
+    private static double? ProbeSeq(byte[] data)
+    {
+        var seq = SeqFile.Parse(data);
+        if (seq == null || seq.Events.Count == 0)
+            return null;
+
+        var secondsPerTick = seq.InitialTempoMicroseconds / 1_000_000.0 / seq.Resolution;
+        long lastTick = 0;
+        var seconds = 0.0;
+        foreach (var seqEvent in seq.Events)
+        {
+            seconds += (seqEvent.Tick - lastTick) * secondsPerTick;
+            lastTick = seqEvent.Tick;
+            if (seqEvent.Type == SeqEventType.Tempo && seqEvent.Value > 0)
+                secondsPerTick = seqEvent.Value / 1_000_000.0 / seq.Resolution;
+        }
+
+        return seconds;
     }
 
     private static double? ProbeXa(byte[] data)

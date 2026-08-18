@@ -44,9 +44,18 @@ slot-run alignment) with the PS1 content-identity resource as fallback — 418/5
 content identity structurally cannot separate shared-rig characters. Each AI block must bind to
 its model somehow (the PS1 side calls Spool_GetModel by name hash); if the N64 blocks carry a
 bundle-slot immediate or hash constant, that is per-character naming evidence for exactly the
-class the fallback cannot reach (82 unnamed Spider-Man slots). Unproven — worth a probe that scans
-each block for slot/hash constants and tests injectivity; the segment order itself already gives
-block → PS1-character-name for free. The segment is referenced by NO master-directory
+class the fallback cannot reach (82 unnamed Spider-Man slots). **Probe run 2026-08-17 — the
+constant-anchored route WORKS**: byte-identical signature matching cannot transfer (recompiled,
+measured), but scanning the CARVED boot.bin for split-immediate QbKey hashes (BE MIPS `lui`/`ori`
+pairs — note the earlier "no QbKey hash table exists" scan searched DATA only and never ruled out
+code-embedded constants, and the raw ROM shows nothing because the boot code is ERZ-compressed
+in-cart) finds a tight cluster at boot.bin 0x737C4–0x73818 materializing seven character-name
+hashes in a row: thug, hostage, cop, scorpion, rhino, jonah, mysterio — a registration table being
+built. Follow-ups: disassemble the cluster and its call target (that consumer is the N64's
+Spool-equivalent), walk every registration to harvest hash constants and resolve them against the
+~424k-name dictionary, and check why the other character spellings missed (docock/venom/carnage —
+different casing, pooled constants, or per-level code). The AI segment itself showed no hash
+constants — its model binding is elsewhere. The segment is referenced by NO master-directory
 group — the whole-carve block scan finds none of it in any carved asset, so it must be DMA'd by
 hardcoded ROM address — meaning `N64AssetCarver` currently misses it entirely. The CODE is
 recompiled (distinct-block coverage of any PS1 overlay vs boot.bin is only 3–8%, all generic MIPS

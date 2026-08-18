@@ -346,6 +346,7 @@ internal static class AudioConverterTabOperations
             "SND" => Thug2PcSndDecoder.ConvertToWav(data, stem, tempDir),
             "PSS" => PssAudioExtractor.ConvertToWav(data, stem, tempDir),
             "VID" => Vid1AudioExtractor.ConvertToWav(data, stem, tempDir),
+            "SEQ" => ConvertSeqSong(parent, data, stem, tempDir),
             _ => null
         };
 
