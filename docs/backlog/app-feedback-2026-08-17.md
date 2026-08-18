@@ -323,6 +323,132 @@ chain. Reported-only.
 
 ---
 
+## Triage 2026-08-17 — every B/C item classified
+
+Executed the same day the batch landed. Evidence lives under `TestOutput\triage\` (GLBs for every
+zone in Day AND All time-of-day variants, `--probe` transcripts for all 23 poses in `probes\`,
+renders in `renders\`) and `TestOutput\triage\debug\` (the new `--worldzone-debug-dir` output:
+`<zone>.rejections.csv` + `<zone>.materials.csv` per zone). The A6/A5/A4/A2 GUI items shipped the
+same day (`d74e8ff`, `93aad94`, `ec2606d`, `5676351`) along with the triage diagnostics
+(`66bd0b6`: rejection logging + per-leaf GS-state CSV, `mesh --worldzone-debug-dir`).
+
+**Cross-cutting finding #1 — day/night duplicate stacks are the dominant defect family.** THAW
+authors many surfaces TWICE (day + night variant, coincident). Only ADDITIVE night overlays are
+classified NightOverlay and dropped from Day exports (z_bh drops 444 leaves, z_lv 435, z_dn 178,
+z_sm_net 150, z_sr 107, z_ms 35, z_ho 30 — the Day/All triangle deltas match exactly); NON-additive
+night variants (window panes, lit-sign faces) ship into Day exports coincident with their day twins.
+B2/B3/B5/B9.2/B12/B13a/B13c are all this class: probes show exact `+0` two-to-four-layer
+MASK/OPAQUE/BLEND stacks (e.g. B5's pane pairs leaf_01491/01492 — consecutive leaves, both
+standard-blend, same overlap group, pass 0/1, DIFFERENT textures = the day/night pair).
+
+**Cross-cutting finding #2 — the draw-order metadata is CORRECT for every probed pair.** B2's
+shadow (leaf 3521) draws after its ground (leaf 3090), same overlap group, pass 1; B13b's mud layer
+(dest-alpha-synthesized OPAQUE, leaf 1683) draws after its grass (leaf 2797). The headless renderer
+ignores the metadata by design, so probe `+0` fights are expected THERE; the app viewer resolves
+these via `renderOrder` since `3b66842`. **The user's reported build may predate that work** — the
+z-fight items need one in-app check against the current build before any further fix (Phase 4,
+still pending).
+
+Per-item verdicts:
+
+- **B1 (opaque shadow)** 🔶 — at the pose: subtractive-FIX shadow leaf 3556 (A2 B0 C2 D1, FIX=44 →
+  baked at ~0.10 alpha) + standard-blend layers over OPAQUE ground at +0.06. State is coherent;
+  whether the current build renders it acceptably is a Phase-4 in-app question.
+- **B2 (z-fight shadow)** 🔶 — textbook coplanar pair at exact +0, metadata CORRECT (see above).
+  In-app check against current build decides: fixed-by-3b66842 vs live viewer defect.
+- **B3 (z-fight windows)** 🔶 — centre ray clean; same day/night-stack class as B5.
+- **B4 (z_bhsm not fully rendering)** 🔶 **cause confirmed** — MDL 0001C7D0 emits 17 leaves while
+  **18 are eaten by the geometric quarantine** (`ShouldSkipWorldzoneLeaf`): the transition
+  corridor's road/tunnel segments are large, origin-centred, normal-less strips — exactly the
+  junk-heuristic's shape. Follow-up: refine the quarantine without re-admitting the junk it was
+  built for. (258 triangles total exported; rejections.csv rows carry every quarantined bbox.)
+- **B5 (road over glass)** 🔶 **cause confirmed** — three +0 day/night pane pairs (family above).
+  Follow-up: TOD variant-pair selection beyond the additive-only NightOverlay rule.
+- **B6 (misaligned windows)** 🔶 — window MASK over wall OPAQUE at +0.359 (not coplanar);
+  blend-appearance question for Phase 4.
+- **B7 (sunken chairs)** 🔶 — the probe's first hit at the pose IS a QB-placed prop leaf
+  (`0005D940_qb_leaf_00000`), so the QB instancing path is in play; the per-instance embed-depth
+  measurement (authored Y vs floor query, and the Y↔Z-swap comparison) remains TODO.
+- **B8 (chainlink missing alpha)** 🔴 **cause confirmed, fully evidenced** — fence leaf 3538
+  (z_ho): engine state is standard source-alpha BLEND; texture 711D88D6's cutout is INTACT (84.6%
+  of texels below half-alpha, holes at α≈2 — verified from the debug texture dump); the bimodal
+  de-escalation (`Ps2MaterialWriter.ClassifyPs2GeomEffectiveAlphaMode` :204-210) converts BLEND→MASK,
+  and the cutoff guard (:163-169) only exempts AREF=0 — this leaf's engine-default AREF=1 slips
+  through to `ComputeAlphaMaskCutoff` = 1/128 ≈ 0.0078, which the α≈2 hole texels PASS → solid
+  fence. Fix shape: bimodal-branch MASK should use the 0.5 cutoff (as the guard already does for
+  texture-classified MASK), or the AREF exemption should cover ≤1 — either needs the 884d018-style
+  corpus gate before shipping.
+- **B9.1 (z_sr visibility groups)** 🔴 — feature follow-up as scoped; mechanism is format-agnostic,
+  drop point known, nine non-CreatedAtStart refs corpus-pinned.
+- **B9.2/B12 (texturing errors)** 🔶 **reframed** — worldzone texture-resolution tags are HEALTHY
+  (19,213 rows: 18,987 `entry_material_group_exact`, 221 `entry_exact`, **5 unresolved**), so these
+  are NOT assignment failures: the probes show 3-4-layer coincident stacks at both z_sr poses and
+  the z_lv pose — the day/night duplicate family again.
+- **B10 (z_testlevel only objects)** 🔶 **cause confirmed** — level MDL 00050D70 parses but **21 of
+  its 23 leaves decode to zero vertices** (`parse/empty_batch`); only 2 emit while the two object
+  MDLs emit 12 each. Follow-up: decode why this zone's level-MDL batches come back empty (likely a
+  layout variant the phase-420 slicer declines).
+- **B11 (fake lights opaque)** 🔴 **cause confirmed, two mechanisms** — (1) the glow sheets are
+  billboard∧additive leaves forced to MASK by the billboard early-return
+  (`Ps2GeomRenderSemantics.ClassifyWorldzoneAlphaMode` :42-43) — corpus-wide: z_sm_net 149, z_lv
+  139, z_bh 130, z_sr 107, z_dn 13 such leaves — AND dropped from Day exports where non-billboard
+  (the z_ms pose gains two MASK glow overlays only in the All GLB); (2) the cones themselves
+  (leaves 881/887) are destination-alpha blends (A0 B1 **C1** D1) that fall to the OPAQUE branch
+  when dest-alpha synthesis finds no mask candidate. Follow-ups: register-read-before-billboard
+  (the gated one-liner — census now exists) + a dest-alpha fallback better than opaque + the
+  viewer's name-gated additive path (PS2 materials never match `__st[13]`).
+- **B13 (z_sm_net blending, 4 poses)** 🔶 — shadow/window/asphalt are the day/night-stack family;
+  **mud (B13b) cause confirmed**: the mud layer EXISTS in both TODs as a dest-alpha-synthesized
+  OPAQUE leaf (1683, synthetic=1) correctly ordered after its grass (2797) — current-build in-app
+  should show mud; the user's build likely predates the renderOrder work. Only 4
+  `redundant_blend_layer` skips fired in the whole zone (the over-drop hypothesis did NOT hold for
+  this pose).
+- **C1 (cel-shade outlines)** 🔴 **cause confirmed** — probe at the chest: 4 hits all
+  `group_7601435B`, all OPAQUE, **all 2-sided, first hit back-facing 0.255 units in FRONT of the
+  front-facing body** — the inverted-hull shell is never culled because `RenderMaterial.DoubleSided`
+  defaults true and nothing PS2-side clears it. Render = full black silhouette. Fix candidate
+  (DoubleSided=false for PS2 skins) still gated on the THUG-source cull check + corpus render-diff;
+  skinned meshes also carry no draw-order extras (second cause).
+- **C2 (corrupted textures)** 🔴 **cause-class confirmed** — renders show per-material subsets
+  garbage while most materials are correct (assignment, not decode — consistent with the oracle).
+  **C2a** cap_shell3: exactly ONE `.tex` precedes the MDL, so companion selection is right and the
+  corruption is WITHIN-source (standalone path has no TEXA-aware resolver and no per-MDL hint,
+  unlike the worldzone path). **C2b** z_mainmenu: the pak carries MANY texture entries (2 .stex +
+  a dozen .img) while the standalone path consults exactly ONE nearest-preceding entry — the
+  multi-source loss is structural. Follow-up: TEX0/VRAM-aware standalone companion resolution
+  pooling all pak texture entries (reuse ZoneTextureCatalog). Note: z_mainmenu.pak.ps2 itself does
+  not route as a worldzone ("Not a recognized THAW PS2 worldzone PAK" — no placement entry).
+- **C3 (front-down cutscene MDL)** 🔴 **cause confirmed** — render shows the model pitched ~90°
+  (identity-basis export; `PopulatePs2Geom` applies no PS2→glTF axis swap), 13 meshes / 555
+  triangles. The incompleteness census (parse declines) remains TODO alongside the basis fix.
+
+**Still pending from the campaign plan**: Phase 4 in-app verification (decides the B2/B5/B13-family
+"fixed by current build?" question), B7 embed-depth measurement, C3 decline census, and the C2
+GUI-parity harness. The Phase-2 throwaway harness was largely obviated: extracted-directory
+listings answered C2's candidate census and the debug CSVs answered everything the leaf-level
+harness would have measured.
+
+## Follow-ups spawned by triage
+
+1. **TOD variant-pair selection** — Day exports must drop non-additive night duplicates (B5, B3,
+   B9.2, B12, B13a/c). Largest-impact item.
+2. **Billboard blend classification** — read registers before the billboard early-return; census
+   exists in the materials CSVs (B11 glow sheets; gated one-liner candidate).
+3. **Dest-alpha OPAQUE fallback** — cones/light shafts need something better than opaque when
+   synthesis finds no mask (B11 cones, likely other glow geometry).
+4. **Viewer additive gating by metadata** — PS2 worldzone materials never match the PSX `__st[13]`
+   name convention, so even correct additive bakes composite as source-alpha in-app.
+5. **Bimodal-MASK cutoff** — 0.5 for the bimodal de-escalation branch or AREF≤1 exemption, corpus-
+   gated (B8).
+6. **Geometric quarantine refinement** for transition zones (B4).
+7. **z_testlevel level-MDL empty-batch decode** (B10).
+8. **Standalone-MDL texture pooling** — TEX0/VRAM-aware multi-source resolution (C2a/C2b).
+9. **Standalone/cutscene MDL basis** — PS2→glTF axis swap on `PopulatePs2Geom` (C3) + decline census.
+10. **PS2 skin backface culling** (C1) — gated on THUG-source cull check + corpus render-diff; plus
+    skinned-mesh draw-order extras.
+11. **THAW script-created-content visibility groups** (B9.1) — as originally scoped.
+12. **Phase 4 in-app verification pass** — settles every "fixed by current build?" item above.
+
 ## Suggested working order
 
 1. **A6 + A5** — label fix and toggle gating: small, self-contained, no format risk.
