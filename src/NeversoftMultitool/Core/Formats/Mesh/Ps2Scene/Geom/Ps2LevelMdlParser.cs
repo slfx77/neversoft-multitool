@@ -133,7 +133,9 @@ internal static class Ps2LevelMdlParser
                         bbGsCtx,
                         leaf.MaterialGroup,
                         true,
-                        billboard.Value.Descriptor));
+                        billboard.Value.Descriptor,
+                        leaf.Flags,
+                        leaf.ClassHash));
                 }
                 else
                 {
@@ -171,7 +173,9 @@ internal static class Ps2LevelMdlParser
                 var scanned = Ps2GeomMdlBatchScanner.ScanBatchForGsContext(data, batch.VifStart, batch.VifEnd);
                 var gsCtx = ResolveInheritedGsContext(inheritedGsCtx, scanned, out var updatesGsState);
                 if (updatesGsState) inheritedGsCtx = gsCtx;
-                outLeaves.Add(Ps2GeomFile.MakeLeafFromMdlMesh(batch.Vertices, gsCtx, leaf.MaterialGroup));
+                outLeaves.Add(Ps2GeomFile.MakeLeafFromMdlMesh(
+                    batch.Vertices, gsCtx, leaf.MaterialGroup,
+                    recordFlags: leaf.Flags, recordClassHash: leaf.ClassHash));
             }
         }
 

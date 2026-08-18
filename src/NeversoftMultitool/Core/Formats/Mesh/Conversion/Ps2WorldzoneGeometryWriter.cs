@@ -582,6 +582,8 @@ internal static class Ps2WorldzoneGeometryWriter
                     passIndex,
                     overlapGroup,
                     leaf.IsBillboard,
+                    leaf.Checksum,
+                    leaf.Flags,
                     leaf.DmaAlpha1,
                     leaf.DmaTest1,
                     leaf.DmaFrame1,
@@ -617,10 +619,13 @@ internal static class Ps2WorldzoneGeometryWriter
         Ps2GeomLeaf leaf,
         WorldzoneTimeOfDay timeOfDay)
     {
-        if (timeOfDay is WorldzoneTimeOfDay.All or WorldzoneTimeOfDay.Night)
+        if (timeOfDay is WorldzoneTimeOfDay.All)
             return true;
 
-        return Ps2GeomRenderSemantics.ClassifyWorldzoneRenderLayer(leaf) != Ps2GeomRenderLayer.NightOverlay;
+        var layer = Ps2GeomRenderSemantics.ClassifyWorldzoneRenderLayer(leaf);
+        return timeOfDay is WorldzoneTimeOfDay.Night
+            ? layer != Ps2GeomRenderLayer.DayOverlay
+            : layer != Ps2GeomRenderLayer.NightOverlay;
     }
 
     private static bool ShouldSkipWorldzoneLeaf(Ps2GeomLeaf leaf)

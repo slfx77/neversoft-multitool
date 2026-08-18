@@ -16,6 +16,8 @@ public readonly record struct Ps2GeomMaterialDebugRecord(
     int PassIndex,
     int OverlapGroup,
     bool IsBillboard,
+    uint LeafChecksum,
+    uint LeafFlags,
     ulong Alpha1,
     ulong Test1,
     ulong Frame1,

@@ -80,15 +80,18 @@ public static class Ps2GeomFile
         Ps2GeomGsContext gsCtx,
         uint groupChecksum = 0,
         bool isBillboard = false,
-        Ps2BillboardDescriptor? billboardDescriptor = null)
+        Ps2BillboardDescriptor? billboardDescriptor = null,
+        uint recordFlags = 0,
+        uint recordClassHash = 0)
     {
         var (min, max) = ComputeBbox(vertices);
         return new Ps2GeomLeaf
         {
-            Checksum = 0,
+            Checksum = recordClassHash,
             TextureChecksum = 0,
             GroupChecksum = groupChecksum,
             Colour = 0,
+            Flags = recordFlags,
             BoundingSphere = Vector4.Zero,
             Vertices = vertices.ToArray(),
             DmaTex0 = gsCtx.Tex0,

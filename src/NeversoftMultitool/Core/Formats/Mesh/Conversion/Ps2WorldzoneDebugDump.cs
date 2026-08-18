@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
+using QbKeyTable = NeversoftMultitool.Core.QbKey.QbKey;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -66,6 +67,7 @@ internal static class Ps2WorldzoneDebugDump
         var sb = new StringBuilder();
         sb.AppendLine(
             "mdl,leafIndex,space,drawIndex,passIndex,overlapGroup,isBillboard," +
+            "leafChecksum,leafName,leafFlags," +
             "alpha1,alphaA,alphaB,alphaC,alphaD,alphaFix," +
             "test1,ate,atst,aref,afail," +
             "fbmskAlphaByte,alphaMode,renderLayer,renderOrderKey,groupChecksum," +
@@ -83,6 +85,9 @@ internal static class Ps2WorldzoneDebugDump
                 Invariant(record.PassIndex),
                 Invariant(record.OverlapGroup),
                 record.IsBillboard ? "1" : "0",
+                record.LeafChecksum.ToString("X8", CultureInfo.InvariantCulture),
+                Csv(QbKeyTable.TryResolve(record.LeafChecksum) ?? ""),
+                record.LeafFlags.ToString("X8", CultureInfo.InvariantCulture),
                 record.Alpha1.ToString("X16", CultureInfo.InvariantCulture),
                 Invariant(alphaBlend & 0x03),
                 Invariant((alphaBlend >> 2) & 0x03),

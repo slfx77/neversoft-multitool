@@ -57,6 +57,7 @@ public sealed class Ps2WorldzoneDebugDumpTests(TestPaths paths)
         var materialLines = File.ReadAllLines(materialsCsv);
         Assert.Equal(
             "mdl,leafIndex,space,drawIndex,passIndex,overlapGroup,isBillboard," +
+            "leafChecksum,leafName,leafFlags," +
             "alpha1,alphaA,alphaB,alphaC,alphaD,alphaFix," +
             "test1,ate,atst,aref,afail," +
             "fbmskAlphaByte,alphaMode,renderLayer,renderOrderKey,groupChecksum," +

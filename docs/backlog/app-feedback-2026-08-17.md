@@ -464,8 +464,28 @@ obviated by extracted-directory listings and the debug CSVs.
 
 ## Follow-ups spawned by triage
 
-1. **TOD variant-pair selection** — Day exports must drop non-additive night duplicates (B5, B3,
-   B9.2, B12, B13a/c). Largest-impact item.
+1. ~~**TOD variant-pair selection**~~ — **RESOLVED DIFFERENTLY 2026-08-18.** The "day/night
+   duplicate pair" model was WRONG: threading the level-MDL preamble records' ClassHash + Flags
+   into the emitted leaves showed 98%+ of worldzone leaves resolve to AUTHORED node names via
+   QbKey, and the B5 "pane pairs" are `Z_DN_SkDown_Bridge_WindowsNN` nodes whose extra pass
+   carries THUG `NODEFLAG_ENVMAPPED` (0x4000) — an environment-map reflection pass over glass,
+   i.e. correct multi-pass architecture, not a night twin. The REAL TOD mechanism is authored
+   name tags: `NightOn_NN_` / `NightOff_NN_` node prefixes matching the QB corpus's
+   `TOD_NightOn_NN` / `TOD_NightOff_NN` script groups. The additive-blend NightOverlay heuristic
+   contradicted those tags in BOTH directions — it kept non-additive night content in Day
+   exports (z_sm 206 lit bulbs/panes/reflections) AND stripped always-on additive effects
+   (z_dn 178 interior ceiling/theater lights, z_lv 416 Vegas signage, steam/graffiti/water
+   splashes) plus 7 day-only `NightOff` light-shadows. **Shipped**: `ClassifyWorldzoneRenderLayer`
+   is now name-driven (NightOn→NightOverlay, NightOff→new DayOverlay, bare "night" deliberately
+   unmatched — `Z_HO_HO_stores_night_salon` is a storefront); Day drops NightOverlay, Night drops
+   DayOverlay, All keeps everything. Day drops now: z_sm/z_sm_net 277, z_ho 236, z_bh 385, z_lv 92,
+   z_dn/z_ms 0 (untagged zones — their additive content is always-on and RESTORED to Day).
+   Pinned by `Ps2WorldzoneTimeOfDayTests` (unit tags + z_sm corpus deltas 277/82). The z-fight
+   family (B2/B3/B5/B9.2/B12/B13a/c) reverts to "multi-pass stacks with CORRECT metadata" —
+   Phase 4 in-app decides. The debug CSV now carries leafChecksum/leafName/leafFlags. D3's black
+   windows are a SUBTRACTIVE window-darkening pass whose portable bake reads too strong —
+   moved to the blend-bake family (follow-up 3-adjacent). A1 groundwork: the numbered
+   TOD_NightOn/Off groups are the slider's data model.
 2. **Billboard blend classification** — read registers before the billboard early-return; census
    exists in the materials CSVs (B11 glow sheets; gated one-liner candidate).
 3. **Dest-alpha OPAQUE fallback** — cones/light shafts need something better than opaque when

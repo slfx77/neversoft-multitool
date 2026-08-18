@@ -1,3 +1,5 @@
+using QbKeyTable = NeversoftMultitool.Core.QbKey.QbKey;
+
 namespace NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 
 internal static class Ps2GeomRenderSemantics
@@ -92,15 +94,30 @@ internal static class Ps2GeomRenderSemantics
         return 0x0400;
     }
 
+    /// <summary>
+    ///     THAW's TOD system toggles NODES whose authored names carry the
+    ///     NightOn_NN / NightOff_NN markers (matching the QB corpus's
+    ///     TOD_NightOn_NN / TOD_NightOff_NN script groups), so the layer is
+    ///     read from the leaf's resolved node name. The previous
+    ///     additive-blend heuristic contradicted the authored tags in BOTH
+    ///     directions: it dropped always-on additive effects from Day exports
+    ///     (interior ceiling lights, steam, graffiti, water splashes —
+    ///     z_dn 178, z_lv 416 leaves) and kept non-additive night content
+    ///     (light bulbs, lit window panes — z_sm 206 leaves). Bare "night"
+    ///     substrings deliberately do NOT match: Z_HO_HO_stores_night_salon
+    ///     is a storefront and z_dn's nightSkybox is the permanently-night
+    ///     district's only skybox.
+    /// </summary>
     internal static Ps2GeomRenderLayer ClassifyWorldzoneRenderLayer(Ps2GeomLeaf leaf)
     {
-        var alphaBlend = (byte)(leaf.DmaAlpha1 & 0xFF);
-        var aField = alphaBlend & 0x03;
-        var bField = (alphaBlend >> 2) & 0x03;
-        var dField = (alphaBlend >> 6) & 0x03;
+        var name = QbKeyTable.TryResolve(leaf.Checksum);
+        if (name == null)
+            return Ps2GeomRenderLayer.Base;
 
-        var isAdditiveOverlay = aField == 0 && bField == 2 && dField == 1;
-        return isAdditiveOverlay && !leaf.IsBillboard
+        if (name.Contains("nightoff", StringComparison.OrdinalIgnoreCase))
+            return Ps2GeomRenderLayer.DayOverlay;
+
+        return name.Contains("nighton", StringComparison.OrdinalIgnoreCase)
             ? Ps2GeomRenderLayer.NightOverlay
             : Ps2GeomRenderLayer.Base;
     }
