@@ -85,8 +85,7 @@ internal static class TextureTabTextureOperations
         {
             TextureFileFormat.Ps2Tex => BuildPs2Entries(Ps2TextureParser.Parse(data), parent),
             TextureFileFormat.NgcTex => BuildNgcEntries(NgcTexFile.Parse(data), parent),
-            TextureFileFormat.XbxTex => BuildXboxEntries(ParseXbxTextures(data, parent.Format), parent),
-            TextureFileFormat.XbxImg => BuildXboxEntries(ParseXbxTextures(data, parent.Format), parent),
+            TextureFileFormat.XbxTex or TextureFileFormat.XbxImg => BuildXboxEntries(data, parent),
             TextureFileFormat.Pvr => BuildPvrEntries(data, parent),
             TextureFileFormat.N64Tex => BuildN64Entries(data, parent),
             _ => BuildPsxEntries(data, parent)
@@ -190,10 +189,12 @@ internal static class TextureTabTextureOperations
             : [];
     }
 
-    private static List<PsxTextureEntry> BuildXboxEntries(
-        Ps2TexResult result,
-        PsxFileEntry parent)
+    private static List<PsxTextureEntry> BuildXboxEntries(byte[] data, PsxFileEntry parent)
     {
+        // The label reflects the decoder that actually succeeded — .stex is
+        // shared between THAW PC DXT containers and PS2 zone TEX, so the
+        // extension family alone must not claim "Xbox".
+        var result = ParseXbxTextures(data, parent.Format, out var formatLabel);
         return result.Success
             ? result.Textures.Select((texture, index) => (Texture: texture, Index: index))
                 .Where(item => item.Texture.Pixels != null)
@@ -203,7 +204,7 @@ internal static class TextureTabTextureOperations
                     NameHash = item.Texture.Checksum,
                     Width = item.Texture.Width,
                     Height = item.Texture.Height,
-                    PaletteType = parent.Format == TextureFileFormat.XbxImg ? "Xbox IMG" : "Xbox TEX",
+                    PaletteType = formatLabel,
                     Index = item.Index,
                     ResolvedName = item.Texture.Name ?? QbKey.TryResolve(item.Texture.Checksum)
                 })
@@ -399,19 +400,36 @@ internal static class TextureTabTextureOperations
 
     private static Ps2TexResult ParseXbxTextures(byte[] data, TextureFileFormat format)
     {
+        return ParseXbxTextures(data, format, out _);
+    }
+
+    private static Ps2TexResult ParseXbxTextures(
+        byte[] data,
+        TextureFileFormat format,
+        out string formatLabel)
+    {
         if (format == TextureFileFormat.XbxImg)
         {
+            formatLabel = "Xbox IMG";
             var result = XbxImgFile.Parse(data);
-            return result.Success ? result : ThawImgFile.Parse(data);
+            if (result.Success)
+                return result;
+
+            formatLabel = "THAW PC IMG";
+            return ThawImgFile.Parse(data);
         }
 
+        formatLabel = "Xbox TEX";
         var texResult = XbxTexFile.Parse(data);
         if (texResult.Success)
             return texResult;
 
         var thawResult = ThawTexFile.Parse(data);
         if (thawResult.Success)
+        {
+            formatLabel = "THAW PC TEX";
             return thawResult;
+        }
 
         // THAW PS2 .stex zone textures (per-file decode; the CLI merges VRAM
         // across a zone's files, but every texture also decodes standalone).
@@ -419,7 +437,10 @@ internal static class TextureTabTextureOperations
         {
             var textures = ThawZoneTexFile.DecodeAllFromFile(data);
             if (textures.Count > 0)
+            {
+                formatLabel = "THAW Zone TEX (PS2)";
                 return new Ps2TexResult(textures);
+            }
         }
 
         return thawResult;

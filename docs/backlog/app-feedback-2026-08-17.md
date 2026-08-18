@@ -475,6 +475,57 @@ obviated by extracted-directory listings and the debug CSVs.
 11. **THAW script-created-content visibility groups** (B9.1) — as originally scoped.
 12. **Phase 4 in-app verification pass** — settles every "fixed by current build?" item above.
 
+## Addendum — 2026-08-18 reports (same campaign)
+
+New feedback filed 2026-08-18, folded into the existing follow-up items where they share a cause:
+
+### D1. ✅ `.stex` files detected as "Xbox" even on PS2 — FIXED 2026-08-18
+
+The Texture tab's child rows hardcoded "Xbox TEX"/"Xbox IMG" from the extension family; `.stex` is
+shared between THAW PC DXT containers and PS2 zone TEX, and the content dispatch
+(`ParseXbxTextures`) already knew which decoder succeeded. The label now follows the decoder:
+"THAW Zone TEX (PS2)" / "THAW PC TEX" / "Xbox TEX". (The CLI/GUI *probe* already discriminated by
+content — this was display-only.)
+
+### D2. 🔴 z_mainmenu_net.pak.ps2::0007B1B0.mdl — still heavily corrupted textures
+
+Same class as C2 (standalone-MDL texture resolution; follow-up 8). New repro:
+
+```
+# DATAP.WAD::worlds/worldzones/z_mainmenu/z_mainmenu_net.pak.ps2::0007B1B0.mdl
+--camera-eye=2712.564,894.4571,3642.82 --camera-yaw=19.55 --camera-pitch=3.26 --camera-fov=45 --camera-size=1394x1105
+```
+
+### D3. 🔴 z_sm: five issues in one shot
+
+Black overlays on windows; z-fighting overlay on the brick around those windows; opaque navy/gray
+shadows; grass not blended with its dirt/mud overlay; concrete not blended with its overlay.
+Candidate owners: the day/night duplicate family (follow-up 1) for the z-fight, the blend-class
+follow-ups (2/3/4) for the unblended overlays and opaque shadows.
+
+```
+# DATAP.WAD::worlds/worldzones/z_sm/z_sm.pak.ps2
+--camera-eye=-13219.29,903.7103,15954.25 --camera-yaw=-67.21 --camera-pitch=-40.91 --camera-fov=45 --camera-size=1686x1105
+```
+
+### D4. 🔴 z_sm: unblended pier overlays + z-fighting fence boards
+
+```
+# DATAP.WAD::worlds/worldzones/z_sm/z_sm.pak.ps2
+--camera-eye=-10749.33,124.401,19323.5 --camera-yaw=-131.15 --camera-pitch=-32.14 --camera-fov=45 --camera-size=1686x1105
+```
+
+### D5. 🔴 z_sm: texture not clipped at distance (clips correctly close up)
+
+Distance-dependent cutout failure is the B8 signature: a MASK cutoff near zero (AREF=1 → 1/128)
+passes mip/filter-averaged texels at distance while exact α=0 texels still clip close up.
+Folded into follow-up 5.
+
+```
+# DATAP.WAD::worlds/worldzones/z_sm/z_sm.pak.ps2
+--camera-eye=-11486.38,-213.607,17671.72 --camera-yaw=7.73 --camera-pitch=-20.28 --camera-fov=45 --camera-size=1686x1105
+```
+
 ## Suggested working order
 
 1. **A6 + A5** — label fix and toggle gating: small, self-contained, no format risk.
