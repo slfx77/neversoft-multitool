@@ -299,6 +299,170 @@ public sealed class Ps2WorldzoneQbObjectCorpusTests(TestPaths paths, ITestOutput
         Assert.Equal(3318, placedTriangleCount);
     }
 
+    /// <summary>
+    ///     QB props seat on the level floor. The prop models are vertically
+    ///     center-pivoted while their authored node Y sits at floor level, so
+    ///     a faithful origin-at-node placement sank chairs/tables/barricades
+    ///     by ~half their height (chairs 19-24.5 units); PCSX2 GS captures of
+    ///     the z_ho patio show the engine standing them ON the floor. The
+    ///     writer's spawn-seating lift must leave every floored instance
+    ///     resting within a small tolerance.
+    /// </summary>
+    [CorpusFact]
+    public void PopulatePs2Worldzone_ZHo_QbPropsRestOnTheLevelFloor()
+    {
+        var pakPath = paths.FindSampleFile(ThawPs2Build, "z_ho.pak.ps2");
+        Assert.SkipWhen(pakPath == null, "THAW PS2 z_ho.pak.ps2 sample not available");
+
+        var pakBytes = File.ReadAllBytes(pakPath!);
+        var ownerByMdl = Ps2WorldzoneQbObjectResolver
+            .Resolve(pakBytes, PakArchive.GetTypedEntries(pakBytes))
+            .ToDictionary(
+                static pair => pair.Key.ToString("X8", CultureInfo.InvariantCulture),
+                static pair => pair.Value.OwnerName,
+                StringComparer.OrdinalIgnoreCase);
+        var document = new ModelDocument { Name = "z_ho_seating" };
+        Ps2WorldzoneGeometryWriter.PopulatePs2Worldzone(
+            document,
+            pakBytes,
+            "z_ho.pak.ps2",
+            null,
+            null,
+            null,
+            null,
+            null,
+            WorldzoneTimeOfDay.All,
+            1f);
+
+        var floorTriangles = new List<(Vector3 A, Vector3 B, Vector3 C)>();
+        var props = new Dictionary<string, List<Vector3>>(StringComparer.Ordinal);
+        foreach (var node in document.Nodes)
+        {
+            if (node.MeshIndex is not { } meshIndex)
+                continue;
+            var mesh = document.Meshes[meshIndex];
+            if (mesh.Name.Contains("_world_leaf_", StringComparison.Ordinal))
+            {
+                foreach (var primitive in mesh.Primitives)
+                {
+                    for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
+                    {
+                        floorTriangles.Add((
+                            Vector3.Transform(primitive.Vertices[primitive.Indices[i]].Position, node.Transform),
+                            Vector3.Transform(primitive.Vertices[primitive.Indices[i + 1]].Position, node.Transform),
+                            Vector3.Transform(primitive.Vertices[primitive.Indices[i + 2]].Position, node.Transform)));
+                    }
+                }
+
+                continue;
+            }
+
+            if (!mesh.Name.Contains("_qb_leaf_", StringComparison.Ordinal))
+                continue;
+
+            if (!props.TryGetValue(node.Name, out var points))
+            {
+                points = [];
+                props[node.Name] = points;
+            }
+
+            foreach (var primitive in mesh.Primitives)
+            {
+                foreach (var vertex in primitive.Vertices)
+                    points.Add(Vector3.Transform(vertex.Position, node.Transform));
+            }
+        }
+
+        Assert.NotEmpty(floorTriangles);
+        Assert.True(props.Count >= 60, $"expected the z_ho prop population, found {props.Count}");
+
+        var measured = 0;
+        foreach (var (name, points) in props)
+        {
+            var baseY = points.Min(static p => p.Y);
+            var topY = points.Max(static p => p.Y);
+            var centerY = (baseY + topY) * 0.5f;
+            var basePoints = points.Where(p => p.Y <= baseY + 5f).ToList();
+            var sampleX = basePoints.Average(static p => p.X);
+            var sampleZ = basePoints.Average(static p => p.Z);
+
+            // Same minimal-correction rule as the writer: the supporting
+            // surface is the first floor at-or-above the base, no higher than
+            // the spawn height (vertical center). The tolerance absorbs the
+            // patio's ~2.7-unit terrace steps, which a point sample cannot
+            // always attribute to the same step the writer's sample hit —
+            // the pre-fix defect was 19-38 units.
+            float? floorY = null;
+            foreach (var (a, b, c) in floorTriangles)
+            {
+                if (!TryGetTrianglePlaneY(a, b, c, sampleX, sampleZ, out var y))
+                    continue;
+                if (y > centerY + 1f || y < baseY - 6f)
+                    continue;
+                if (floorY == null || y < floorY.Value)
+                    floorY = y;
+            }
+
+            if (floorY is not { } floor)
+                continue;
+
+            measured++;
+            var embed = floor - baseY;
+            // The patio furniture (the reported defect: pre-fix embeds of
+            // 19-24.5 units, GS-capture-proven to rest on the floor in-game)
+            // gates strictly. The strict bound is 8, not ~0, because seating
+            // is a Y-only lift to the lowest sampled support and the patio's
+            // ~2.7-unit terrace steps add sample noise. Slope-sitting props
+            // take a loose regression bound instead: a rotated barricade on
+            // the road bank grounds its downhill corner and reads up to ~14
+            // embedded at the uphill end (the engine's collision rest TILTS,
+            // which a translation cannot express), and the wide plants span
+            // ~113 units of terraced hillside where two legitimate samples
+            // land on different terraces. Pre-fix those were 19-38 and 9-52.
+            var marker = name.IndexOf("_qb_leaf_", StringComparison.Ordinal);
+            var owner = marker > 0 && ownerByMdl.TryGetValue(name[..marker], out var ownerName)
+                ? ownerName
+                : "?";
+            var bound = owner.StartsWith("chair_", StringComparison.OrdinalIgnoreCase)
+                        || owner.StartsWith("table_", StringComparison.OrdinalIgnoreCase)
+                ? 8f
+                : 50f;
+            Assert.True(
+                Math.Abs(embed) <= bound,
+                $"{name} ({owner}): base {baseY:0.###} vs floor {floor:0.###} (embed {embed:0.###})");
+        }
+
+        Assert.True(measured >= 50, $"expected most props to have a measurable floor, measured {measured}");
+    }
+
+    private static bool TryGetTrianglePlaneY(
+        Vector3 a, Vector3 b, Vector3 c, float x, float z, out float y)
+    {
+        y = 0f;
+        var v0 = new Vector2(c.X - a.X, c.Z - a.Z);
+        var v1 = new Vector2(b.X - a.X, b.Z - a.Z);
+        var v2 = new Vector2(x - a.X, z - a.Z);
+
+        var dot00 = Vector2.Dot(v0, v0);
+        var dot01 = Vector2.Dot(v0, v1);
+        var dot02 = Vector2.Dot(v0, v2);
+        var dot11 = Vector2.Dot(v1, v1);
+        var dot12 = Vector2.Dot(v1, v2);
+
+        var denom = dot00 * dot11 - dot01 * dot01;
+        if (Math.Abs(denom) < 1e-6f)
+            return false;
+
+        var inv = 1f / denom;
+        var u = (dot11 * dot02 - dot01 * dot12) * inv;
+        var v = (dot00 * dot12 - dot01 * dot02) * inv;
+        if (u < -1e-4f || v < -1e-4f || u + v > 1f + 1e-4f)
+            return false;
+
+        y = a.Y + u * (c.Y - a.Y) + v * (b.Y - a.Y);
+        return true;
+    }
+
     private static int CountRenderableStripTriangles(Ps2GeomLeaf leaf)
     {
         var mesh = new ModelMesh { Name = "triangle_count" };

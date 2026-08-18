@@ -366,21 +366,23 @@ Per-item verdicts:
   Follow-up: TOD variant-pair selection beyond the additive-only NightOverlay rule.
 - **B6 (misaligned windows)** 🔶 — window MASK over wall OPAQUE at +0.359 (not coplanar);
   blend-appearance question for Phase 4.
-- **B7 (sunken chairs)** 🔴 **cause confirmed 2026-08-17 (second pass)** — measured every QB
-  placement in z_ho against a floor query over the exported level mesh
-  (`ThawTriageProbeTests.B7_ZHo_QbPlacedProps_EmbedDepthAgainstTheLevelFloor`, report
-  `b7_z_ho_embed.csv`): all 39 chairs embed 19.0–24.5 units, all 13 tables 13.0–18.4, all 8
-  barricades 19.1–37.9 — while two plants seat within 0.1 of the floor. All four prop models are
-  **vertically CENTER-pivoted** (chair ±23.06, table ±17.19, barricade ±28.8, plant ±56.7) and the
-  conversion places each model origin exactly at the authored node Y (verified faithful to the QB
-  data). The authored node heights are INCONSISTENT relative to the floor — plants sit a
-  half-height above it (and seat correctly), chairs/tables/barricades sit AT floor level (and sink
-  by ~half their height). So the engine evidently normalizes seating at spawn (the PSX
-  `CPowerUp`/ground-query lesson again); the exporter needs the equivalent bottom-anchor/floor-seat
-  for QB props. The **Y↔Z basis hypothesis is REFUTED** — XZ placement is correct (the probe hits
-  chairs at the reported pose). Decisive oracle for the fix: the GameCube z_ho scene's baked world
-  placements, or the THAW gameobject spawn path (the THUG source has no gameobject ground-snap —
-  only skater physics — so this is THAW-side).
+- **B7 (sunken chairs)** ✅ **FIXED 2026-08-17** — cause (second-pass measurement): all four z_ho
+  prop models are **vertically CENTER-pivoted** (chair ±23.06, table ±17.19, barricade ±28.8,
+  plant ±56.7) and the conversion placed each model origin exactly at the authored node Y
+  (faithful to the QB data) — but chairs/tables/barricades author their node AT floor level, so
+  they sank by ~half their height (39 chairs embedded 19.0–24.5 of a 46-unit model). The Y↔Z
+  basis hypothesis was REFUTED (XZ placement correct). **Ground truth: two user-supplied PCSX2 GS
+  captures of the patio** (`TestOutput\triage\gsdump\...224017/224838.render.png`), replayed
+  through the in-repo GS renderer — the engine stands the chairs ON the floor, proving spawn-time
+  seating. Fix: `Ps2WorldzoneGeometryWriter.SeatQbPlacementsOnFloor` — QB props now emit AFTER the
+  level geometry and each instance takes the smallest non-negative lift that rests its base on a
+  supporting floor sampled at its bottom centre + four bottom corners, bounded by the spawn height
+  (the vertical centre) and capped at half the model height plus slack; fail-open (no floor / cap
+  exceeded keeps the authored Y). Post-fix: 63/67 z_ho props rest within 6 units (mean |embed|
+  2.3, from 19–38); pinned by `PopulatePs2Worldzone_ZHo_QbPropsRestOnTheLevelFloor` (chairs/tables
+  strict ≤8; slope-sitting barricades and terraced-hillside plants take a loose bound — a Y-only
+  lift grounds a slope prop's downhill corner where the engine's collision rest would TILT, up to
+  ~14 at the uphill end). Rotation-fitting on slopes is deliberately out of scope.
 - **B8 (chainlink missing alpha)** 🔴 **cause confirmed, fully evidenced** — fence leaf 3538
   (z_ho): engine state is standard source-alpha BLEND; texture 711D88D6's cutout is INTACT (84.6%
   of texels below half-alpha, holes at α≈2 — verified from the debug texture dump); the bimodal
@@ -466,8 +468,8 @@ obviated by extracted-directory listings and the debug CSVs.
 9. **Cutscene-scene assembly** (C3) — assemble a cutscene pak's full MDL set into one scene with
    placements read from its companion ske/ska/QB data (a blanket axis swap has no per-file
    evidence; the MDLs carry no bone preamble).
-9b. **QB prop seating** (B7) — bottom-anchor/floor-seat center-pivoted QB props; oracle = GameCube
-   scene baked placements or the THAW gameobject spawn path.
+9b. ~~**QB prop seating** (B7)~~ — SHIPPED 2026-08-17 (`SeatQbPlacementsOnFloor`, GS-capture
+   ground truth); the only residual is slope TILT, which a translation cannot express.
 10. **PS2 skin backface culling** (C1) — gated on THUG-source cull check + corpus render-diff; plus
     skinned-mesh draw-order extras.
 11. **THAW script-created-content visibility groups** (B9.1) — as originally scoped.

@@ -64,6 +64,12 @@ internal static class Ps2WorldzoneGeometryWriter
                 coordinateScale));
 
             var materialCache = new Dictionary<Ps2WorldzoneMaterialWriter.Ps2WorldzoneMaterialKey, int>();
+            // QB-placed props are emitted AFTER every level MDL so the level
+            // floor exists in the document for the spawn-seating query below.
+            var qbWork = new List<(string MdlName, Ps2GeomScene Scene,
+                Ps2Tex0ChecksumResolver? Tex0Resolver,
+                Func<ulong, uint, Ps2GeomTextureResolution>? DebugTex0Resolver,
+                List<(Vector3 Position, Quaternion Rotation)> Placements)>();
             foreach (var mdlEntry in mdlEntries)
             {
                 var entryName = $"{mdlEntry.Offset:X8}";
@@ -114,20 +120,7 @@ internal static class Ps2WorldzoneGeometryWriter
                         var qbPlacements = qbResource.Instances
                             .Select(static instance => (instance.Position, instance.Rotation))
                             .ToList();
-                        PopulatePs2WorldzoneLeaves(
-                            document,
-                            geomScene,
-                            mdlName,
-                            qbPlacements,
-                            leaf => ShouldIncludeWorldzoneLeaf(leaf, timeOfDay),
-                            materialCache,
-                            textureProvider,
-                            texaTextureProvider,
-                            mdlTex0Resolver,
-                            coordinateScale,
-                            "qb",
-                            debugCollector,
-                            mdlDebugTex0Resolver);
+                        qbWork.Add((mdlName, geomScene, mdlTex0Resolver, mdlDebugTex0Resolver, qbPlacements));
                     }
                     else
                     {
@@ -189,12 +182,190 @@ internal static class Ps2WorldzoneGeometryWriter
                 }
             }
 
+            if (qbWork.Count > 0)
+            {
+                var floorTriangles = CollectWorldFloorTriangles(document);
+                foreach (var work in qbWork)
+                {
+                    PopulatePs2WorldzoneLeaves(
+                        document,
+                        work.Scene,
+                        work.MdlName,
+                        SeatQbPlacementsOnFloor(work.Scene, work.Placements, floorTriangles),
+                        leaf => ShouldIncludeWorldzoneLeaf(leaf, timeOfDay),
+                        materialCache,
+                        textureProvider,
+                        texaTextureProvider,
+                        work.Tex0Resolver,
+                        coordinateScale,
+                        "qb",
+                        debugCollector,
+                        work.DebugTex0Resolver);
+                }
+            }
+
             ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
         }
         finally
         {
             ModelDocumentGeometryAdapter.ActivePs2WorldzoneLighting = null;
         }
+    }
+
+    /// <summary>
+    ///     Maximum distance the seating query searches for a supporting floor
+    ///     around a prop's base, so a prop on a balcony never seats onto the
+    ///     street below.
+    /// </summary>
+    private const float SeatSearchBand = 200f;
+
+    /// <summary>
+    ///     Rest each QB prop's bounding-box bottom on the level floor at its
+    ///     own footprint. The engine seats these game objects at spawn —
+    ///     PCSX2 GS captures show the z_ho patio chairs standing ON the floor
+    ///     while their authored node Y sits AT floor level and the prop
+    ///     models are vertically center-pivoted, which sinks a faithful
+    ///     origin-at-node placement by half the model height (chairs 19-24.5
+    ///     units of a 46-unit model; plants author a half-height up and
+    ///     already rest). Lift-only and fail-open: no floor found, or a lift
+    ///     beyond half the model height plus slack, keeps the authored Y.
+    /// </summary>
+    private static List<(Vector3 Position, Quaternion Rotation)> SeatQbPlacementsOnFloor(
+        Ps2GeomScene scene,
+        List<(Vector3 Position, Quaternion Rotation)> placements,
+        IReadOnlyList<(Vector3 A, Vector3 B, Vector3 C)> floorTriangles)
+    {
+        if (floorTriangles.Count == 0 || placements.Count == 0)
+            return placements;
+
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (var leaf in scene.Leaves)
+        {
+            var (leafMin, leafMax) = ComputeBbox(leaf.Vertices);
+            min = Vector3.Min(min, leafMin);
+            max = Vector3.Max(max, leafMax);
+        }
+
+        if (min.X > max.X)
+            return placements;
+
+        Span<Vector3> corners =
+        [
+            new(min.X, min.Y, min.Z), new(max.X, min.Y, min.Z),
+            new(min.X, min.Y, max.Z), new(max.X, min.Y, max.Z),
+            new(min.X, max.Y, min.Z), new(max.X, max.Y, min.Z),
+            new(min.X, max.Y, max.Z), new(max.X, max.Y, max.Z)
+        ];
+        var bottomCenter = new Vector3((min.X + max.X) * 0.5f, min.Y, (min.Z + max.Z) * 0.5f);
+        var maxLift = (max.Y - min.Y) * 0.5f + 10f;
+
+        var seated = new List<(Vector3 Position, Quaternion Rotation)>(placements.Count);
+        foreach (var (position, rotation) in placements)
+        {
+            var baseY = float.MaxValue;
+            var topY = float.MinValue;
+            foreach (var corner in corners)
+            {
+                var cornerY = Vector3.Transform(corner, rotation).Y + position.Y;
+                baseY = Math.Min(baseY, cornerY);
+                topY = Math.Max(topY, cornerY);
+            }
+
+            var centerY = (baseY + topY) * 0.5f;
+
+            // Minimal-correction seating: among floors between the base and
+            // the spawn height (the vertical center — these props are
+            // center-pivoted, so that is the authored node height), take the
+            // FIRST supporting surface at-or-above the base. Highest-below-X
+            // rules climb terraced gardens; nearest-by-distance picks the
+            // terrain UNDER a sloped road. The floor is sampled at the
+            // bottom centre AND the four bottom corners (a rotated prop's
+            // centre can hang over a curb gap while its feet stand on the
+            // road). A prop already resting (or floating) is left alone.
+            Span<Vector3> samples =
+            [
+                Vector3.Transform(bottomCenter, rotation) + position,
+                Vector3.Transform(corners[0], rotation) + position,
+                Vector3.Transform(corners[1], rotation) + position,
+                Vector3.Transform(corners[2], rotation) + position,
+                Vector3.Transform(corners[3], rotation) + position
+            ];
+            float? bestLift = null;
+            foreach (var (a, b, c) in floorTriangles)
+            {
+                foreach (var sample in samples)
+                {
+                    if (!TryGetTrianglePlaneY(a, b, c, sample.X, sample.Z, out var y))
+                        continue;
+                    if (y > centerY + 1f || y < baseY - 1f)
+                        continue;
+                    var candidate = y - baseY;
+                    if (bestLift == null || candidate < bestLift.Value)
+                        bestLift = candidate;
+                }
+            }
+
+            seated.Add(bestLift is { } lift && lift > 0f && lift <= maxLift
+                ? (position with { Y = position.Y + lift }, rotation)
+                : (position, rotation));
+        }
+
+        return seated;
+    }
+
+    private static List<(Vector3 A, Vector3 B, Vector3 C)> CollectWorldFloorTriangles(
+        ModelDocument document)
+    {
+        var triangles = new List<(Vector3 A, Vector3 B, Vector3 C)>();
+        foreach (var node in document.Nodes)
+        {
+            if (node.MeshIndex is not { } meshIndex)
+                continue;
+            var mesh = document.Meshes[meshIndex];
+            if (!mesh.Name.Contains("_world_leaf_", StringComparison.Ordinal))
+                continue;
+            foreach (var primitive in mesh.Primitives)
+            {
+                for (var i = 0; i + 2 < primitive.Indices.Length; i += 3)
+                {
+                    triangles.Add((
+                        Vector3.Transform(primitive.Vertices[primitive.Indices[i]].Position, node.Transform),
+                        Vector3.Transform(primitive.Vertices[primitive.Indices[i + 1]].Position, node.Transform),
+                        Vector3.Transform(primitive.Vertices[primitive.Indices[i + 2]].Position, node.Transform)));
+                }
+            }
+        }
+
+        return triangles;
+    }
+
+    private static bool TryGetTrianglePlaneY(
+        Vector3 a, Vector3 b, Vector3 c, float x, float z, out float y)
+    {
+        y = 0f;
+        var v0 = new Vector2(c.X - a.X, c.Z - a.Z);
+        var v1 = new Vector2(b.X - a.X, b.Z - a.Z);
+        var v2 = new Vector2(x - a.X, z - a.Z);
+
+        var dot00 = Vector2.Dot(v0, v0);
+        var dot01 = Vector2.Dot(v0, v1);
+        var dot02 = Vector2.Dot(v0, v2);
+        var dot11 = Vector2.Dot(v1, v1);
+        var dot12 = Vector2.Dot(v1, v2);
+
+        var denom = dot00 * dot11 - dot01 * dot01;
+        if (Math.Abs(denom) < 1e-6f)
+            return false;
+
+        var inv = 1f / denom;
+        var u = (dot11 * dot02 - dot01 * dot12) * inv;
+        var v = (dot00 * dot12 - dot01 * dot02) * inv;
+        if (u < -1e-4f || v < -1e-4f || u + v > 1f + 1e-4f)
+            return false;
+
+        y = a.Y + u * (c.Y - a.Y) + v * (b.Y - a.Y);
+        return true;
     }
 
     internal static void PopulatePs2WorldzoneLeaves(
