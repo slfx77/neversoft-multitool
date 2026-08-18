@@ -383,7 +383,19 @@ Per-item verdicts:
   strict ≤8; slope-sitting barricades and terraced-hillside plants take a loose bound — a Y-only
   lift grounds a slope prop's downhill corner where the engine's collision rest would TILT, up to
   ~14 at the uphill end). Rotation-fitting on slopes is deliberately out of scope.
-- **B8 (chainlink missing alpha)** 🔴 **cause confirmed, fully evidenced** — fence leaf 3538
+- **B8 (chainlink missing alpha)** ✅ **FIXED 2026-08-18** (with D5) — the bimodal de-escalation
+  now takes its MASK cutoff from the texture (0.5) instead of the engine-default register:
+  `ApplyPs2GeomMaterial` floors the cutoff to 0.5 when the classification came from the bimodal
+  branch AND the test register carries no deliberate threshold
+  (`Ps2GeomRenderSemantics.HasDeliberateAlphaTestCutoff`: GEQUAL needs AREF ≥ 2, GREATER ≥ 1);
+  a programmed AREF stays authored, and register-only MASKs are untouched (the 884d018 shape).
+  Corpus gate: z_ho + z_sm Day A/B — ZERO alpha-mode changes; every cutoff change is exactly
+  0.0078125→0.5 (110 + 120 materials, incl. the fence's two defective 711D88D6 materials — its
+  third had an authored AREF=3 that already cut correctly). The in-app symptom is the FILTERED
+  sampling case (mip-averaged hole alpha passes 1/128 at distance — also D5's
+  clips-close/solid-far report); the headless nearest-sampling renderer can't show it, so final
+  confirmation is the Phase-4 in-app pass. Pinned by `Ps2MaterialWriterBimodalCutoffTests`.
+  Original evidence — fence leaf 3538
   (z_ho): engine state is standard source-alpha BLEND; texture 711D88D6's cutout is INTACT (84.6%
   of texels below half-alpha, holes at α≈2 — verified from the debug texture dump); the bimodal
   de-escalation (`Ps2MaterialWriter.ClassifyPs2GeomEffectiveAlphaMode` :204-210) converts BLEND→MASK,
@@ -460,8 +472,8 @@ obviated by extracted-directory listings and the debug CSVs.
    synthesis finds no mask (B11 cones, likely other glow geometry).
 4. **Viewer additive gating by metadata** — PS2 worldzone materials never match the PSX `__st[13]`
    name convention, so even correct additive bakes composite as source-alpha in-app.
-5. **Bimodal-MASK cutoff** — 0.5 for the bimodal de-escalation branch or AREF≤1 exemption, corpus-
-   gated (B8).
+5. ~~**Bimodal-MASK cutoff**~~ — SHIPPED 2026-08-18 (B8 + D5): texture-based 0.5 floor on the
+   bimodal branch, deliberate AREF preserved, corpus-gated (see B8's entry).
 6. **Geometric quarantine refinement** for transition zones (B4).
 7. **z_testlevel level-MDL empty-batch decode** (B10).
 8. **Standalone-MDL texture pooling** — TEX0/VRAM-aware multi-source resolution (C2a/C2b).
@@ -515,11 +527,12 @@ follow-ups (2/3/4) for the unblended overlays and opaque shadows.
 --camera-eye=-10749.33,124.401,19323.5 --camera-yaw=-131.15 --camera-pitch=-32.14 --camera-fov=45 --camera-size=1686x1105
 ```
 
-### D5. 🔴 z_sm: texture not clipped at distance (clips correctly close up)
+### D5. ✅ z_sm: texture not clipped at distance (clips correctly close up) — FIXED 2026-08-18 with B8
 
 Distance-dependent cutout failure is the B8 signature: a MASK cutoff near zero (AREF=1 → 1/128)
 passes mip/filter-averaged texels at distance while exact α=0 texels still clip close up.
-Folded into follow-up 5.
+Fixed by the bimodal-cutoff rule (see B8's triage entry): z_sm's Day export moves 120 materials
+from cutoff 1/128 to 0.5 with zero mode changes. In-app confirmation rides the Phase-4 pass.
 
 ```
 # DATAP.WAD::worlds/worldzones/z_sm/z_sm.pak.ps2

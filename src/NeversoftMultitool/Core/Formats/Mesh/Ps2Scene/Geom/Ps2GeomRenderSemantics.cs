@@ -208,6 +208,28 @@ internal static class Ps2GeomRenderSemantics
         return afail is 0 or 2;
     }
 
+    /// <summary>
+    ///     True when the alpha-test register carries a DELIBERATE cutout
+    ///     threshold, as opposed to the engine's unconditional default
+    ///     (ATE=1/AGEQUAL/AREF&lt;=1, which kills only a == 0). The default
+    ///     still counts as a mask for classification, but its computed cutoff
+    ///     (1/128) is not an authored threshold.
+    /// </summary>
+    internal static bool HasDeliberateAlphaTestCutoff(ulong test)
+    {
+        if (!UsesAlphaTestMask(test))
+            return false;
+
+        var atst = (int)((test >> 1) & 0x7);
+        var aref = (int)((test >> 4) & 0xFF);
+        return atst switch
+        {
+            5 => aref >= 2, // GEQUAL: AREF <= 1 kills only a == 0.
+            6 => aref >= 1, // GREATER: AREF 0 kills only a == 0.
+            _ => true
+        };
+    }
+
     internal static float ComputeAlphaMaskCutoff(ulong test)
     {
         var aref = (int)((test >> 4) & 0xFF);

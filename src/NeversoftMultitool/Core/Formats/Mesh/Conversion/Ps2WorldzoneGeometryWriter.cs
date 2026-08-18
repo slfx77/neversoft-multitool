@@ -213,13 +213,6 @@ internal static class Ps2WorldzoneGeometryWriter
     }
 
     /// <summary>
-    ///     Maximum distance the seating query searches for a supporting floor
-    ///     around a prop's base, so a prop on a balcony never seats onto the
-    ///     street below.
-    /// </summary>
-    private const float SeatSearchBand = 200f;
-
-    /// <summary>
     ///     Rest each QB prop's bounding-box bottom on the level floor at its
     ///     own footprint. The engine seats these game objects at spawn —
     ///     PCSX2 GS captures show the z_ho patio chairs standing ON the floor

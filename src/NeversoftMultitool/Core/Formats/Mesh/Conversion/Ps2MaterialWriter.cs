@@ -156,17 +156,38 @@ internal static class Ps2MaterialWriter
             }
         }
 
-        var alphaMode = alphaModeOverride ?? ClassifyPs2GeomEffectiveAlphaMode(leaf, pngBytes, useTextureAlphaMode);
+        var bimodalTextureMask = false;
+        var alphaMode = alphaModeOverride
+                        ?? ClassifyPs2GeomEffectiveAlphaMode(leaf, pngBytes, useTextureAlphaMode,
+                            out bimodalTextureMask);
         if (alphaMode == "MASK")
         {
+            // The worldzone writer pre-computes the mode and passes it as the
+            // override, which skips classification here — re-derive the
+            // bimodal flag so the cutoff rule below still sees it.
+            if (alphaModeOverride != null)
+                ClassifyPs2GeomEffectiveAlphaMode(leaf, pngBytes, useTextureAlphaMode, out bimodalTextureMask);
+
             renderMaterial.AlphaMode = ModelAlphaMode.Mask;
             // Guard: MASK can be reached via texture classification while the
             // GS test register only holds the engine's always-pass default —
             // a computed cutoff of 0 would make the material fully opaque.
-            renderMaterial.AlphaCutoff =
+            var cutoff =
                 useTextureAlphaMode || !Ps2GeomRenderSemantics.UsesAlphaTestMask(leaf.DmaTest1)
                     ? 0.5f
                     : Ps2GeomRenderSemantics.ComputeAlphaMaskCutoff(leaf.DmaTest1);
+            // A bimodal de-escalation's cutout lives in the TEXTURE, not the
+            // register: the engine draws these as source-alpha BLEND, and its
+            // always-pass AREF=1 computes 1/128 ≈ 0.008, which the α≈2 hole
+            // texels pass — the z_ho chainlink rendered solid (B8). A
+            // deliberately programmed threshold (AREF >= 2) stays authored.
+            if (bimodalTextureMask &&
+                !Ps2GeomRenderSemantics.HasDeliberateAlphaTestCutoff(leaf.DmaTest1))
+            {
+                cutoff = 0.5f;
+            }
+
+            renderMaterial.AlphaCutoff = cutoff;
             return;
         }
 
@@ -182,6 +203,16 @@ internal static class Ps2MaterialWriter
         byte[]? pngBytes,
         bool useTextureAlphaMode)
     {
+        return ClassifyPs2GeomEffectiveAlphaMode(leaf, pngBytes, useTextureAlphaMode, out _);
+    }
+
+    internal static string ClassifyPs2GeomEffectiveAlphaMode(
+        Ps2GeomLeaf leaf,
+        byte[]? pngBytes,
+        bool useTextureAlphaMode,
+        out bool bimodalTextureMask)
+    {
+        bimodalTextureMask = false;
         if (useTextureAlphaMode && pngBytes != null)
         {
             return Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes);
@@ -206,6 +237,7 @@ internal static class Ps2MaterialWriter
             if (pngBytes != null &&
                 Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes) == "MASK")
             {
+                bimodalTextureMask = true;
                 return "MASK";
             }
         }
