@@ -39,14 +39,16 @@ public sealed class ThawStandaloneMdlCompanionTests(TestPaths paths)
         Assert.True(ThawZoneTexFile.IsThawZoneTex(companion),
             "companion should be the zone TEX dictionary");
 
-        // Decode routing: the provider's pixels must be the zone decoder's,
-        // not the scene-TEX misparse.
+        // Decode routing: with the pak-MDL context flag the provider's pixels
+        // must be the zone decoder's, not the scene-TEX misparse. (Bytes alone
+        // cannot decide — both v6 parsers false-accept the other's layout, so
+        // ParsePs2Scene passes preferZoneTex for the PakMdl sub-format.)
         var reference = ThawZoneTexFile.DecodeAllFromFile(companion!)
             .Where(static texture => texture.Pixels != null)
             .ToDictionary(static texture => texture.Checksum);
         Assert.Equal(84, reference.Count);
 
-        var provider = MeshCompanionResolver.BuildPs2TextureProvider(companion);
+        var provider = MeshCompanionResolver.BuildPs2TextureProvider(companion, preferZoneTex: true);
         Assert.NotNull(provider);
         foreach (var (checksum, texture) in reference)
         {

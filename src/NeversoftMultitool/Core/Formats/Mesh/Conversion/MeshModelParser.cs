@@ -885,7 +885,12 @@ public sealed class MeshModelParser : IModelParser
             Ps2TexSubdirs,
             request.TexturePath,
             true);
-        var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(companionTexData);
+        // Offset-named pak MDLs ride zone dictionaries; skins/scenes ride the
+        // DMA-REF-verified scene decoder (both v6 TEX parsers false-accept the
+        // other's layout, so the sub-format decides — see BuildPs2TextureProvider).
+        var textureProvider = MeshCompanionResolver.BuildPs2TextureProvider(
+            companionTexData,
+            request.Ps2SubFormat == Ps2SceneSubFormat.PakMdl);
         var tex0Resolver = BuildPs2GeomTex0Resolver(companionTexData);
 
         if (request.Ps2SubFormat == Ps2SceneSubFormat.PakMdl)

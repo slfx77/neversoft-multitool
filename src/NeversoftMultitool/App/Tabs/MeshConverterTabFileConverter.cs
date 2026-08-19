@@ -251,26 +251,4 @@ internal static class MeshConverterTabFileConverter
     private static MeshNamedTextureResolver? BuildRwTxdTextureProvider(MeshFileEntry entry)
         => MeshCompanionResolver.BuildRwTxdTextureProvider(entry.Source, entry.FileName);
 
-    internal static MeshChecksumTextureResolver? BuildPs2TextureProvider(byte[]? textureBytes)
-    {
-        if (textureBytes == null) return null;
-
-        var texResult = Ps2TexFile.Parse(textureBytes);
-        if (!texResult.Success)
-            texResult = ThawSceneTexFile.Parse(textureBytes);
-        if (!texResult.Success)
-            return null;
-
-        var cache = new Dictionary<uint, Ps2Texture>();
-        foreach (var tex in texResult.Textures)
-            if (tex.Pixels != null)
-                cache.TryAdd(tex.Checksum, tex);
-
-        return checksum =>
-        {
-            if (!cache.TryGetValue(checksum, out var tex) || tex.Pixels == null)
-                return null;
-            return ImageWriter.WritePngToMemory(tex.Width, tex.Height, tex.Pixels);
-        };
-    }
 }
