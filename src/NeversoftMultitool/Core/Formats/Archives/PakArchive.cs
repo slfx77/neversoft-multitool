@@ -192,7 +192,42 @@ public static class PakArchive
             }
         }
 
+        DisambiguateCollidingNames(entries);
         return entries;
+    }
+
+    /// <summary>
+    ///     Mission worldzone paks stamp ONE shared name CRC (0x6F980DC3 → "mission")
+    ///     on every unnamed entry, so generated names collide and extraction silently
+    ///     overwrites siblings (m_zhogaps13_gameplay loses 13 of 22 unnamed entries).
+    ///     Colliding (directory, name) groups get their pak offset spliced in before
+    ///     the first extension dot — EVERY member, so the result is independent of
+    ///     enumeration order and identical across GetFileList/GetTypedEntries. Unique
+    ///     names (all zone paks — their unnamed entries are offset-named already)
+    ///     are untouched.
+    /// </summary>
+    private static void DisambiguateCollidingNames(List<ArchiveEntry> entries)
+    {
+        foreach (var group in entries
+                     .GroupBy(static e => $"{e.Directory}/{e.Name}", StringComparer.OrdinalIgnoreCase))
+        {
+            var members = group.ToList();
+            if (members.Count < 2)
+                continue;
+
+            var ordinal = 0;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in members)
+            {
+                var dot = entry.Name.IndexOf('.');
+                var stem = dot >= 0 ? entry.Name[..dot] : entry.Name;
+                var extension = dot >= 0 ? entry.Name[dot..] : "";
+                var candidate = $"{stem}_{entry.Offset:X8}{extension}";
+                while (!seen.Add(candidate))
+                    candidate = $"{stem}_{entry.Offset:X8}_{ordinal++}{extension}";
+                entry.Name = candidate;
+            }
+        }
     }
 
     /// <summary>
@@ -225,6 +260,8 @@ public static class PakArchive
             ParseTypedEntries(data, tableStart, sentinelPos, hasPab, bigEndian, typedEntries);
         }
 
+        // Same collision rule as GetFileList so both enumerations agree on names.
+        DisambiguateCollidingNames(typedEntries.Select(static t => t.Entry).ToList());
         return typedEntries;
     }
 
