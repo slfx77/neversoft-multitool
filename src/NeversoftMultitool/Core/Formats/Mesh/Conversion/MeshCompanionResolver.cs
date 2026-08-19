@@ -585,10 +585,16 @@ internal static class MeshCompanionResolver
         if (textureBytes == null) return null;
 
         var texResult = Ps2TexFile.Parse(textureBytes);
-        if (!texResult.Success)
-            texResult = ThawSceneTexFile.Parse(textureBytes);
+        // Zone TEX before the v6 scene-TEX scan: both are version-6 headers,
+        // but the zone family's record layout differs from the skin-companion
+        // layout ThawSceneTexFile was built for — it "succeeded" on
+        // z_mainmenu_net's zone dictionary and scrambled most of its 84
+        // textures (C2/D2), while the zone decoder is exact. IsThawZoneTex
+        // gates on the zone record table, which skin companions do not have.
         if (!texResult.Success && ThawZoneTexFile.IsThawZoneTex(textureBytes))
             texResult = new Ps2TexResult(ThawZoneTexFile.DecodeAllFromFile(textureBytes));
+        if (!texResult.Success)
+            texResult = ThawSceneTexFile.Parse(textureBytes);
         if (!texResult.Success)
             return null;
 

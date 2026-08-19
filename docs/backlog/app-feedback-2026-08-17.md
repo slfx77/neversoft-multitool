@@ -506,7 +506,17 @@ obviated by extracted-directory listings and the debug CSVs.
    bimodal branch, deliberate AREF preserved, corpus-gated (see B8's entry).
 6. **Geometric quarantine refinement** for transition zones (B4).
 7. **z_testlevel level-MDL empty-batch decode** (B10).
-8. **Standalone-MDL texture pooling** — TEX0/VRAM-aware multi-source resolution (C2a/C2b).
+8. ~~**Standalone-MDL texture pooling**~~ — **RESOLVED DIFFERENTLY 2026-08-19** (C2a/C2b/D2 all
+   fixed): the multi-source-loss theory was wrong — each backdrop/park MDL has exactly ONE
+   correct nearest-preceding texture dictionary (z_mainmenu's 0012A000.tex sits directly before
+   001A4670.mdl; the dozen .img entries belong to other content). The real bug was DECODE
+   ROUTING in `MeshCompanionResolver.BuildPs2TextureProvider`: the zone-family v6 TEX shares
+   its version-6 header with the skin-companion scene TEX, and `ThawSceneTexFile.Parse`
+   "succeeded" first, scrambling most of the 84 backdrop textures. Zone dictionaries
+   (`IsThawZoneTex`) now route through the exact zone decoder before the scene-TEX fallback.
+   All three reported MDLs render clean at their poses (renders in `TestOutput/c2/`); pinned by
+   `ThawStandaloneMdlCompanionTests` (in-archive companion selection + decode-routing identity);
+   215-test THAW corpus sweep green.
 9. **Cutscene-scene assembly** (C3) — assemble a cutscene pak's full MDL set into one scene with
    placements read from its companion ske/ska/QB data (a blanket axis swap has no per-file
    evidence; the MDLs carry no bone preamble).
@@ -529,9 +539,10 @@ shared between THAW PC DXT containers and PS2 zone TEX, and the content dispatch
 "THAW Zone TEX (PS2)" / "THAW PC TEX" / "Xbox TEX". (The CLI/GUI *probe* already discriminated by
 content — this was display-only.)
 
-### D2. 🔴 z_mainmenu_net.pak.ps2::0007B1B0.mdl — still heavily corrupted textures
+### D2. ✅ z_mainmenu_net.pak.ps2::0007B1B0.mdl — corrupted textures — FIXED 2026-08-19 with C2
 
-Same class as C2 (standalone-MDL texture resolution; follow-up 8). New repro:
+Same class as C2 (standalone-MDL texture resolution; follow-up 8 — see its resolution: the
+zone-TEX decode-routing fix). The backdrop scene renders clean at this pose. Original repro:
 
 ```
 # DATAP.WAD::worlds/worldzones/z_mainmenu/z_mainmenu_net.pak.ps2::0007B1B0.mdl
