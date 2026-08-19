@@ -248,9 +248,14 @@ The fixed parser:
    End-of-anim (keyEnd ≥ frameCount): cycle mode (loopMode 1) wraps toward
    keyframe 0 with denominator `frameCount − keyStart`; otherwise the window
    clamps back one interval and the factor EXTRAPOLATES past the last stored
-   record (the converter uses this non-cycle branch — loop mode is runtime
-   per-instance state a converter can't know, and baking the cycle wrap into
-   one-shot clips would lurch them back toward the start pose).
+   record. **The converter defaults to the CYCLE branch**
+   (`PsxAnimationOptions.OneShot = false`), because an exported clip is
+   normally previewed looping; `psx-anim-export --one-shot` selects the
+   non-cycle branch instead. Loop mode really is runtime per-instance state the
+   file does not record, so this is an export policy, not a decode fact — which
+   is why it is selectable rather than inferred. (This paragraph previously
+   claimed the non-cycle branch was the default, the opposite of the shipped
+   behaviour; corrected 2026-08-19.)
    The corpus survey found 3,896 entries with
    tweenFlag > 1 and thousands more carry tweenFlag = 1 (nearly all of
    Apocalypse + the Spider-Man v1 family); v2 (0x2C) entries are always 0.

@@ -121,7 +121,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
         Assert.Contains(entries, static entry => entry.Name == "misc/001.ptr.n64");
         Assert.Single(entries, static entry =>
             entry.Name.EndsWith(".bfx.n64", StringComparison.Ordinal));
-        Assert.Equal(163, CountUnder("group2")); // N64-native render bank, format still open
+        Assert.Equal(163, CountUnder("group2")); // N64-native render bank (decodes since 2026-08-06)
         Assert.Equal(8, CountUnder("audio"));    // raw wavetable + instrument banks
         Assert.Contains(entries, static entry => entry.Name == "audio/000.wbk.n64");
         Assert.Equal(7, entries.Count(static entry =>

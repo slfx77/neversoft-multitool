@@ -454,11 +454,14 @@ internal static class PsxCoplanarOverlayDetector
 
     /// <summary>
     ///     Measurement used by the corpus tests: the highest opaque-overlay
-    ///     draw rank any semi-transparent face actually overlaps. The cap in
-    ///     <see cref="AccumulateOpaqueOverlayClearanceSteps" /> is only exact
-    ///     while this stays at 1 corpus-wide — a face over a rank-2 overlay
-    ///     would need step 3, and clamping it to 2 would recreate the
-    ///     collision at the overlay's own height.
+    ///     draw rank any semi-transparent face actually overlaps. The measured
+    ///     corpus maximum is <b>2</b> (skware's pool sheet crosses a rank-2
+    ///     overlay), which is exactly why
+    ///     <see cref="MaxSemiTransparentLiftSteps" /> is 3 rather than 2 —
+    ///     clamping that face to step 2 would recreate the collision at the
+    ///     overlay's own height. Re-derive both if this measurement rises.
+    ///     (An earlier revision of this comment said the cap held "only while
+    ///     this stays at 1", which the shipped rule already contradicts.)
     /// </summary>
     internal static int MeasureMaxOpaqueRankUnderSemiTransparent(
         PsxMeshFile file,

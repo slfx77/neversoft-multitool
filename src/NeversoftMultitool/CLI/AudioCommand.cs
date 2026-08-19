@@ -105,6 +105,7 @@ public static class AudioCommand
         var totalConverted = 0;
         var totalSamples = 0;
         var failed = 0;
+        var skipped = 0;
 
         for (var fileIndex = 0; fileIndex < audioFiles.Count; fileIndex++)
         {
@@ -123,33 +124,42 @@ public static class AudioCommand
             {
                 totalConverted++;
                 totalSamples += result.SamplesWritten;
-
-                if (verbose)
-                {
-                    var detail = result.SamplesWritten > 1
-                        ? $"[green]{result.SamplesWritten} samples[/]"
-                        : "[green]OK[/]";
-                    AnsiConsole.MarkupLine($"  {Markup.Escape(filename)}: {detail}");
-                }
+            }
+            else if (result.Skipped)
+            {
+                // Structurally not the format its extension claims — counted, but not an error.
+                skipped++;
             }
             else
             {
                 failed++;
-                if (verbose)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"  {Markup.Escape(filename)}: " +
-                        $"[red]{Markup.Escape(result.ErrorMessage ?? "Unknown error")}[/]");
-                }
             }
+
+            if (verbose)
+                ReportFile(filename, result);
         }
 
         stopwatch.Stop();
         AnsiConsole.MarkupLine(
             $"Converted [green]{totalConverted}[/]/{audioFiles.Count} files " +
-            $"({totalSamples} WAV files, {failed} failed) in {stopwatch.Elapsed.TotalSeconds:F2}s");
+            $"({totalSamples} WAV files, {failed} failed) in {stopwatch.Elapsed.TotalSeconds:F2}s" +
+            (skipped == 0 ? string.Empty : $" ([yellow]{skipped} not this format[/])"));
 
         return failed == 0 ? 0 : 1;
+    }
+
+    private static void ReportFile(string filename, AudioConvertResult result)
+    {
+        var detail = result switch
+        {
+            { Success: true, SamplesWritten: > 1 } => $"[green]{result.SamplesWritten} samples[/]",
+            { Success: true } => "[green]OK[/]",
+            { Skipped: true } =>
+                $"[yellow]{Markup.Escape(result.ErrorMessage ?? "Not this format")}[/]",
+            _ => $"[red]{Markup.Escape(result.ErrorMessage ?? "Unknown error")}[/]"
+        };
+
+        AnsiConsole.MarkupLine($"  {Markup.Escape(filename)}: {detail}");
     }
 
     private static AudioConvertResult ConvertFile(

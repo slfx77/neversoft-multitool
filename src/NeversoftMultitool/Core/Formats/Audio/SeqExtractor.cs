@@ -22,6 +22,13 @@ public static class SeqExtractor
             return Failure($"Unable to read SEQ: {ex.Message}");
         }
 
+        // Check the magic before looking for a bank. `.seq` is shared with an unrelated
+        // Dreamcast "Sequencer File V1.0" container (22 of the corpus's 35), and those have no
+        // .vab sibling — probing for one first reported the missing bank as the fault instead
+        // of the real answer, which is that the file is not a PSY-Q song at all.
+        if (!SeqFile.IsSeq(seqData))
+            return NotThisFormat();
+
         var vabPath = Path.ChangeExtension(inputPath, ".vab");
         if (!File.Exists(vabPath))
         {
@@ -56,7 +63,7 @@ public static class SeqExtractor
     {
         var seq = SeqFile.Parse(seqData);
         if (seq == null)
-            return Failure("Not a PSY-Q SEQ (pQES) file");
+            return NotThisFormat();
 
         var vab = VabProgramSet.Parse(vabData);
         if (vab == null)
@@ -75,5 +82,15 @@ public static class SeqExtractor
     private static AudioConvertResult Failure(string message)
     {
         return new AudioConvertResult { Success = false, ErrorMessage = message };
+    }
+
+    private static AudioConvertResult NotThisFormat()
+    {
+        return new AudioConvertResult
+        {
+            Success = false,
+            Skipped = true,
+            ErrorMessage = "Not a PSY-Q SEQ (pQES) song"
+        };
     }
 }

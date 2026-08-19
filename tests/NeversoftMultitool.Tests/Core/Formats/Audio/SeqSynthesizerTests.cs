@@ -179,6 +179,70 @@ public sealed class SeqSynthesizerTests(TestPaths paths)
         Assert.Equal(11, rendered);
     }
 
+    [Fact]
+    public void AFileThatOnlySharesTheExtensionIsSkippedNotFailed()
+    {
+        // `.seq` is shared with an unrelated Dreamcast "Sequencer File V1.0" container — 22 of
+        // the corpus's 35 .seq files are that, not a PSY-Q song. Routing them into the SEQ
+        // converter made an `audio` run over those builds report failures and exit 1, so a
+        // structural non-match must report Skipped rather than an error.
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "COST99.SEQ");
+        File.WriteAllBytes(input, [.. "\0\0\0Sequencer File V1.0\0"u8, .. new byte[64]]);
+
+        var result = SeqExtractor.ConvertToWav(input, Path.Combine(temp.Path, "out"));
+
+        Assert.True(result.Skipped);
+        Assert.False(result.Success);
+        Assert.Contains("pQES", result.ErrorMessage!, StringComparison.Ordinal);
+        // The diagnosis must be the magic, not a missing companion: these files have no .vab
+        // sibling either, and reporting that first named the wrong cause.
+        Assert.DoesNotContain("vab", result.ErrorMessage!, StringComparison.OrdinalIgnoreCase);
+        Assert.False(Directory.Exists(Path.Combine(temp.Path, "out")));
+    }
+
+    [CorpusFact]
+    public void EveryCorpusSeqFileEitherRendersOrIsSkipped()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var psyQ = 0;
+        var other = 0;
+        foreach (var file in Directory
+                     .EnumerateFiles(paths.SampleBuildsDir!, "*", SearchOption.AllDirectories)
+                     .Where(static f => Path.GetExtension(f)
+                         .Equals(".seq", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (SeqFile.IsSeq(File.ReadAllBytes(file)))
+                psyQ++;
+            else
+                other++;
+        }
+
+        // 13 Apocalypse songs plus THPS2 DC's SKATE.SEQ family; the other 22 are the Dreamcast
+        // container that must never be counted as a conversion failure.
+        Assert.Equal(13, psyQ);
+        Assert.Equal(22, other);
+    }
+
+    private sealed class TempDirectory : IDisposable
+    {
+        public TempDirectory()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), $"nmt-seq-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+                Directory.Delete(Path, recursive: true);
+        }
+    }
+
     // ------------------------------------------------------------ fixtures
 
     private static byte[] BuildSeq(byte[] events)
