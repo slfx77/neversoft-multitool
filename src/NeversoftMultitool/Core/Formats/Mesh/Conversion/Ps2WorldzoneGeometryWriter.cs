@@ -180,6 +180,22 @@ internal static class Ps2WorldzoneGeometryWriter
                         debugCollector,
                         mdlDebugTex0Resolver);
                 }
+                else if (debugCollector != null)
+                {
+                    // Local-space leaves need a bone placement to stand anywhere;
+                    // without one they cannot be emitted — but they must never
+                    // vanish silently (the z_ch_net "missing computers" report).
+                    for (var leafIndex = 0; leafIndex < geomScene.Leaves.Count; leafIndex++)
+                    {
+                        var leaf = geomScene.Leaves[leafIndex];
+                        if (!leaf.IsLocalSpace)
+                            continue;
+                        var (dropMin, dropMax) = ComputeBbox(leaf.Vertices);
+                        debugCollector.AddRejection(new Ps2GeomLeafRejection(
+                            mdlName, "writer", "local_space_no_bone_placements", leafIndex,
+                            leaf.Vertices.Length, leaf.DmaTex0, dropMin, dropMax));
+                    }
+                }
             }
 
             if (qbWork.Count > 0)

@@ -130,7 +130,46 @@ public static class ZoneTextureProviderBuilder
                 Add(candidate, false);
         }
 
+        // Mission worldzone paks (missions/worldzones/m_z<code>*) stream on top
+        // of their base zone in-game and depend on its texture dictionaries —
+        // m_zbhgaps4_success's own level .tex is a 0-record stub. Pool the base
+        // zone's paks LAST so mission-local dictionaries keep first-wins priority.
+        foreach (var zonePak in FindMissionBaseZoneEntries(backend, mainEntry))
+            Add(zonePak, false);
+
         return sources;
+    }
+
+    private static List<ArchiveEntry> FindMissionBaseZoneEntries(
+        ArchiveAssetBackend backend,
+        ArchiveEntry mainEntry)
+    {
+        if (!IsMissionPakFileName(mainEntry.Name))
+            return [];
+
+        const string ZonesRoot = "worlds/worldzones/";
+        var zones = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in backend.Entries)
+        {
+            var dir = entry.Directory.Replace('\\', '/');
+            if (!dir.StartsWith(ZonesRoot, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var rest = dir[ZonesRoot.Length..];
+            var slash = rest.IndexOf('/');
+            zones.Add(slash >= 0 ? rest[..slash] : rest);
+        }
+
+        var zone = SelectMissionBaseZone(mainEntry.Name, zones);
+        if (zone == null)
+            return [];
+
+        var zoneDir = ZonesRoot + zone;
+        return backend.Entries
+            .Where(entry =>
+                string.Equals(entry.Directory.Replace('\\', '/'), zoneDir, StringComparison.OrdinalIgnoreCase)
+                && IsSiblingPakFileName(entry.Name, zone))
+            .OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static List<string> GetSiblingPakFiles(string pakPath)
@@ -165,7 +204,78 @@ public static class ZoneTextureProviderBuilder
                 Add(candidate);
         }
 
+        // Mission paks pool their base zone's dictionaries last (see the
+        // archive-nested gather for the rationale).
+        foreach (var zonePak in GetMissionBaseZonePaksOnDisk(pakPath))
+            Add(zonePak);
+
         return result;
+    }
+
+    private static List<string> GetMissionBaseZonePaksOnDisk(string pakPath)
+    {
+        var fileName = Path.GetFileName(pakPath);
+        if (!IsMissionPakFileName(fileName))
+            return [];
+
+        var dir = Path.GetDirectoryName(Path.GetFullPath(pakPath));
+        for (var depth = 0; dir != null && depth < 6; depth++, dir = Path.GetDirectoryName(dir))
+        {
+            var zonesRoot = Path.Combine(dir, "worlds", "worldzones");
+            if (!Directory.Exists(zonesRoot))
+                continue;
+
+            var zone = SelectMissionBaseZone(
+                fileName,
+                Directory.EnumerateDirectories(zonesRoot).Select(static d => Path.GetFileName(d)!));
+            if (zone == null)
+                return [];
+
+            return Directory.EnumerateFiles(Path.Combine(zonesRoot, zone), "*", SearchOption.TopDirectoryOnly)
+                .Where(f => IsSiblingPakFileName(Path.GetFileName(f), zone))
+                .OrderBy(static f => f, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        return [];
+    }
+
+    internal static bool IsMissionPakFileName(string fileName)
+    {
+        return fileName.StartsWith("m_z", StringComparison.OrdinalIgnoreCase)
+               && fileName.EndsWith(".pak.ps2", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    ///     Maps a mission pak name to its base zone by longest underscore-stripped
+    ///     zone-name prefix: "m_zbhgaps4_success" → key "zbhgaps4_success" starts
+    ///     with "zbh" (z_bh) but not "zbhsm" (z_bhsm). Census 2026-08-19: all 218
+    ///     missions/worldzones families map to exactly one existing zone this way.
+    /// </summary>
+    internal static string? SelectMissionBaseZone(string pakFileName, IEnumerable<string> zoneDirNames)
+    {
+        var dot = pakFileName.IndexOf('.');
+        var stem = dot > 0 ? pakFileName[..dot] : pakFileName;
+        if (!stem.StartsWith("m_z", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var key = stem[2..];
+        string? best = null;
+        var bestLength = 0;
+        foreach (var zone in zoneDirNames)
+        {
+            if (zone == null || !zone.StartsWith("z_", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var stripped = zone.Replace("_", "");
+            if (stripped.Length > bestLength &&
+                key.StartsWith(stripped, StringComparison.OrdinalIgnoreCase))
+            {
+                best = zone;
+                bestLength = stripped.Length;
+            }
+        }
+
+        return best;
     }
 
     internal static bool IsSiblingPakFileName(string fileName, string zoneStem)

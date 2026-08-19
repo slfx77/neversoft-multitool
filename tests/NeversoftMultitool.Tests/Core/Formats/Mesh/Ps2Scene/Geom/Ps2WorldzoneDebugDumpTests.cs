@@ -20,7 +20,8 @@ public sealed class Ps2WorldzoneDebugDumpTests(TestPaths paths)
         "too_few_vertices",
         "time_of_day_night_overlay",
         "geometric_quarantine",
-        "redundant_blend_layer"
+        "redundant_blend_layer",
+        "local_space_no_bone_placements"
     ];
 
     [CorpusFact]
