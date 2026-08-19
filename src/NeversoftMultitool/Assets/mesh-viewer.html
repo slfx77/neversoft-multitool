@@ -1342,7 +1342,13 @@ if (psxFlags.z < 0.5) {
           // approximation in the material name. Apply the closest three.js
           // additive equation in our viewer: unlike normal source-alpha blending this
           // never darkens the destination behind fire, spotlights, or glows.
-          if (!/__st[13](?:__2sided)?$/.test(material.name || '')) continue;
+          // PS2 worldzone materials never carry the PSX __st suffix; their
+          // additive bakes declare themselves via the neversoftBlendClass
+          // material extra instead (GLTFLoader surfaces extras as userData).
+          const additiveByClass = material.userData &&
+            material.userData.neversoftBlendClass === 'additive';
+          if (!additiveByClass &&
+              !/__st[13](?:__2sided)?$/.test(material.name || '')) continue;
           material.transparent = true;
           material.blending = THREE.AdditiveBlending;
           material.depthWrite = false;

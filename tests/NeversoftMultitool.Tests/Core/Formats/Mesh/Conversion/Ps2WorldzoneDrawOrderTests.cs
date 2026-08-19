@@ -143,6 +143,36 @@ public sealed class Ps2WorldzoneDrawOrderTests
         Assert.Equal([0, 1], drawIndexes);
     }
 
+    [Fact]
+    public void BuildGlbBytes_PublishesAdditiveBlendClassInMaterialExtras()
+    {
+        // Additive GS blend (A=Cs B=0 C=As D=Cd → byte 0x48): the exporter
+        // bakes luminance-to-alpha, and the material must DECLARE the class in
+        // extras — PS2 material names never match the PSX __st suffix the
+        // viewer's additive path keys on (B11 / triage follow-up 4).
+        var additive = MakeQuadLeaf(0x4444_0004, 0x48);
+        var plainBlend = MakeQuadLeaf(0x5555_0005, 0x44);
+        var document = Populate([additive, plainBlend]);
+
+        var (glbBytes, _) = new GltfModelExporter().BuildGlbBytes(document);
+        Assert.NotNull(glbBytes);
+        using var json = ParseGlbJson(glbBytes);
+        var materials = json.RootElement.GetProperty("materials");
+
+        var blendClasses = new List<string?>();
+        foreach (var material in materials.EnumerateArray())
+        {
+            blendClasses.Add(
+                material.TryGetProperty("extras", out var extras) &&
+                extras.TryGetProperty("neversoftBlendClass", out var blendClass)
+                    ? blendClass.GetString()
+                    : null);
+        }
+
+        Assert.Contains("additive", blendClasses);
+        Assert.Contains(null, blendClasses);
+    }
+
     private static ModelDocument Populate(List<Ps2GeomLeaf> leaves)
     {
         var document = new ModelDocument

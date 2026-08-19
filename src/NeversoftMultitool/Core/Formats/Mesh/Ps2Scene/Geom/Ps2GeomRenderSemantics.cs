@@ -42,9 +42,6 @@ internal static class Ps2GeomRenderSemantics
 
     internal static string ClassifyWorldzoneAlphaMode(Ps2GeomLeaf leaf)
     {
-        if (leaf.IsBillboard)
-            return "MASK";
-
         var alpha = leaf.DmaAlpha1;
         var alphaBlend = (byte)(alpha & 0xFF);
         var aField = alphaBlend & 0x03;
@@ -55,6 +52,16 @@ internal static class Ps2GeomRenderSemantics
         var alphaTestMask = UsesAlphaTestMask(leaf.DmaTest1);
         var isAdditive = aField == 0 && bField == 2 && dField == 1;
         var isSubtractive = aField == 2 && bField == 0 && dField == 1;
+
+        if (leaf.IsBillboard)
+        {
+            // Additive/subtractive billboards are glow cards — z_dn's building
+            // blink lights, z_sm's bulb/reflect sheets, 580 additive corpus-wide
+            // and every one a light (B11) — forcing them to MASK rendered solid
+            // panes. Ordinary billboards keep the cutout MASK so foliage does
+            // not turn into translucent panes.
+            return isAdditive || isSubtractive ? "BLEND" : "MASK";
+        }
         var isStandardBlend = IsStandardSourceAlphaBlend(alphaBlend);
         var isFixedStandardBlend = UsesFixedSourceAlphaBlend(alphaBlend);
         var isOpaqueEquivalent = alphaBlend is 0x00 or 0x0A or 0x1A;

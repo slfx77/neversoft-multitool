@@ -85,6 +85,23 @@ public sealed class ViewerWireframeContractTests
         Assert.DoesNotContain("wireframeEnabled", unload);
     }
 
+    /// <summary>
+    ///     PS2 worldzone materials never match the PSX <c>__st[13]</c> name
+    ///     suffix, so the additive composite must also key on the
+    ///     <c>neversoftBlendClass</c> material extra the exporter publishes
+    ///     (GLTFLoader surfaces glTF material extras as material.userData).
+    /// </summary>
+    [Fact]
+    public void Viewer_AdditiveBlendingKeysOnMetadataAsWellAsPsxNames()
+    {
+        var viewer = ReadViewer();
+        var apply = ExtractFunction(viewer, "function applyNativeMaterialBlending(root)");
+
+        Assert.Contains("material.userData.neversoftBlendClass === 'additive'", apply);
+        Assert.Contains("__st[13]", apply);
+        Assert.Contains("THREE.AdditiveBlending", apply);
+    }
+
     private static string ExtractFunction(string source, string signature)
     {
         var start = source.IndexOf(signature, StringComparison.Ordinal);

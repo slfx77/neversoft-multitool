@@ -5,6 +5,7 @@ using SharpGLTF.Materials;
 using SharpGLTF.Memory;
 using SharpGLTF.Scenes;
 using SharpGLTF.Schema2;
+using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using AlphaMode = SharpGLTF.Materials.AlphaMode;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
@@ -810,6 +811,30 @@ public sealed class GltfModelExporter : IModelExporter
             case ModelAlphaMode.Blend:
                 builder.WithAlpha(AlphaMode.BLEND);
                 break;
+        }
+
+        // PS2 additive/subtractive bakes publish their class in material
+        // extras: PS2 material names never match the PSX __st suffix the
+        // viewer's additive path keys on, so correctly baked glow sheets
+        // composited as source-alpha in-app (B11 / triage follow-up 4).
+        if (material.AlphaMode == ModelAlphaMode.Blend)
+        {
+            foreach (var metadata in material.NativeMetadata)
+            {
+                if (metadata is not Ps2GsRenderMetadata { Alpha: { } alphaReg })
+                    continue;
+
+                var bakeClass = Ps2GeomRenderSemantics.ClassifyPortableBakeClass((byte)(alphaReg & 0xFF));
+                if (bakeClass != "none")
+                {
+                    builder.Extras = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["neversoftBlendClass"] = bakeClass
+                    };
+                }
+
+                break;
+            }
         }
 
         return builder;

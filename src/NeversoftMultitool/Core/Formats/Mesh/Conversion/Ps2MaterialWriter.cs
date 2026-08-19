@@ -223,6 +223,20 @@ internal static class Ps2MaterialWriter
 
         var alphaMode = Ps2GeomRenderSemantics.ClassifyWorldzoneAlphaMode(leaf);
         var alphaBlend = (byte)(leaf.DmaAlpha1 & 0xFF);
+
+        // Destination-alpha draw (C = Ad) whose mask pass synthesis did not
+        // find: the reduce-to-Cs OPAQUE rule is right for floor/hull overlay
+        // passes over opaque bases (Ad = 1), but graduated glow art — z_ms's
+        // JowBGlow light cones (B11) — rendered as solid sheets. Fall back to
+        // the texture's own source alpha for graduated art only.
+        if (alphaMode == "OPAQUE" &&
+            Ps2GeomRenderSemantics.UsesDestinationAlphaBlend(alphaBlend) &&
+            pngBytes != null &&
+            Ps2GeomDestinationAlphaSynthesis.ClassifyTextureAlphaMode(pngBytes) == "BLEND")
+        {
+            return "BLEND";
+        }
+
         if (alphaMode == "BLEND" && Ps2GeomRenderSemantics.IsStandardSourceAlphaBlend(alphaBlend))
         {
             if (Ps2GeomSourceAlphaIsOpaque(leaf, pngBytes))

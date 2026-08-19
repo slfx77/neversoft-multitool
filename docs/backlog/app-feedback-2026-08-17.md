@@ -486,12 +486,22 @@ obviated by extracted-directory listings and the debug CSVs.
    windows are a SUBTRACTIVE window-darkening pass whose portable bake reads too strong —
    moved to the blend-bake family (follow-up 3-adjacent). A1 groundwork: the numbered
    TOD_NightOn/Off groups are the slider's data model.
-2. **Billboard blend classification** — read registers before the billboard early-return; census
-   exists in the materials CSVs (B11 glow sheets; gated one-liner candidate).
-3. **Dest-alpha OPAQUE fallback** — cones/light shafts need something better than opaque when
-   synthesis finds no mask (B11 cones, likely other glow geometry).
-4. **Viewer additive gating by metadata** — PS2 worldzone materials never match the PSX `__st[13]`
-   name convention, so even correct additive bakes composite as source-alpha in-app.
+2. ~~**Billboard blend classification**~~ — SHIPPED 2026-08-18: additive/subtractive billboards
+   classify BLEND (580 additive corpus-wide, every one a light card by resolved name —
+   `bldgBlinkLights`, `light_bulb`, `light_reflect`, `_Glo`); ordinary billboards keep cutout MASK
+   (z_sm's one non-additive billboard is a flag).
+3. **Dest-alpha OPAQUE fallback** — PARTIAL 2026-08-18: graduated-alpha art now falls back to
+   source-alpha BLEND; the four z_ms `JowBGlow*` sheets remain OPAQUE because their glow texture
+   (DDAB2D04) is fully opaque-alpha (shape lives in RGB luminance) — indistinguishable by texture
+   from the courthouse floor overlays where reduce-to-Cs OPAQUE is CORRECT. Each glow node is a
+   two-pass stack (dest-alpha color sheet + additive partner at +0.017, which now blends), so the
+   glow still reads; full fix needs looser synthesis matching (the mask pass exists but its
+   geometry key differs) or an air-vs-base query.
+4. ~~**Viewer additive gating by metadata**~~ — SHIPPED 2026-08-18: BLEND materials with an
+   additive/subtractive GS register publish `neversoftBlendClass` in glTF material extras, and the
+   viewer's additive path keys on `userData.neversoftBlendClass === 'additive'` alongside the PSX
+   `__st[13]` names. Pinned by `Ps2WorldzoneDrawOrderTests` +
+   `ViewerWireframeContractTests.Viewer_AdditiveBlendingKeysOnMetadataAsWellAsPsxNames`.
 5. ~~**Bimodal-MASK cutoff**~~ — SHIPPED 2026-08-18 (B8 + D5): texture-based 0.5 floor on the
    bimodal branch, deliberate AREF preserved, corpus-gated (see B8's entry).
 6. **Geometric quarantine refinement** for transition zones (B4).
