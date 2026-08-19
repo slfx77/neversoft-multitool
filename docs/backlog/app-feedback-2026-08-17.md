@@ -580,6 +580,139 @@ from cutoff 1/128 to 0.5 with zero mode changes. In-app confirmation rides the P
 --camera-eye=-11486.38,-213.607,17671.72 --camera-yaw=7.73 --camera-pitch=-20.28 --camera-fov=45 --camera-size=1686x1105
 ```
 
+## Addendum — 2026-08-19 reports (E-series, same campaign)
+
+New feedback filed 2026-08-19. Exploration the same day (three agents: mission-pak routing, viewer
+blend/draw-order semantics, QB node-array gating + TOD lighting) produced root-cause evidence for
+most items before triage began; per-item verdicts land here as the campaign executes. All poses
+verbatim (`--camera-fov=45 --camera-size=1410x1105` throughout).
+
+### E1. 🔴 m_zbhgaps4_success: improperly mapped textures
+
+```
+# DATAP.WAD::missions/worldzones/m_zbhgaps4/m_zbhgaps4_success/m_zbhgaps4_success.pak.ps2
+--camera-eye=232.4363,54.9146,208.9562 --camera-yaw=46.24 --camera-pitch=-9.45 --camera-fov=45 --camera-size=1410x1105
+```
+
+Exploration: mission paks route through the worldzone writer, but the level MDL's own `.tex` is a
+144-byte 0-record stub that `IsZoneTex`'s `< 0x200` guard drops, so the TEX0 hint hands the level
+MDL the *vehicle's* 3-texture `.stex`; the real dictionary lives in the base zone (`z_bh`), which
+no cross-pak mechanism reaches today (`GetZoneStem` collapses only `z_*` stems).
+
+### E2. 🔴 m_zhogaps13_gameplay: transparent / improperly decoded mesh
+
+```
+# DATAP.WAD::missions/worldzones/m_zhogaps13/m_zhogaps13_gameplay/m_zhogaps13_gameplay.pak.ps2
+--camera-eye=295.6255,109.6376,207.1968 --camera-yaw=52.43 --camera-pitch=-16.33 --camera-fov=45 --camera-size=1410x1105
+```
+
+Same family as E1 (5 dictionaries pooled first-wins into one flat cache: vehicle + 3 ped-skin
+`.stex` + the level `.tex`). Also exposed: **unpacked mission-pak dirs are LOSSY** — every unnamed
+entry shares CRC `0x6F980DC3` at +0x10 → all named `mission.<ext>`, overwriting each other
+(m_zhogaps13_gameplay loses 13 of 22 unnamed entries on disk). Repro/tests must read the raw pak.
+
+### E3. 🔴 z_at: z-fighting details
+
+```
+# DATAP.WAD::worlds/worldzones/z_at/z_at.pak.ps2
+--camera-eye=-5509.393,-130.8499,-2544.463 --camera-yaw=23.48 --camera-pitch=4.81 --camera-fov=45 --camera-size=1410x1105
+```
+
+### E4. 🔴 z_bh: completely fake shadow
+
+```
+# DATAP.WAD::worlds/worldzones/z_bh/z_bh.pak.ps2
+--camera-eye=-11914.62,-162.7238,2889.089 --camera-yaw=135.62 --camera-pitch=-28.71 --camera-fov=45 --camera-size=1410x1105
+```
+
+B1 family. Viewer exploration confirmed the mechanism: `neversoftBlendClass='subtractive'` is
+unhandled in-app — the baked black RGB renders as a LIT MeshStandardMaterial whose grazing-Fresnel
+specular turns stacked shadow passes into an opaque navy slab.
+
+### E5. 🔴 z_bh: z-fighting detail
+
+```
+# DATAP.WAD::worlds/worldzones/z_bh/z_bh.pak.ps2
+--camera-eye=-11722.72,1258.12,1695.686 --camera-yaw=59.3 --camera-pitch=-9.63 --camera-fov=45 --camera-size=1410x1105
+```
+
+B2/B3 family. Viewer exploration: OPAQUE worldzone leaves export `BlendOffset = 0` (the PSX
+opaque-overlay rank lift was never populated for THAW), and renderOrder+LEQUAL cannot separate
+different coplanar polygons.
+
+### E6. 🔴 z_bh: black overlay over window
+
+```
+# DATAP.WAD::worlds/worldzones/z_bh/z_bh.pak.ps2
+--camera-eye=-12749.32,796.6087,1856.389 --camera-yaw=102.96 --camera-pitch=-3.95 --camera-fov=45 --camera-size=1410x1105
+```
+
+D3 family — subtractive window-darkening pass vs ENVMAPPED reflection pass; probe decides which.
+
+### E7. 🔴 z_bh: multiple object setups loaded simultaneously
+
+```
+# DATAP.WAD::worlds/worldzones/z_bh/z_bh.pak.ps2
+--camera-eye=-15093.58,383.2593,3986.401 --camera-yaw=-72.09 --camera-pitch=-23.03 --camera-fov=45 --camera-size=1410x1105
+```
+
+**Cause confirmed in exploration**: THAW zone node arrays gate LevelGeometry with
+`createdfromvariable = NODEFLAG_*` (story states: HOTELPRE/POST, CITYHALLPRE/DURING/POST, …) and
+`createdfromtod = TOD_{phase}{On|Off}_NN`, mutually exclusive with `CreatedAtStart`; the engine
+deactivates any sector without `CreatedAtStart` at load (`cfuncs.cpp:6276-6281`). The converter
+reads neither field — both City Hall wrecking-ball states + both gas-sign states are present at
+this exact pose. The name-substring TOD rule also misses 67 z_bh night-gated nodes.
+
+### E8. 🔴 z_bh: roof shingles disappear as the camera gets further
+
+```
+# DATAP.WAD::worlds/worldzones/z_bh/z_bh.pak.ps2
+--camera-eye=-12494.24,1461.783,5415.037 --camera-yaw=-141.15 --camera-pitch=-39.71 --camera-fov=45 --camera-size=1410x1105
+```
+
+The in-app flip side of B8/D5's cutoff fix: MASK materials run default trilinear mips at
+anisotropy 1 under a hard 0.5 alphaTest — mip-averaged alpha erodes below the cutoff at distance.
+
+### E9. 🔴 z_bh: z-fighting on distant meshes
+
+```
+# DATAP.WAD::worlds/worldzones/z_bh/z_bh.pak.ps2
+--camera-eye=-12421.35,4688.725,6556.092 --camera-yaw=-48.88 --camera-pitch=-66.35 --camera-fov=45 --camera-size=1410x1105
+```
+
+E5's family at range: the exported BLEND/MASK separations are fixed world-space constants
+(0.005/0.010) — sub-precision at 20k-unit view distances under any depth buffer.
+
+### E10. 🔴 z_ch_net: completely transparent / missing computers
+
+```
+# DATAP.WAD::worlds/worldzones/z_ch/z_ch_net.pak.ps2
+--camera-eye=243.9293,835.4468,1814.739 --camera-yaw=-20.39 --camera-pitch=-25.61 --camera-fov=45 --camera-size=1410x1105
+```
+
+z_ch_net ships zero object MDLs / zero `.mqb` — the computers live in the level MDL. Lead: with no
+bone placements, every `IsLocalSpace` leaf is silently dropped
+(`Ps2WorldzoneGeometryWriter.cs:151-182`).
+
+### E11. 🔴 z_dn: strange window overlays
+
+```
+# DATAP.WAD::worlds/worldzones/z_dn/z_dn.pak.ps2
+--camera-eye=2813.501,705.6515,1036.682 --camera-yaw=0 --camera-pitch=16.33 --camera-fov=45 --camera-size=1410x1105
+```
+
+E6 family (subtractive vs envmapped pass — probe decides).
+
+### E12. 🔴 No level lighting parsed on PS2 games
+
+Feature (A1 expansion): THUG2/THAW have a day/night cycle + weather; THAW currently only uses a
+day/night switch to control light meshes. Exploration found the authored data model: `Class =
+levellight` nodes (position, RGB, radii, exclusions, `createdfromtod` gates; z_bh 158, z_dt 150,
+z_sm 103, z_dn 99, z_ho 48, z_lv 12) parsed by the engine after the node array
+(`cfuncs.cpp:6417-6494`); world ambient/diffuse/direction are script commands whose global TOD
+driver script is not yet located. Authored `brightness` is a runtime placeholder (116/117 zero).
+Weather is particle-only (does not feed lighting).
+
 ## Suggested working order
 
 1. **A6 + A5** — label fix and toggle gating: small, self-contained, no format risk.
