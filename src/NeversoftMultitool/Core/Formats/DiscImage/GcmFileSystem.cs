@@ -26,13 +26,21 @@ public static class GcmFileSystem
         return BinaryPrimitives.ReadUInt32BigEndian(magic) == Magic;
     }
 
-    public static List<DiscFileEntry> ReadFileList(Stream stream)
+    /// <summary>
+    ///     Reads the FST from a GCM-shaped image (also the decrypted content of a
+    ///     Wii partition, which reuses boot.bin's layout). <paramref name="offsetShift" />
+    ///     is 0 for GameCube and 2 for Wii, where the FST offset/size and each file
+    ///     entry's data offset are stored as <c>value &gt;&gt; 2</c> (word units).
+    ///     Directory indices and file lengths are byte counts either way, so the
+    ///     shift is applied only to offsets, never to lengths or indices.
+    /// </summary>
+    public static List<DiscFileEntry> ReadFileList(Stream stream, int offsetShift = 0)
     {
         Span<byte> header = stackalloc byte[8];
         stream.Position = 0x424;
         stream.ReadExactly(header);
-        var fstOffset = BinaryPrimitives.ReadUInt32BigEndian(header);
-        var fstSize = BinaryPrimitives.ReadUInt32BigEndian(header[4..]);
+        var fstOffset = (long)BinaryPrimitives.ReadUInt32BigEndian(header) << offsetShift;
+        var fstSize = (long)BinaryPrimitives.ReadUInt32BigEndian(header[4..]) << offsetShift;
 
         if (fstOffset == 0 ||
             fstSize < FstEntrySize ||
@@ -76,11 +84,13 @@ public static class GcmFileSystem
 
             if (isDirectory)
             {
+                // length is the child end-index — an FST slot number, never shifted.
                 pathStack.Push((length, fullPath));
             }
             else
             {
-                entries.Add(new DiscFileEntry(directory, name, offset, length, false));
+                // A file's data offset is word-shifted on Wii; its length is a byte count.
+                entries.Add(new DiscFileEntry(directory, name, (long)offset << offsetShift, length, false));
             }
         }
 

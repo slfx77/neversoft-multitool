@@ -132,6 +132,13 @@ public static class DiscImageArchive
     private static bool SniffIso(string path)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        // Wii is probed before GCM: both are Nintendo optical images, but a Wii
+        // disc carries its GCM-shaped boot.bin only inside an encrypted partition
+        // (the raw image's 0x1C is not the GCM magic). This is a structural check
+        // that needs no common key, so a Wii disc is recognized even when the key
+        // to actually decrypt it is not yet provisioned.
+        if (WiiDisc.IsWii(stream))
+            return true;
         if (GcmFileSystem.IsGcm(stream))
             return true;
 
@@ -255,6 +262,23 @@ public static class DiscImageArchive
                 case ".iso":
                 {
                     var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    if (WiiDisc.IsWii(stream))
+                    {
+                        // Decrypt the DATA partition to a GCM-shaped plaintext
+                        // stream; its FST fields are word-shifted (offsetShift 2).
+                        var partition = WiiDisc.TryOpenDataPartition(stream, out var wiiError);
+                        if (partition == null)
+                        {
+                            stream.Dispose();
+                            throw new InvalidDataException(wiiError ?? "Unsupported Wii disc image.");
+                        }
+
+                        disc._kind = DiscKind.Wii;
+                        disc._gcmStream = partition; // owns the underlying disc handle
+                        disc.Files = GcmFileSystem.ReadFileList(partition, offsetShift: 2);
+                        return disc;
+                    }
+
                     if (GcmFileSystem.IsGcm(stream))
                     {
                         disc._kind = DiscKind.Gcm;
@@ -375,7 +399,9 @@ public static class DiscImageArchive
 
         public void ExtractFile(DiscFileEntry file, string outputPath, CancellationToken cancellationToken)
         {
-            if (_kind == DiscKind.Gcm)
+            // Wii extraction is identical to GCM: seek the byte offset in the
+            // (decrypted) partition stream held in _gcmStream and copy Size bytes.
+            if (_kind is DiscKind.Gcm or DiscKind.Wii)
             {
                 ExtractGcmFile(file, outputPath, cancellationToken);
                 return;
@@ -448,7 +474,12 @@ public static class DiscImageArchive
         {
             Iso9660,
             Xdvdfs,
-            Gcm
+            Gcm,
+
+            // Wii shares GCM's extraction path (byte offsets into a decrypted
+            // partition stream held in _gcmStream); only the file listing differs
+            // (word-shifted offsets).
+            Wii
         }
     }
 }
