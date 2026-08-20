@@ -53,7 +53,9 @@ public class QbFileTests(TestPaths paths)
         var totalScripts = 0;
         var totalGlobals = 0;
 
-        Assert.Equal(4_746, files.Length);
+        // 4,746 through 2026-08-19; +356 loose THPS4-era .qb when the THPS4 PC
+        // build (Aspyr two-CD install media) joined the corpus on 2026-08-20.
+        Assert.Equal(5_102, files.Length);
 
         foreach (var file in files)
         {
@@ -76,9 +78,11 @@ public class QbFileTests(TestPaths paths)
         Assert.True(errors.Count == 0,
             $"Failed to parse {errors.Count}/{files.Length} files:\n{string.Join("\n", errors)}");
         Assert.Equal(files.Length, parsed);
-        Assert.Equal(17_133_640L, totalTokens);
-        Assert.Equal(62_542, totalScripts);
-        Assert.Equal(1_607_381, totalGlobals);
+        // Aggregates re-pinned 2026-08-20 when the THPS4 PC build's 356 loose
+        // .qb joined the corpus: +1,808,108 tokens, +705 scripts, +286 globals.
+        Assert.Equal(18_941_748L, totalTokens);
+        Assert.Equal(63_247, totalScripts);
+        Assert.Equal(1_607_667, totalGlobals);
     }
 
     [Fact]
@@ -198,7 +202,9 @@ public class QbFileTests(TestPaths paths)
         var totalOutputChars = 0L;
         var escapedQuotes = 0L;
 
-        Assert.Equal(4_746, files.Length);
+        // 4,746 through 2026-08-19; +356 loose THPS4-era .qb when the THPS4 PC
+        // build (Aspyr two-CD install media) joined the corpus on 2026-08-20.
+        Assert.Equal(5_102, files.Length);
 
         foreach (var file in files)
         {
@@ -222,11 +228,12 @@ public class QbFileTests(TestPaths paths)
         Assert.Equal(files.Length, decompiled);
 
         // Single-quoted local strings escape any quote they contain, one added
-        // character each. The corpus holds 183 of them, which is exactly the
-        // difference from the pre-escaping total of 105,403,160 — so the pin
-        // below is derived from that cause rather than copied off a failure.
-        Assert.Equal(183L, escapedQuotes);
-        Assert.Equal(105_403_160L + escapedQuotes, totalOutputChars);
+        // character each. The corpus holds 198 of them (183 through 2026-08-19,
+        // +15 in the THPS4 PC build's loose .qb), which is exactly the
+        // difference from the pre-escaping total — so the pin below is derived
+        // from that cause rather than copied off a failure.
+        Assert.Equal(198L, escapedQuotes);
+        Assert.Equal(115_715_493L + escapedQuotes, totalOutputChars);
     }
 
     [Fact]

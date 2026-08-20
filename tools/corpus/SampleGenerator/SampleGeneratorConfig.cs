@@ -155,5 +155,38 @@ internal static class SampleGeneratorConfig
         ("Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)", "data", BuildMode.Directory),
         ("Tony Hawks Underground 2 (2004-10-4, Windows - Final)", null, BuildMode.Msi),
         ("Tony Hawk's American Wasteland (2006-2-6, PC - Final)", null, BuildMode.Msi),
+
+        // GBA carts (.gba flat ARM7TDMI ROM images, mirrored verbatim — no ROM
+        // filesystem exists to extract; dates are the US release dates, the
+        // headers carry none). Vicarious Visions' software-3D handheld line,
+        // all seven under Activision game codes (ATHE52..BXSE52).
+        ("Tony Hawk's Pro Skater 2 (2001-6-11, GBA - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's Pro Skater 3 (2002-3-15, GBA - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's Pro Skater 4 (2002-10-23, GBA - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's Underground (2003-10-27, GBA - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's Underground 2 (2004-10-4, GBA - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's American Sk8land (2005-10-18, GBA - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's Downhill Jam (2006-11-7, GBA - Final)", null, BuildMode.Directory),
+
+        // DS carts (.nds mirrored verbatim until the NitroFS route lands; the
+        // Vicarious Visions assets live in main.gob/main.gfc containers and
+        // Proving Ground additionally ships loose .bik videos).
+        ("Tony Hawk's American Sk8land (2005-11-15, DS - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's Downhill Jam (2006-10-24, DS - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's Proving Ground (2007-10-15, DS - Final)", null, BuildMode.Directory),
+
+        // PC — two-disc install media: CD1 is a 2048-byte-sector ISO, CD2 a raw
+        // 2352 BIN/CUE (both formats on one shelf; FindDiscImagePaths merges
+        // them). Date from the CD1 PVD creation record (2003-07-18 13:57:29).
+        ("Tony Hawk's Pro Skater 4 (2003-7-18, PC - Final)", null, BuildMode.Iso),
+
+        // Wii — RVZ discs converted to ISO externally (DolphinTool), read
+        // natively via the encrypted-partition path (WiiDisc + WiiPartitionStream).
+        // The DATA partition holds the Neversoft big-endian lineage (mostly
+        // .ngc/.vid/.ps2). Extraction needs the Wii common key provisioned via
+        // NEVERSOFT_WII_COMMON_KEY (never stored in the repo). US release dates.
+        // Downhill Jam is Toys for Bob; Proving Ground is the Page 44 port.
+        ("Tony Hawk's Downhill Jam (2006-11-19, Wii - Final)", null, BuildMode.Iso),
+        ("Tony Hawk's Proving Ground (2007-10-16, Wii - Final)", null, BuildMode.Iso),
     ];
 }

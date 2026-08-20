@@ -58,7 +58,23 @@ internal static class SampleGeneratorDiscOperations
             var images = Directory.GetFiles(mediaDir, "*.iso", SearchOption.TopDirectoryOnly)
                 .OrderBy(path => Path.GetFileNameWithoutExtension(path), StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            if (images.Length > 0) return images;
+            if (images.Length > 0)
+            {
+                // A build may mix image formats on one shelf: THPS4 PC ships CD1 as a
+                // 2048-byte-sector ISO and CD2 as a raw 2352 BIN/CUE. Data-track BINs
+                // whose stems don't collide with an ISO join the set instead of being
+                // shadowed by the ISO-first probe; the GDI/IMG fallbacks below stay
+                // reachable only when no ISO exists, exactly as before (a GDI dump's
+                // raw track .bin files must keep resolving to the .gdi manifest).
+                var isoStems = images.Select(Path.GetFileNameWithoutExtension)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                return images
+                    .Concat(Directory.GetFiles(mediaDir, "*.bin", SearchOption.TopDirectoryOnly)
+                        .Where(path => !isoStems.Contains(Path.GetFileNameWithoutExtension(path)) &&
+                                       IsDataTrackBin(path)))
+                    .OrderBy(path => Path.GetFileNameWithoutExtension(path), StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            }
 
             // Dreamcast GDI: a manifest pointing at multiple raw track files. The high-density
             // area (LBA >= 45000) holds the ISO 9660 volume — but the PVD lives on one track
@@ -259,10 +275,36 @@ internal static class SampleGeneratorDiscOperations
         }
     }
 
+    /// <summary>
+    ///     Wii encrypted-partition ISOs go through the main tool's reader
+    ///     (WiiDisc + WiiPartitionStream); the NEVERSOFT_WII_COMMON_KEY common key
+    ///     must be provisioned. Returns false for non-Wii images so the caller
+    ///     falls through to the ordinary GC/ISO paths.
+    /// </summary>
+    private static bool TryExtractWiiDisc(string imagePath, string destDir, out int count)
+    {
+        count = 0;
+        using (var probe = File.OpenRead(imagePath))
+        {
+            if (!NeversoftMultitool.Core.Formats.DiscImage.WiiDisc.IsWii(probe))
+                return false;
+        }
+
+        NeversoftMultitool.Core.Formats.DiscImage.DiscImageArchive.ExtractFiles(
+            imagePath, destDir, null, default);
+        count = Directory.EnumerateFiles(destDir, "*", SearchOption.AllDirectories).Count();
+        return true;
+    }
+
     internal static int ExtractFilesFromDiscImage(string imagePath, string destDir)
     {
         destDir = SampleGeneratorPathSafety.ResolveConfiguredOutputDirectory(destDir);
         Directory.CreateDirectory(destDir);
+
+        // Wii discs are encrypted-partition ISOs the local DiscUtils path cannot
+        // read — delegate to the main tool's reader (needs the common key).
+        if (TryExtractWiiDisc(imagePath, destDir, out var wiiCount))
+            return wiiCount;
 
         // Xbox ISO (XISO/XGD1): proprietary AVL-tree filesystem at offset 0x10000.
         // Detect by file content (magic), not by path heuristics.

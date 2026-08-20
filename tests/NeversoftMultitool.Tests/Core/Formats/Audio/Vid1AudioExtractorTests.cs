@@ -19,15 +19,12 @@ public sealed class Vid1AudioExtractorTests(TestPaths paths)
                 "vid",
                 "atvi.vid");
 
+    // Downhill Jam Wii joined the corpus 2026-08-20; the file lives at
+    // movies/JX_Interview01.vid in the extracted DATA partition (the earlier
+    // year-only build name and movies/vid/ subpath were placeholders).
     private string RepresentativeMultiTrackSampleFile =>
-        paths.SampleBuildsDir is null
-            ? string.Empty
-            : Path.Combine(
-                paths.SampleBuildsDir,
-                "Tony Hawk's Downhill Jam (2006, Wii - Final)",
-                "movies",
-                "vid",
-                "JX_Interview01.vid");
+        paths.FindSampleFile("Tony Hawk's Downhill Jam (2006-11-19, Wii - Final)", "JX_Interview01.vid")
+        ?? string.Empty;
 
     private static string? FindRepoAtviVid()
     {

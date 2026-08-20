@@ -18,6 +18,52 @@ schedule work from their old descriptions.
 
 ## Remaining — needs work
 
+### 🔶 Handheld + Wii + THPS4-PC corpus expansion — 2026-08-20
+
+Thirteen new builds added (7 GBA carts, 3 DS carts, 2 Wii discs, THPS4 PC) — all staged and green.
+Container support shipped for NDS and Wii; the GBA 3D-mesh and DS GOB/GFC decoders remain open
+research (both blocked on disassembling the game's own loader). Status:
+
+- ✅ **Corpus staging** — 7 GBA (`.gba`), 3 DS (`.nds`), and THPS4 PC (2-CD ISO+BIN/CUE) added to
+  `SampleGeneratorConfig.cs`. THPS4 PC needed `FindDiscImagePaths` extended to merge an ISO CD1 with a
+  raw-BIN CD2 (both formats on one shelf). Dates are US release dates (THPS4 PC pinned from its CD1 PVD,
+  2003-07-18). QB corpus sweeps re-pinned for the +356 loose THPS4 `.qb`.
+- ✅ **NDS Nitro filesystem** (`Core/Formats/Nds/NdsRomArchive.cs`) — `.nds` opens/extracts through the
+  detector, `ArchiveFileSystem`, CLI `archive`, the Archive-Extraction tab, and the recursive unpacker;
+  entries are plain byte ranges served by `FileArchiveFileSystem`. Exposes the Nitro tree plus
+  `_system/` (header, arm9/arm7, banner, overlays). Proving Ground DS's 16 `bink/*.bik` are now
+  playable in the Video tab. Pinned by `NdsRomArchiveTests` (synthetic + 3-cart `[CorpusTheory]`).
+- 🔴 **VV GOB/GFC containers (DS)** — `main.gob`/`main.gfc` hold nearly all DS content. Framing is
+  characterized (`tools/research/vv-gob-gfc/FINDINGS.md`): BE `.gfc` index `{magic 0x8008, gobSize,
+  entryCount, uniqueCount}` + 16-byte dedup records `{size, offset, …, codec}` + a name-table tail;
+  `.gob` payloads are per-entry zlib/LZ77/raw and the codec set evolves across the three games. Full
+  decode needs the ARM9/overlay loader disassembled (now extractable via `_system/`). Then implement
+  `GobArchive` on the PAK+PAB companion pattern.
+- 🔴 **GBA 3D level meshes** — `tools/research/gba-3d/FINDINGS.md`. Confirmed geometry is STORED (not
+  procedural): a raw ROM model region (~0x750000+ in THPS2) with a bounds+count+pointer descriptor
+  table and small-index face lists, reached via an in-RAM object directory. The vertex-position codec
+  is unresolved (not plain s16 triples) — needs the model loader disassembled (`gba_disasm.py` +
+  Ghidra). Then the implementation wave: `GbaRomArchive` carve route → mesh parser/writer → viewer,
+  per the N64 template. GAX audio (Shin'en) is separate and out of scope.
+- ✅ **Wii (Downhill Jam, Proving Ground) — SHIPPED 2026-08-20, validated against the real discs.**
+  RVZ→ISO converted with DolphinTool; read natively via `Core/Formats/DiscImage/WiiDisc` (magic
+  `0x5D1C9EA3`@0x18; partition table @0x40000; DATA partition type 0) + ticket→title-key AES-128-CBC +
+  `WiiPartitionStream : Stream` (0x8000 clusters → AES-CBC(cluster[0x400..0x8000], titleKey, IV =
+  cluster bytes 0x3D0..0x3E0); one-cluster cache). `GcmFileSystem.ReadFileList` gained an `offsetShift`
+  (2 for Wii's word-shifted FST/file offsets); `DiscKind.Wii` wired into `DiscImageArchive.SniffIso`
+  (probed before GCM) + `ExtractFile`. Common key NEVER in the repo — resolved from
+  `NEVERSOFT_WII_COMMON_KEY` → `%APPDATA%\NeversoftMultitool\wii_common_key.bin` → actionable hint
+  (`WiiCommonKey`). Validation: reader listing == DolphinTool's 3,601-file DATA listing exactly, and
+  `fonts/small.fnt.ngc` SHA-256 byte-identical to DolphinTool's own extraction. Both builds staged
+  (DHJ 10,179 files; PG 13,611 with 835 nested archives auto-expanded); the `Vid1AudioExtractorTests`
+  DHJ-Wii reference now resolves to the real `movies/JX_Interview01.vid`. Pinned by `WiiDiscTests`
+  (2 synthetic-key `[Fact]` building a test-key-encrypted cluster + a key-free end-to-end
+  `[CorpusFact]`). Proving Ground Wii is the Page 44 Neversoft-engine port; its DATA partition is
+  `.ngc`/`.ps2`/`.skin`/`.qb` lineage that converts through the existing parsers.
+- 🔴 **THPS4 PC new extensions** — census surfaced `SND*.DEE` (streamed audio?), `.SMO`, `*FNT.DAT`.
+  Probe after the discs settle; the `.fnt` pipeline may inform the DAT fonts. `.tgr` on CD2 is Bink
+  (`BIKi` magic) — plays via the existing ffmpeg path.
+
 ### 🔴 PS1-era residual extension survey — 2026-08-17 (answers "any PSX-side gaps left?")
 
 Full extension census re-run over the four PS1-era final builds plus the THPS PS1 lineage, with
