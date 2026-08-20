@@ -833,6 +833,11 @@ public sealed class GltfModelExporter : IModelExporter
                     };
                 }
 
+                // No unlit handling needed here: RenderMaterial.Unlit defaults
+                // TRUE, so every PS2 material (subtractive bakes included)
+                // already ships KHR_materials_unlit unless a writer opts into
+                // lighting — a darkening layer never picks up specular sheen.
+
                 break;
             }
         }

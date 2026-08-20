@@ -1331,6 +1331,50 @@ if (psxFlags.z < 0.5) {
       });
     }
 
+    // GS A=2,B=0,D=1 (C∈{0,2}) decodes Cd − Cs·As/128: pure darkening. The
+    // portable bake stores black RGB with A = lum × srcA/255 × 0.30, and the
+    // exported PNG alpha already carries the ×255/128 GS-domain rescale, so
+    // recovering the exact GS darkening fraction (lum × srcA_gs/128) takes a
+    // single 1/0.30 gain on the bake's portability constant.
+    const NS_SUBTRACTIVE_OPACITY_GAIN = 1 / 0.30;
+
+    function applyNativeSubtractiveUnlit(root) {
+      // Current worldzone exports already ship KHR_materials_unlit (so these
+      // load as MeshBasicMaterial and NormalBlending's black-RGB darkening is
+      // exact in kind) — the effective correction here is the OPACITY GAIN
+      // back to the GS magnitude. The unlit clone-swap half guards legacy
+      // GLBs exported before the unlit default, where a lit standard
+      // material adds specular sheen over the black base. Runs right after
+      // applyPsxSemiTransparentUnlit, BEFORE the PS1 GPU patch
+      // (Material.clone/copy drops onBeforeCompile).
+      const unlitBySource = new Map();
+      root.traverse(obj => {
+        if (!obj.isMesh || !obj.material) return;
+        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+        let changed = false;
+        const replaced = materials.map(material => {
+          if (!material.userData || material.userData.neversoftBlendClass !== 'subtractive')
+            return material;
+          let unlit = unlitBySource.get(material);
+          if (!unlit) {
+            // KHR_materials_unlit subtractive bakes already load as
+            // MeshBasicMaterial — mutate in place (once, via the map);
+            // lit legacy exports clone-swap.
+            unlit = material.isMeshBasicMaterial ? material : new THREE.MeshBasicMaterial();
+            if (unlit !== material) unlit.copy(material);
+            unlit.color.setRGB(0, 0, 0);
+            unlit.opacity = Math.min(1, unlit.opacity * NS_SUBTRACTIVE_OPACITY_GAIN);
+            unlit.needsUpdate = true;
+            unlitBySource.set(material, unlit);
+          }
+          changed = changed || unlit !== material;
+          return unlit;
+        });
+        if (!changed) return;
+        obj.material = Array.isArray(obj.material) ? replaced : replaced[0];
+      });
+    }
+
     function applyNativeMaterialBlending(root) {
       root.traverse(obj => {
         const materials = Array.isArray(obj.material)
@@ -1549,6 +1593,92 @@ if (psxFlags.z < 0.5) {
       });
     }
 
+    // Relative view-distance separation per engine pass rank. Log-depth
+    // precision is ~ln(far)/2^24 ≈ 1e-6 of view distance, so 2e-4 clears
+    // quantization by ~200× at EVERY distance (4 units at 20,000; 0.2 mm at
+    // 1 m) — which fixed world-space offsets cannot do (they vanish at THAW
+    // world scale, the "z-fighting on distant meshes" report).
+    const NS_DEPTH_BIAS_PER_RANK = 2e-4;
+    const NS_DEPTH_BIAS_MAX_RANK = 8;
+
+    function installNeversoftDepthBias(material, rank) {
+      const bias = (rank * NS_DEPTH_BIAS_PER_RANK).toFixed(7);
+      const previous = material.onBeforeCompile;
+      material.onBeforeCompile = function (shader, webglRenderer) {
+        if (previous) previous.call(this, shader, webglRenderer);
+        // polygonOffset is inert while logarithmicDepthBuffer writes
+        // gl_FragDepth, so the bias scales the log-depth term instead;
+        // later ranks pull toward the camera (GS submission-order-wins
+        // under LEQUAL). The orthographic branch takes a constant NDC
+        // epsilon.
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <logdepthbuf_fragment>',
+          `#if defined( USE_LOGDEPTHBUF )
+	gl_FragDepth = vIsPerspective == 0.0
+		? gl_FragCoord.z - ${bias} * 0.05
+		: log2( max( vFragDepth * ( 1.0 - ${bias} ), 1e-6 ) ) * logDepthBufFC * 0.5;
+#endif`);
+      };
+      const priorKey = material.customProgramCacheKey.bind(material);
+      material.customProgramCacheKey = () => priorKey() + '|nsDepthBias:' + bias;
+      material.needsUpdate = true;
+    }
+
+    function applyNeversoftDepthBias(root) {
+      // Engine pass rank (neversoftPassIndex — exported for every alpha mode,
+      // OPAQUE multi-pass stacks included) becomes a per-material depth bias.
+      // Materials are shared across meshes with different ranks, so biased
+      // variants clone per (material, rank); PSX-patched materials are
+      // SKIPPED — cloning drops their onBeforeCompile and PSX overlays
+      // already carry geometric lifts in the node transform.
+      const biasedBySource = new Map();
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+        const rank = obj.userData && obj.userData.neversoftPassIndex;
+        if (!Number.isFinite(rank) || rank <= 0) return;
+        const clamped = Math.min(rank, NS_DEPTH_BIAS_MAX_RANK);
+        const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+        const replaced = materials.map(material => {
+          if (psxGpuMaterials.includes(material)) return material;
+          const key = material.uuid + '|' + clamped;
+          let biased = biasedBySource.get(key);
+          if (!biased) {
+            biased = material.clone();
+            installNeversoftDepthBias(biased, clamped);
+            biasedBySource.set(key, biased);
+          }
+          return biased;
+        });
+        obj.material = Array.isArray(obj.material) ? replaced : replaced[0];
+      });
+    }
+
+    function applyMaskCutoutStability(root) {
+      // Alpha-tested cutouts under trilinear mips erode with distance: the
+      // mip chain averages alpha downward and whole levels fall below the
+      // hard 0.5 cutoff (the z_bh "roof shingles disappear" report — the
+      // in-app flip side of the AREF/bimodal cutoff fix). Anisotropy attacks
+      // the dominant cause (isotropic mip selection at grazing incidence)
+      // and alpha-to-coverage renders distant partial alpha as partial MSAA
+      // coverage instead of a cliff at 0.5. The PS1-fidelity nearest/no-mip
+      // path self-excludes via generateMipmaps === false.
+      const maxAniso = renderer.capabilities.getMaxAnisotropy();
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+        const materials = Array.isArray(obj.material)
+          ? obj.material
+          : obj.material ? [obj.material] : [];
+        for (const material of materials) {
+          if (!(material.alphaTest > 0) || !material.map) continue;
+          if (material.map.generateMipmaps === false) continue;
+          material.alphaToCoverage = true;
+          material.alphaTest = 0;
+          material.map.anisotropy = maxAniso;
+          material.needsUpdate = true;
+        }
+      });
+    }
+
     function cancelModelLoad() {
       modelLoadGeneration++;
     }
@@ -1737,6 +1867,8 @@ if (psxFlags.z < 0.5) {
           const pulseChannels =
             (gltf.scene.userData && gltf.scene.userData.neversoftColourPulseChannels) || [];
           applyPsxSemiTransparentUnlit(modelRoot);
+          // Clone-swaps before the PS1 GPU patch, like the PSX unlit pass.
+          applyNativeSubtractiveUnlit(modelRoot);
           applyPsxSkyDomes(modelRoot);
           // After the sky reparent — billboards stay in modelRoot.
           collectAxialBillboards(modelRoot);
@@ -1745,12 +1877,18 @@ if (psxFlags.z < 0.5) {
           configurePsxColourPulses(modelRoot, pulseChannels);
           applyNativeMaterialBlending(modelRoot);
           applyNeversoftRenderOrder(modelRoot);
+          // After configurePsxGpuVertexColors (psxGpuMaterials must exist so
+          // the pass can skip the PS1-patched materials).
+          applyNeversoftDepthBias(modelRoot);
+          // After the PSX nearest/no-mip gate so PS1 textures self-exclude.
+          applyMaskCutoutStability(modelRoot);
           // Sky nodes moved to the sky scene — give them the same PS1
           // colour/wibble/blend treatments there.
           configurePsxGpuVertexColors(skySceneRoot);
           configurePsxTextureWibbles(skySceneRoot);
           configurePsxColourPulses(skySceneRoot, pulseChannels);
           applyNativeMaterialBlending(skySceneRoot);
+          applyMaskCutoutStability(skySceneRoot);
           // After every material swap/clone above so the session-lived flag
           // lands on the final material instances.
           applyWireframe();
