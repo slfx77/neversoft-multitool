@@ -130,21 +130,24 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
     [CorpusFact]
     public void SpiderMan_DisambiguatesOnlyTheRemainingUniqueOutsiderLiteralSlot()
     {
-        var shells = CarveShells(
+        // Inferred sources only: the boot name table now names most of these
+        // slots outright, which is its purpose, but the fail-closed behaviour
+        // of the alignment is what this test exists to pin.
+        var inferred = ResolveInferredOnly(
             "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64");
 
-        Assert.Contains("models/014/014.psx.n64", shells);
-        Assert.Contains("models/168/168.psx.n64", shells);
-        Assert.Contains("models/254/254_dem4_g.psx.n64", shells);
-        Assert.Contains("models/110/110.psx.n64", shells);
-        Assert.Contains("models/224/224.psx.n64", shells);
-        Assert.Contains("models/166/166.psx.n64", shells);
-        Assert.Contains("models/226/226.psx.n64", shells);
+        Assert.DoesNotContain("014", inferred.Keys);
+        Assert.DoesNotContain("168", inferred.Keys);
+        Assert.Equal("dem4_g", inferred["254"]);
+        Assert.DoesNotContain("110", inferred.Keys);
+        Assert.DoesNotContain("224", inferred.Keys);
+        Assert.DoesNotContain("166", inferred.Keys);
+        Assert.DoesNotContain("226", inferred.Keys);
         // 179, not 178: content naming keys on the mesh-name hashes the shell
         // parser produces, so while the parser was rejecting 87 of the 450 real
         // shells one library lost the anchor its family alignment needed. Every
         // slot asserted above is unchanged either way.
-        Assert.Equal(179, shells.Count(IsNamed));
+        Assert.Equal(179, inferred.Count);
     }
 
     /// <summary>
@@ -159,25 +162,29 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
     {
         var assets = CarveModelAssets(
             "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64");
+        var inferred = ResolveInferredOnly(
+            "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64");
+
+        // The shifted run must leave these slots unnamed by INFERENCE. The boot
+        // table names them from the ROM's own statement, which is a different
+        // question and is pinned by N64BundleNameTableTests.
+        Assert.DoesNotContain("168", inferred.Keys);
+        Assert.DoesNotContain("170", inferred.Keys);
+        Assert.Equal("l1a2a_g", inferred["169"]);
+        // The old placement put the library name L1A2a_L on geometry; no slot
+        // may carry it by inference.
+        Assert.DoesNotContain(inferred.Values, static name =>
+            name.Equals("L1A2a_L", StringComparison.OrdinalIgnoreCase));
 
         var slot168 = Assert.Single(assets, static asset =>
             asset.Path.StartsWith("models/168/", StringComparison.Ordinal));
-        Assert.Equal("models/168/168.psx.n64", slot168.Path);
-        Assert.DoesNotContain(assets, static asset =>
-            asset.Path.EndsWith("168_L1A2_O.psx.n64", StringComparison.OrdinalIgnoreCase));
-
-        Assert.Contains(assets, static asset =>
-            asset.Path == "models/169/169_l1a2a_g.psx.n64");
         var slot170 = Assert.Single(assets, static asset =>
             asset.Path.StartsWith("models/170/", StringComparison.Ordinal));
-        Assert.Equal("models/170/170.psx.n64", slot170.Path);
         Assert.False(N64BundleNameResolver.IsStub(slot170.Data));
-        Assert.DoesNotContain(assets, static asset =>
-            asset.Path.Contains("L1A2a_L", StringComparison.OrdinalIgnoreCase));
 
         var slot014 = Assert.Single(assets, static asset =>
             asset.Path.StartsWith("models/014/", StringComparison.Ordinal));
-        Assert.Equal("models/014/014.psx.n64", slot014.Path);
+        Assert.DoesNotContain("014", inferred.Keys);
         var slot014Identity = N64BundleNames.TryReadShellIdentity(slot014.Data);
         var slot168Identity = N64BundleNames.TryReadShellIdentity(slot168.Data);
         Assert.NotNull(slot014Identity);
@@ -223,5 +230,39 @@ public sealed class N64BundleNameResolverTests(TestPaths paths)
                                    && asset.Path.EndsWith(".psx.n64", StringComparison.Ordinal))
             .OrderBy(static asset => asset.Path, StringComparer.Ordinal)
             .ToList();
+    }
+
+    /// <summary>
+    ///     Names from the two INFERRED sources only, with the boot name table
+    ///     withheld. The carved output now takes its names from the table where
+    ///     it speaks, so these tests would otherwise stop exercising the
+    ///     fail-closed alignment they exist to pin. Table behaviour is covered
+    ///     separately by <see cref="N64BundleNameTableTests" />.
+    /// </summary>
+    private Dictionary<string, string> ResolveInferredOnly(string build, string rom)
+    {
+        var romPath = paths.FindSampleFile(build, rom);
+        Assert.SkipWhen(romPath == null, $"{build} ROM sample not available");
+        Assert.True(N64AssetCarver.TryCarve(File.ReadAllBytes(romPath!), out var assets));
+
+        var bundles = new List<N64BundleNameResolver.Bundle>();
+        var triggers = new List<byte[]>();
+        foreach (var asset in assets)
+        {
+            if (asset.Path.StartsWith("triggers/", StringComparison.Ordinal)
+                && asset.Path.EndsWith(".trg.n64", StringComparison.Ordinal))
+            {
+                triggers.Add(asset.Data);
+            }
+            else if (asset.Path.StartsWith("models/", StringComparison.Ordinal)
+                     && asset.Path.EndsWith(".psx.n64", StringComparison.Ordinal))
+            {
+                var slash = asset.Path.LastIndexOf('/');
+                var slot = asset.Path[(asset.Path.LastIndexOf('/', slash - 1) + 1)..slash];
+                bundles.Add(new N64BundleNameResolver.Bundle(slot, asset.Data));
+            }
+        }
+
+        return N64BundleNameResolver.Resolve(bundles, triggers);
     }
 }

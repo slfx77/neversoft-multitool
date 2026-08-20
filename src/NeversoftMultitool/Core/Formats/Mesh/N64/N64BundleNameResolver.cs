@@ -6,10 +6,18 @@ namespace NeversoftMultitool.Core.Formats.Mesh.N64;
 /// <summary>
 ///     Names carved model slots, preferring what the ROM itself says.
 ///     <para>
-///         TWO SOURCES, and they are complementary rather than redundant.
+///         THREE SOURCES, and they are complementary rather than redundant.
 ///     </para>
 ///     <para>
-///         PRIMARY — the TRIGGERS. A TRG script spells the files it loads as
+///         PRIMARY — the BOOT NAME TABLE (<see cref="N64BundleNameTable" />).
+///         Alone among the three it STATES a slot's name instead of inferring
+///         it, so it goes first and is the only one that can separate slots
+///         built on a shared rig — THPS1 33/34 (<c>glif</c> / <c>glif_FE</c>)
+///         and Spider-Man 106/107/221/222 (the four <c>lizman</c> variants)
+///         collapse under content identity and are distinct here.
+///     </para>
+///     <para>
+///         SECONDARY — the TRIGGERS. A TRG script spells the files it loads as
 ///         literal strings (<see cref="N64TrgFileReferences" />), and a level's
 ///         files occupy ONE CONTIGUOUS RUN of model slots ordered
 ///         case-insensitively by filename. So the trigger's family set lines up
@@ -53,12 +61,15 @@ internal static class N64BundleNameResolver
     internal readonly record struct ContentIdentity(ulong Key, IReadOnlyList<string> Candidates);
 
     /// <summary>
-    ///     Slot → name for every slot either source can name. Slots absent from
-    ///     the result keep their bare number.
+    ///     Slot → name for every slot any source can name. Slots absent from
+    ///     the result keep their bare number. <paramref name="boot" /> may be
+    ///     null (an unknown build, or one whose load base cannot be derived),
+    ///     in which case the two inferred sources carry the whole result.
     /// </summary>
     internal static Dictionary<string, string> Resolve(
         IReadOnlyList<Bundle> bundles,
-        IReadOnlyList<byte[]> triggers)
+        IReadOnlyList<byte[]> triggers,
+        Formats.N64.N64BootImage? boot = null)
     {
         // Content names first: they are the anchors the run alignment needs, and
         // the fallback for everything no trigger mentions.
@@ -92,8 +103,13 @@ internal static class N64BundleNameResolver
                 resolved[slot] = name;
         }
 
-        // Content fills in only where the triggers said nothing, so a ROM-stated
-        // name always wins over an inferred one.
+        // The boot table STATES the mapping, so it overrides both inferences.
+        // It is applied after the trigger pass rather than before it so that
+        // trigger-versus-trigger precedence is untouched when no table exists.
+        ApplyBootTable(bundles, boot, resolved);
+
+        // Content fills in only where nothing else spoke, so a ROM-stated name
+        // always wins over an inferred one.
         for (var i = 0; i < bundles.Count; i++)
         {
             if (content[i] is { } name)
@@ -111,6 +127,28 @@ internal static class N64BundleNameResolver
             resolved.Add(bundles[index].Slot, name);
 
         return resolved;
+    }
+
+    /// <summary>
+    ///     Writes the boot table's names over whatever the inferred sources
+    ///     produced. Slot directories are SPARSE (THPS3 numbers to 196 for 112
+    ///     bundles), so the table's numeric slot is matched against each
+    ///     bundle's parsed slot rather than against its position in the list.
+    /// </summary>
+    private static void ApplyBootTable(
+        IReadOnlyList<Bundle> bundles,
+        Formats.N64.N64BootImage? boot,
+        Dictionary<string, string> resolved)
+    {
+        var table = N64BundleNameTable.Resolve(boot);
+        if (table.Count == 0)
+            return;
+
+        foreach (var bundle in bundles)
+        {
+            if (int.TryParse(bundle.Slot, out var slot) && table.TryGetValue(slot, out var name))
+                resolved[bundle.Slot] = name;
+        }
     }
 
     /// <summary>

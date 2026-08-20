@@ -128,13 +128,13 @@ public sealed class N64RomArchiveTests(TestPaths paths)
             entry.Name.StartsWith("audio/", StringComparison.Ordinal)
             && entry.Name.EndsWith(".bin", StringComparison.Ordinal)));
         Assert.Contains(entries, static entry => entry.Name == "boot.bin");
-        // Slot 045 is a shared-rig character: 433 of 450 bundles match a PS1
-        // file, but nine unrelated skaters share this content key, so it keeps
-        // the bare slot rather than claiming one of their names.
+        // Slot 045 is why the boot name table was adopted. Content identity
+        // could not name it — nine unrelated skaters share its content key, so
+        // it kept a bare slot — and the reason is that the slot IS the shared
+        // skater animation bank they all reference. The ROM's own name table
+        // says so outright.
         Assert.Contains(entries, static entry =>
-            entry.Name == "models/045/045.psx.n64" && entry.Size == 587_000);
-        // ...and one bundle content DOES name, which is the whole point of
-        // N64BundleNames: the slot stays as a prefix, the name identifies it.
+            entry.Name == "models/045/045_sk2anim.psx.n64" && entry.Size == 587_000);
         Assert.Contains(entries, static entry => entry.Name == "models/008/008_c_kart.psx.n64");
         Assert.Contains(entries, static entry => entry.Name == "textures/0000_abutton.tex.n64");
         Assert.Contains(entries, static entry => entry.Name == "misc/anims_fe.psh");

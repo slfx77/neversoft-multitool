@@ -66,7 +66,7 @@ public static class N64AssetCarver
         if (!N64RomArchive.TryReadMasterDirectory(rom, out _, out var groups, out var bootTable))
             return false;
 
-        assets.Add(new CarvedAsset("boot.bin", N64RomArchive.ExtractTable(rom, bootTable)));
+        assets.Add(new CarvedAsset(BootAssetPath, N64RomArchive.ExtractTable(rom, bootTable)));
 
         var usedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in groups)
@@ -172,10 +172,17 @@ public static class N64AssetCarver
         var bundles = new List<N64BundleNameResolver.Bundle>();
         var indices = new List<int>();
         var triggers = new List<byte[]>();
+        byte[]? boot = null;
 
         for (var i = 0; i < assets.Count; i++)
         {
             var path = assets[i].Path;
+            if (path == BootAssetPath)
+            {
+                boot = assets[i].Data;
+                continue;
+            }
+
             if (path.StartsWith(TriggerRole + "/", StringComparison.Ordinal)
                 && path.EndsWith(TrgExtension, StringComparison.Ordinal))
             {
@@ -198,7 +205,8 @@ public static class N64AssetCarver
         if (bundles.Count == 0)
             return;
 
-        var names = N64BundleNameResolver.Resolve(bundles, triggers);
+        var names = N64BundleNameResolver.Resolve(
+            bundles, triggers, boot == null ? null : N64BootImage.TryOpen(boot));
         for (var b = 0; b < bundles.Count; b++)
         {
             if (!names.TryGetValue(bundles[b].Slot, out var name))
@@ -236,6 +244,12 @@ public static class N64AssetCarver
     private const string ModelRole = "models";
 
     private const string TriggerRole = "triggers";
+
+    /// <summary>
+    ///     The boot package's own asset path. The naming post-pass reads it for
+    ///     the model-slot name table it carries.
+    /// </summary>
+    internal const string BootAssetPath = "boot.bin";
 
     private const string PsxExtension = ".psx.n64";
     private const string TrgExtension = ".trg.n64";
