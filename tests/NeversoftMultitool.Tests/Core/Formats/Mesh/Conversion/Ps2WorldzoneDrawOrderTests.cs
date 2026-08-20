@@ -185,7 +185,7 @@ public sealed class Ps2WorldzoneDrawOrderTests
             new Ps2GeomScene { Leaves = leaves },
             "0000AA00",
             [(Vector3.Zero, Quaternion.Identity)],
-            static _ => true,
+            static _ => null,
             [],
             null,
             null,

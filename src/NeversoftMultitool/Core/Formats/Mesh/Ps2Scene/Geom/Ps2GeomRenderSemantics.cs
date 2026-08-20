@@ -130,6 +130,35 @@ internal static class Ps2GeomRenderSemantics
     }
 
     /// <summary>
+    ///     Gate-aware layer classification: the node's authored
+    ///     <c>createdfromtod</c> group is AUTHORITATIVE over the name markers
+    ///     (67 z_bh night-gated nodes carry no NightOn name yet leak into Day
+    ///     exports under the name rule alone). Morning/Afternoon/Evening
+    ///     groups are not representable in the Day/Night binary and stay in
+    ///     every export; nodes without a TOD gate keep the name rule so the
+    ///     rare tagged-name-without-gate leaf classifies as before.
+    /// </summary>
+    internal static Ps2GeomRenderLayer ClassifyWorldzoneRenderLayer(
+        Ps2GeomLeaf leaf,
+        Ps2WorldzoneNodeGates? gates)
+    {
+        if (gates is { CreatedFromTod: not 0 })
+        {
+            var group = QbKeyTable.TryResolve(gates.CreatedFromTod);
+            if (group != null)
+            {
+                if (group.Contains("nighton", StringComparison.OrdinalIgnoreCase))
+                    return Ps2GeomRenderLayer.NightOverlay;
+                if (group.Contains("nightoff", StringComparison.OrdinalIgnoreCase))
+                    return Ps2GeomRenderLayer.DayOverlay;
+                return Ps2GeomRenderLayer.Base;
+            }
+        }
+
+        return ClassifyWorldzoneRenderLayer(leaf);
+    }
+
+    /// <summary>
     ///     The texture-bake class the portable exporter would apply — the
     ///     STRICTER test from <c>GltfModelExporter.ProcessTextureForPortableGltf</c>
     ///     (it requires C∈{0,2} where <see cref="ClassifyWorldzoneAlphaMode" />

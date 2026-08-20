@@ -68,6 +68,7 @@ internal static class Ps2WorldzoneDebugDump
         sb.AppendLine(
             "mdl,leafIndex,space,drawIndex,passIndex,overlapGroup,isBillboard," +
             "leafChecksum,leafName,leafFlags," +
+            "nodeCreatedAtStart,nodeTodGroup,nodeVariable," +
             "alpha1,alphaA,alphaB,alphaC,alphaD,alphaFix," +
             "test1,ate,atst,aref,afail," +
             "fbmskAlphaByte,alphaMode,renderLayer,renderOrderKey,groupChecksum," +
@@ -88,6 +89,13 @@ internal static class Ps2WorldzoneDebugDump
                 record.LeafChecksum.ToString("X8", CultureInfo.InvariantCulture),
                 Csv(QbKeyTable.TryResolve(record.LeafChecksum) ?? ""),
                 record.LeafFlags.ToString("X8", CultureInfo.InvariantCulture),
+                record.NodeCreatedAtStart ? "1" : "0",
+                Csv(record.NodeTodGroup == 0
+                    ? ""
+                    : QbKeyTable.TryResolve(record.NodeTodGroup) ?? record.NodeTodGroup.ToString("X8", CultureInfo.InvariantCulture)),
+                Csv(record.NodeVariable == 0
+                    ? ""
+                    : QbKeyTable.TryResolve(record.NodeVariable) ?? record.NodeVariable.ToString("X8", CultureInfo.InvariantCulture)),
                 record.Alpha1.ToString("X16", CultureInfo.InvariantCulture),
                 Invariant(alphaBlend & 0x03),
                 Invariant((alphaBlend >> 2) & 0x03),

@@ -21,7 +21,9 @@ public sealed class Ps2WorldzoneDebugDumpTests(TestPaths paths)
         "time_of_day_night_overlay",
         "geometric_quarantine",
         "redundant_blend_layer",
-        "local_space_no_bone_placements"
+        "local_space_no_bone_placements",
+        "absent_in_net_games",
+        "variant_state_disabled"
     ];
 
     [CorpusFact]
@@ -59,6 +61,7 @@ public sealed class Ps2WorldzoneDebugDumpTests(TestPaths paths)
         Assert.Equal(
             "mdl,leafIndex,space,drawIndex,passIndex,overlapGroup,isBillboard," +
             "leafChecksum,leafName,leafFlags," +
+            "nodeCreatedAtStart,nodeTodGroup,nodeVariable," +
             "alpha1,alphaA,alphaB,alphaC,alphaD,alphaFix," +
             "test1,ate,atst,aref,afail," +
             "fbmskAlphaByte,alphaMode,renderLayer,renderOrderKey,groupChecksum," +

@@ -29,9 +29,13 @@ internal static class Ps2WorldzoneQbObjectResolver
     private static readonly uint AnglesKey = QbKeyHash.HashLower("Angles");
     private static readonly uint GameObjectValue = QbKeyHash.HashLower("gameobject");
     private static readonly uint ModelExportValue = QbKeyHash.HashLower("ModelExport");
+    private static readonly uint LevelGeometryValue = QbKeyHash.HashLower("levelgeometry");
+    private static readonly uint LevelObjectValue = QbKeyHash.HashLower("levelobject");
     private static readonly uint CreatedAtStartFlag = QbKeyHash.HashLower("CreatedAtStart");
     private static readonly uint RenderToViewportFlag = QbKeyHash.HashLower("RenderToViewport");
     private static readonly uint AbsentInNetGamesFlag = QbKeyHash.HashLower("AbsentInNetGames");
+    private static readonly uint CreatedFromVariableKey = QbKeyHash.HashLower("createdfromvariable");
+    private static readonly uint CreatedFromTodKey = QbKeyHash.HashLower("createdfromtod");
 
     internal static IReadOnlyDictionary<long, ObjectResourceInstances> Resolve(
         byte[] pakBytes,
@@ -116,6 +120,88 @@ internal static class Ps2WorldzoneQbObjectResolver
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Maps every LevelGeometry node's name checksum to its authored
+    ///     activation gates, across all node-array QBs in the pak. Nodes whose
+    ///     duplicate declarations disagree are dropped (ambiguous evidence);
+    ///     identical re-declarations collapse. Level-MDL leaves join this map
+    ///     through their preamble record ClassHash (the node-name QbKey).
+    /// </summary>
+    internal static IReadOnlyDictionary<uint, Ps2WorldzoneNodeGates> ResolveLevelGeometryGates(
+        byte[] pakBytes,
+        IReadOnlyList<(uint TypeHash, ArchiveEntry Entry)> typedEntries)
+    {
+        ArgumentNullException.ThrowIfNull(pakBytes);
+        ArgumentNullException.ThrowIfNull(typedEntries);
+
+        var gates = new Dictionary<uint, Ps2WorldzoneNodeGates>();
+        var ambiguous = new HashSet<uint>();
+        foreach (var (typeHash, entry) in typedEntries)
+        {
+            if (typeHash != NodeQbTypeHash || !TryReadEntry(pakBytes, entry, out var qbBytes))
+                continue;
+
+            QbFile qb;
+            try
+            {
+                qb = QbFile.Parse(qbBytes, entry.FullName);
+            }
+            catch (Exception exception) when (IsOptionalQbParseFailure(exception))
+            {
+                continue;
+            }
+
+            if (!TryParseGlobals(qb, out var globals))
+                continue;
+
+            var resolver = new StructResolver(globals);
+            foreach (var (_, value) in globals)
+            {
+                if (value is not ArrayValue array)
+                    continue;
+
+                CollectLevelGeometryGates(array, resolver, gates, ambiguous);
+            }
+        }
+
+        foreach (var checksum in ambiguous)
+            gates.Remove(checksum);
+
+        return gates;
+    }
+
+    private static void CollectLevelGeometryGates(
+        ArrayValue array,
+        StructResolver resolver,
+        Dictionary<uint, Ps2WorldzoneNodeGates> gates,
+        HashSet<uint> ambiguous)
+    {
+        foreach (var item in array.Items)
+        {
+            // LevelGeometry sectors AND levelobject movables (wrecking balls,
+            // laptops — their meshes/shadows are level-MDL leaves too) carry
+            // the same activation gates.
+            if (item is not StructValue node ||
+                !resolver.TryResolveInline(node, out var resolved) ||
+                !TryGetName(resolved, ClassKey, out var classValue) ||
+                (classValue != LevelGeometryValue && classValue != LevelObjectValue) ||
+                !TryGetName(resolved, NameKey, out var nodeName))
+            {
+                continue;
+            }
+
+            TryGetName(resolved, CreatedFromVariableKey, out var variable);
+            TryGetName(resolved, CreatedFromTodKey, out var tod);
+            var gate = new Ps2WorldzoneNodeGates(
+                resolved.Flags.Contains(CreatedAtStartFlag),
+                variable,
+                tod,
+                resolved.Flags.Contains(AbsentInNetGamesFlag));
+            if (!gates.TryAdd(nodeName, gate) && gates[nodeName] != gate)
+                ambiguous.Add(nodeName);
+        }
     }
 
     internal static IReadOnlyList<ObjectResourceTriad> FindObjectResourceTriads(

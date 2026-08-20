@@ -221,7 +221,7 @@ public sealed class Ps2ObjectMdlParserTests(TestPaths paths, ITestOutputHelper o
                 scene,
                 Path.GetFileNameWithoutExtension(name),
                 [(Vector3.Zero, Quaternion.Identity)],
-                static leaf => !leaf.IsLocalSpace,
+                static leaf => leaf.IsLocalSpace ? "wrong_space" : null,
                 materialCache,
                 null,
                 null,

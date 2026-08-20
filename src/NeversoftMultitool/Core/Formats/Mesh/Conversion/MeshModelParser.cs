@@ -1119,7 +1119,8 @@ public sealed class MeshModelParser : IModelParser
             textureSourceHint,
             request.WorldzoneTimeOfDay,
             request.WorldzoneScale,
-            debugCollector: debugCollector);
+            debugCollector: debugCollector,
+            visibilityOverrides: request.VisibilityOverrides);
 
         if (debugCollector != null && request.WorldzoneDebugDirectory != null)
         {

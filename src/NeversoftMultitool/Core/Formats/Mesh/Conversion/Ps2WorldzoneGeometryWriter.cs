@@ -25,7 +25,8 @@ internal static class Ps2WorldzoneGeometryWriter
         WorldzoneTimeOfDay timeOfDay,
         float coordinateScale,
         Ps2WorldzoneLighting? lighting = null,
-        Ps2GeomDebugCollector? debugCollector = null)
+        Ps2GeomDebugCollector? debugCollector = null,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
         if (!float.IsFinite(coordinateScale) || coordinateScale <= 0f)
             throw new ArgumentOutOfRangeException(nameof(coordinateScale), coordinateScale,
@@ -40,10 +41,38 @@ internal static class Ps2WorldzoneGeometryWriter
         try
         {
             var typedEntries = PakArchive.GetTypedEntries(pakBytes);
+            var isNetworkArchive =
+                Path.GetFileName(sourceName).Contains("_net.", StringComparison.OrdinalIgnoreCase);
             var qbObjectResources = Ps2WorldzoneQbObjectResolver.Resolve(
                 pakBytes,
                 typedEntries,
-                Path.GetFileName(sourceName).Contains("_net.", StringComparison.OrdinalIgnoreCase));
+                isNetworkArchive);
+            var nodeGates = Ps2WorldzoneQbObjectResolver.ResolveLevelGeometryGates(pakBytes, typedEntries);
+            var enabledVariants = RegisterVariantVisibilityGroups(document, nodeGates, visibilityOverrides);
+
+            Ps2WorldzoneNodeGates? GateFor(Ps2GeomLeaf leaf) =>
+                leaf.Checksum != 0 && nodeGates.TryGetValue(leaf.Checksum, out var gate) ? gate : null;
+
+            // The engine's load-state rule (cfuncs.cpp:6276-6281): a sector
+            // without CreatedAtStart is inactive until a script activates it.
+            // TOD groups map onto the Day/Night export selection; story-state
+            // (createdfromvariable) sectors export behind default-off
+            // visibility groups; net-absent sectors drop from _net archives.
+            string? ExcludeReason(Ps2GeomLeaf leaf)
+            {
+                var gate = GateFor(leaf);
+                if (gate != null)
+                {
+                    if (isNetworkArchive && gate.AbsentInNetGames)
+                        return "absent_in_net_games";
+                    if (gate.CreatedFromVariable != 0 && !enabledVariants.Contains(gate.CreatedFromVariable))
+                        return "variant_state_disabled";
+                }
+
+                return ShouldIncludeWorldzoneLeaf(leaf, timeOfDay, gate)
+                    ? null
+                    : "time_of_day_night_overlay";
+            }
             var mdlEntries = typedEntries
                 .Where(static entry => entry.TypeHash is
                     Ps2WorldzoneDetection.WorldzoneMdlTypeHash or
@@ -153,7 +182,7 @@ internal static class Ps2WorldzoneGeometryWriter
                     geomScene,
                     mdlName,
                     rootPlacements,
-                    leaf => !leaf.IsLocalSpace && ShouldIncludeWorldzoneLeaf(leaf, timeOfDay),
+                    leaf => leaf.IsLocalSpace ? "wrong_space" : ExcludeReason(leaf),
                     materialCache,
                     textureProvider,
                     texaTextureProvider,
@@ -161,7 +190,8 @@ internal static class Ps2WorldzoneGeometryWriter
                     coordinateScale,
                     "world",
                     debugCollector,
-                    mdlDebugTex0Resolver);
+                    mdlDebugTex0Resolver,
+                    GateFor);
 
                 if (bonePlacements.Count > 0)
                 {
@@ -170,7 +200,7 @@ internal static class Ps2WorldzoneGeometryWriter
                         geomScene,
                         mdlName,
                         bonePlacements,
-                        leaf => leaf.IsLocalSpace && ShouldIncludeWorldzoneLeaf(leaf, timeOfDay),
+                        leaf => leaf.IsLocalSpace ? ExcludeReason(leaf) : "wrong_space",
                         materialCache,
                         textureProvider,
                         texaTextureProvider,
@@ -178,7 +208,8 @@ internal static class Ps2WorldzoneGeometryWriter
                         coordinateScale,
                         "local",
                         debugCollector,
-                        mdlDebugTex0Resolver);
+                        mdlDebugTex0Resolver,
+                        GateFor);
                 }
                 else if (debugCollector != null)
                 {
@@ -208,7 +239,7 @@ internal static class Ps2WorldzoneGeometryWriter
                         work.Scene,
                         work.MdlName,
                         SeatQbPlacementsOnFloor(work.Scene, work.Placements, floorTriangles),
-                        leaf => ShouldIncludeWorldzoneLeaf(leaf, timeOfDay),
+                        ExcludeReason,
                         materialCache,
                         textureProvider,
                         texaTextureProvider,
@@ -216,7 +247,8 @@ internal static class Ps2WorldzoneGeometryWriter
                         coordinateScale,
                         "qb",
                         debugCollector,
-                        work.DebugTex0Resolver);
+                        work.DebugTex0Resolver,
+                        GateFor);
                 }
             }
 
@@ -382,7 +414,7 @@ internal static class Ps2WorldzoneGeometryWriter
         Ps2GeomScene scene,
         string mdlName,
         List<(Vector3 Position, Quaternion Rotation)> placements,
-        Func<Ps2GeomLeaf, bool> leafFilter,
+        Func<Ps2GeomLeaf, string?> leafExclusion,
         Dictionary<Ps2WorldzoneMaterialWriter.Ps2WorldzoneMaterialKey, int> materialCache,
         MeshChecksumTextureResolver? textureProvider,
         Ps2TexaTextureResolver? texaTextureProvider,
@@ -390,7 +422,8 @@ internal static class Ps2WorldzoneGeometryWriter
         float coordinateScale,
         string space,
         Ps2GeomDebugCollector? debugCollector = null,
-        Func<ulong, uint, Ps2GeomTextureResolution>? debugTex0Resolver = null)
+        Func<ulong, uint, Ps2GeomTextureResolution>? debugTex0Resolver = null,
+        Func<Ps2GeomLeaf, Ps2WorldzoneNodeGates?>? gateResolver = null)
     {
         var instances = placements.Count > 0
             ? placements
@@ -408,7 +441,7 @@ internal static class Ps2WorldzoneGeometryWriter
             orderedLeaves,
             sourceTextureProvider,
             tex0Resolver,
-            leafFilter,
+            leaf => leafExclusion(leaf) == null,
             ShouldSkipWorldzoneLeaf);
         var recentAlphaMasks = new Dictionary<Ps2DestinationAlphaLeafGeometryKey, Ps2DestinationAlphaMaskCandidate>();
         var overlapGroupIds = new Dictionary<Ps2DestinationAlphaLeafGeometryKey, int>();
@@ -429,16 +462,17 @@ internal static class Ps2WorldzoneGeometryWriter
         {
             var leaf = drawItem.Leaf;
             var leafIndex = drawItem.LeafIndex;
+            var leafGates = gateResolver?.Invoke(leaf);
+            var exclusionReason = leafExclusion(leaf);
             if (leaf.Vertices.Length < 3 ||
-                !leafFilter(leaf) ||
+                exclusionReason != null ||
                 ShouldSkipWorldzoneLeaf(leaf))
             {
                 if (debugCollector != null && ownsLeaf(leaf))
                 {
                     var (skipMin, skipMax) = ComputeBbox(leaf.Vertices);
                     var reason = leaf.Vertices.Length < 3 ? "too_few_vertices"
-                        : !leafFilter(leaf) ? "time_of_day_night_overlay"
-                        : "geometric_quarantine";
+                        : exclusionReason ?? "geometric_quarantine";
                     debugCollector.AddRejection(new Ps2GeomLeafRejection(
                         mdlName, "writer", reason, leafIndex,
                         leaf.Vertices.Length, leaf.DmaTex0, skipMin, skipMax));
@@ -600,11 +634,14 @@ internal static class Ps2WorldzoneGeometryWriter
                     leaf.IsBillboard,
                     leaf.Checksum,
                     leaf.Flags,
+                    leafGates?.CreatedAtStart ?? false,
+                    leafGates?.CreatedFromTod ?? 0,
+                    leafGates?.CreatedFromVariable ?? 0,
                     leaf.DmaAlpha1,
                     leaf.DmaTest1,
                     leaf.DmaFrame1,
                     alphaMode,
-                    Ps2GeomRenderSemantics.ClassifyWorldzoneRenderLayer(leaf).ToString(),
+                    Ps2GeomRenderSemantics.ClassifyWorldzoneRenderLayer(leaf, leafGates).ToString(),
                     Ps2GeomRenderSemantics.GetWorldzoneRenderOrderKey(leaf),
                     leaf.GroupChecksum,
                     leaf.DmaTex0,
@@ -633,15 +670,62 @@ internal static class Ps2WorldzoneGeometryWriter
 
     private static bool ShouldIncludeWorldzoneLeaf(
         Ps2GeomLeaf leaf,
-        WorldzoneTimeOfDay timeOfDay)
+        WorldzoneTimeOfDay timeOfDay,
+        Ps2WorldzoneNodeGates? gates)
     {
         if (timeOfDay is WorldzoneTimeOfDay.All)
             return true;
 
-        var layer = Ps2GeomRenderSemantics.ClassifyWorldzoneRenderLayer(leaf);
+        var layer = Ps2GeomRenderSemantics.ClassifyWorldzoneRenderLayer(leaf, gates);
         return timeOfDay is WorldzoneTimeOfDay.Night
             ? layer != Ps2GeomRenderLayer.DayOverlay
             : layer != Ps2GeomRenderLayer.NightOverlay;
+    }
+
+    /// <summary>
+    ///     Story-state (createdfromvariable) sectors are inactive at load and
+    ///     scripted on as the campaign progresses, so each NODEFLAG group
+    ///     exports behind a default-OFF visibility group — the PSX "What If?"
+    ///     precedent: geometry is never lost, one checkbox restores a state.
+    ///     Returns the set of variable checksums the caller enabled.
+    /// </summary>
+    private static HashSet<uint> RegisterVariantVisibilityGroups(
+        ModelDocument document,
+        IReadOnlyDictionary<uint, Ps2WorldzoneNodeGates> nodeGates,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides)
+    {
+        var enabled = new HashSet<uint>();
+        var variants = nodeGates.Values
+            .Where(static gate => gate.CreatedFromVariable != 0)
+            .GroupBy(static gate => gate.CreatedFromVariable)
+            .OrderBy(static group => group.Key)
+            .ToList();
+
+        foreach (var variant in variants)
+        {
+            var resolved = QbKey.QbKey.TryResolve(variant.Key);
+            var label = resolved != null
+                ? resolved.StartsWith("NODEFLAG_", StringComparison.OrdinalIgnoreCase)
+                    ? resolved["NODEFLAG_".Length..]
+                    : resolved
+                : $"0x{variant.Key:X8}";
+            var id = $"thaw.variant.{(resolved ?? variant.Key.ToString("X8")).ToLowerInvariant()}";
+            var isEnabled = visibilityOverrides?.TryGetValue(id, out var selected) == true && selected;
+            document.VisibilityGroups.Add(new ModelVisibilityGroup
+            {
+                Id = id,
+                Label = $"Story state: {label}",
+                DefaultEnabled = false,
+                IsEnabled = isEnabled,
+                Source = ModelVisibilityGroupSource.AlternateGeometry,
+                SourceReference =
+                    $"createdfromvariable {resolved ?? $"0x{variant.Key:X8}"} ({variant.Count()} nodes)"
+            });
+            if (isEnabled)
+                enabled.Add(variant.Key);
+        }
+
+        return enabled;
     }
 
     private static bool ShouldSkipWorldzoneLeaf(Ps2GeomLeaf leaf)
