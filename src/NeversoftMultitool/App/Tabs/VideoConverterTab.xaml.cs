@@ -13,7 +13,9 @@ namespace NeversoftMultitool;
 
 public sealed partial class VideoConverterTab : UserControl, IDisposable
 {
-    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
+    // .nds is included so the Proving Ground DS cart's bink/*.bik interview
+    // videos can be browsed and played straight from the ROM.
+    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr", ".nds"];
 
     private readonly VideoConverterTabConversionController _conversionController = new();
     private readonly ObservableCollection<SfdFileEntry> _items = [];

@@ -7,6 +7,7 @@ using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
 using NeversoftMultitool.Core.Formats.N64;
+using NeversoftMultitool.Core.Formats.Nds;
 using WinRT.Interop;
 
 namespace NeversoftMultitool;
@@ -113,6 +114,14 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                     // re-dump message instead of a generic failure.
                     MainWindow.Instance?.SetStatus(
                         N64RomArchive.ClassifyRom(_archivePath) ?? "Not an N64 ROM");
+                    return;
+                case ".nds" when NdsRomArchive.IsNdsRom(_archivePath):
+                    _archiveType = "NDS";
+                    entries = NdsRomArchive.GetFileList(_archivePath);
+                    break;
+                case ".nds":
+                    MainWindow.Instance?.SetStatus(
+                        "Not a Nintendo DS ROM (header/logo CRC or FNT/FAT check failed)");
                     return;
                 default:
                     var probe = FormatProbe.ProbeArchive(_archivePath);
@@ -273,6 +282,9 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                         break;
                     case "N64":
                         N64RomArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "NDS":
+                        NdsRomArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
                 }
             }, token);

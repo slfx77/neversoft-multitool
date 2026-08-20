@@ -22,5 +22,12 @@ public enum ArchiveAssetType
     ///     decompress+reassemble+carve products (not byte ranges of the ROM),
     ///     so the backend materializes them at open.
     /// </summary>
-    N64
+    N64,
+
+    /// <summary>
+    ///     Nintendo DS .nds ROM opened as its Nitro filesystem. Entries are plain
+    ///     contiguous byte ranges (FAT start/end), so the disk-backed backend
+    ///     serves them with no carve/decompress step.
+    /// </summary>
+    Nds
 }

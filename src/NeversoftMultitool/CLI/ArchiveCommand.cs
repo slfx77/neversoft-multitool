@@ -4,6 +4,7 @@ using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
 using NeversoftMultitool.Core.Formats.N64;
+using NeversoftMultitool.Core.Formats.Nds;
 using Spectre.Console;
 
 namespace NeversoftMultitool.CLI;
@@ -250,6 +251,22 @@ public static class ArchiveCommand
                         var classification = N64RomArchive.ClassifyRom(input) ?? "Not an N64 ROM";
                         AnsiConsole.MarkupLine(
                             $"[red]{Markup.Escape(classification)}[/]");
+                        return Task.FromResult(1);
+
+                    case ".nds" when NdsRomArchive.IsNdsRom(input):
+                        AnsiConsole.MarkupLine("[blue]NDS ROM[/] detected (Nitro filesystem)");
+                        var ndsEntries = NdsRomArchive.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{ndsEntries.Count}[/] entries");
+                        NdsRomArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                                AnsiConsole.MarkupLine($"  [[{current}/{total}]]");
+                        }, cancellationToken);
+                        break;
+
+                    case ".nds":
+                        AnsiConsole.MarkupLine("[red]Not a Nintendo DS ROM[/] (header/logo CRC or FNT/FAT check failed)");
                         return Task.FromResult(1);
 
                     default:

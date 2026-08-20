@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core.Formats.DiscImage;
 using N64 = NeversoftMultitool.Core.Formats.N64;
+using Nds = NeversoftMultitool.Core.Formats.Nds;
 
 namespace NeversoftMultitool.Core.Formats.Archives;
 
@@ -17,7 +18,7 @@ public static class ArchiveTypeDetector
     public static readonly string[] ArchiveExtensions =
     [
         ".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip", ".cut",
-        ".iso", ".cue", ".gdi", ".img", ".z64"
+        ".iso", ".cue", ".gdi", ".img", ".z64", ".nds"
     ];
 
     /// <summary>
@@ -85,6 +86,7 @@ public static class ArchiveTypeDetector
             ".iso" or ".cue" or ".gdi" or ".img" =>
                 DiscImageArchive.IsDiscImage(filePath) ? "DISC" : "DISC (raw)",
             ".z64" => N64.N64RomArchive.ClassifyRom(filePath) ?? "N64 ROM (raw)",
+            ".nds" => Nds.NdsRomArchive.ClassifyRom(filePath) ?? "NDS ROM (raw)",
             _ => "?"
         };
     }
@@ -113,6 +115,7 @@ public static class ArchiveTypeDetector
             ".zip" => QZipArchive.IsZip(path) ? ArchiveAssetType.Zip : null,
             ".cut" => CutArchive.IsCut(path) ? ArchiveAssetType.Cut : null,
             ".z64" => N64.N64RomArchive.IsN64Rom(path) ? ArchiveAssetType.N64 : null,
+            ".nds" => Nds.NdsRomArchive.IsNdsRom(path) ? ArchiveAssetType.Nds : null,
             _ => null
         };
     }

@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.N64;
+using NeversoftMultitool.Core.Formats.Nds;
 
 namespace NeversoftMultitool.Core.Formats.ArchiveFs;
 
@@ -46,6 +47,9 @@ public static class ArchiveFileSystem
                 ArchiveAssetType.Bon => BonArchive.GetFileList(path),
                 ArchiveAssetType.Zip => QZipArchive.GetFileList(path),
                 ArchiveAssetType.Cut => CutArchive.GetFileList(path),
+                // NDS Nitro FS entries are plain contiguous byte ranges, so the
+                // disk-backed backend serves them like any other range archive.
+                ArchiveAssetType.Nds => NdsRomArchive.GetFileList(path),
                 _ => throw new InvalidOperationException()
             };
         }
