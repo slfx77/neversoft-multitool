@@ -401,7 +401,20 @@ through the existing BMP facade.
 - Source: decomp contract `thps2-psx-proto docs/level_object_anim_binding.md` (2026-07-09; RunAnim/CycleAnim/CalculateAnimOrder PERFECT).
 - Binding chain is fully known: item→region by filename (`Spool_FindRegion`), stream selected by the item's own `mAnim` index into the region's `pAnimFile` table (stride 8, count-prefixed — NOT stream-i→item-i), per-bone positional with parent tree from `pHierarchy` (`mapTable[bone]=parent`), cross-model retarget by name via CalculateAnimOrder. `has pAnimFile ≡ IsSuper` — animated level objects (traffic cars etc.) are CSuper instances on the same skeletal path as characters.
 - Shipped 2026-08-10: `PsxPlacedTrafficResolver` handles the proven D5–DA constructor table and separate traffic `CSuper` files, first-road-node placement, initial Y offset, instance roots, skins, and embedded loop 0. Script-reachable non-startup nodes are deliberately behind a default-disabled snapshot group because trigger time, repeats, suspension, and route translation are not reconstructed. Final Downtown emits three taxi rigs (+711 triangles); San Francisco emits one van and two cable cars (+318); prototype Downtown uses the proven `taxi.psx` fallback. Distinct GLB/Blender roots and shared per-source actions are regression-pinned, and optional source failures roll back atomically.
-- The former plan was based on a false premise: prototype `skdown.psx` has 836 level object records but no 0x2A/0x2C animation chunk. Traffic animation resides in separate TRG-selected super files. No animated-door fixture was found, and tag 0x45 remains a separate observed UI/effect path.
+- The former plan was based on a false premise: prototype `skdown.psx` has 836 level object records but no 0x2A/0x2C animation chunk. Traffic animation resides in separate TRG-selected super files. No animated-door fixture was found, and tag 0x45 remains a separate UI/effect path.
+- ✅ **Tag 0x45 is the one NAMED animation table in the PSX format — surfaced 2026-08-19.** Its
+  group header is not two opaque words but an 8-byte NUL-padded ASCII name followed by
+  `u32 animCount`, then `animCount` 8-byte entries. `psxanim` printed those bytes as hex, and its
+  entry path could never reach them anyway: the table ships in **mesh-less** files, so the
+  post-mesh walk bailed with "No mesh data". `PsxMeshFile.TryGetChunk` now finds the chunk
+  directly and `PsxAnimDumpWalker.ReadPackedName` decodes the name (falling back to raw words
+  when the bytes are not a name, so a mis-framed packet stays legible). Corpus: **138 files, 474
+  groups, 2,630 anims**, pinned by `PsxAnimDumpCommandTests`. Real names now visible —
+  `FONTSMLL`, `SHADOW`, `SMOKE`, `ribbon`, `Buttons`, `EXPFIRE`, `FIREBALL`, `WebKnot`,
+  `SpiderBa`, `RhinoBol`, `Compass`, `WebCart`, `LoadIcon`, `Reticle`, `Slime`, `SymDrop`.
+  `FONTSMLL` is the same string `Font_Init` passes to `Spool_FindAnim` (`FONT.cpp:146`), which
+  independently confirms the framing. **Scope**: this is the sprite/effect path only — it does
+  *not* name skeletal clips, and no character `.psx` carries a 0x45 chunk.
 - What's left: runtime-accurate script timing/repeated spawns/road motion, plus any other placed skeletal family once a named fixture and binding contract exist. Do not broaden the traffic snapshot into a claim of general placed-object animation support.
 
 ### ⚪ THUG2 precompiled `.skin.ps2` without `.iskin.ps2` — no shipped orphan demonstrated

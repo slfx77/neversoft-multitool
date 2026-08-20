@@ -200,11 +200,9 @@ public sealed class PsxMeshFile
     ///     anim data) the engine overwrites <c>pAnimFile</c> with each, so
     ///     this returns the <b>last</b> matching chunk to mirror engine
     ///     semantics.
-    ///     Returns <c>true</c> on success; <paramref name="chunkTag" /> identifies
-    ///     the variant and <paramref name="chunkDataOffset" /> points to the
-    ///     chunk data (engine equivalent of <c>pAnimFile</c>). Returns false on
-    ///     malformed files or files without an anim/hier chunk (e.g. texture-only
-    ///     libraries).
+    ///     Returns <c>true</c> on success; the out parameters identify the variant and point at
+    ///     the chunk data (engine equivalent of <c>pAnimFile</c>). Returns false on malformed
+    ///     files or files without an anim/hier chunk (e.g. texture-only libraries).
     /// </summary>
     public static bool TryGetAnimChunkTag(byte[] data, out uint chunkTag, out int chunkDataOffset)
     {
@@ -212,18 +210,18 @@ public sealed class PsxMeshFile
         chunkDataOffset = -1;
         if (data.Length < 8) return false;
 
-        var metaTop = BitConverter.ToInt32(data, 4);
-        if (metaTop < 8 || metaTop > data.Length - 8)
+        var animMetaTop = BitConverter.ToInt32(data, 4);
+        if (animMetaTop < 8 || animMetaTop > data.Length - 8)
             return false;
 
-        var cursor = metaTop;
+        var animCursor = animMetaTop;
         var found = false;
-        while (cursor + 8 <= data.Length)
+        while (animCursor + 8 <= data.Length)
         {
-            var tag = BitConverter.ToUInt32(data, cursor);
+            var tag = BitConverter.ToUInt32(data, animCursor);
             if (tag == 0xFFFFFFFFu) break;
-            var size = BitConverter.ToUInt32(data, cursor + 4);
-            var dataOffset = cursor + 8;
+            var size = BitConverter.ToUInt32(data, animCursor + 4);
+            var dataOffset = animCursor + 8;
             if (size > (uint)(data.Length - dataOffset))
             {
                 chunkTag = 0;
@@ -238,10 +236,61 @@ public sealed class PsxMeshFile
                 found = true;
             }
 
-            cursor = dataOffset + (int)size;
+            animCursor = dataOffset + (int)size;
         }
 
         return found;
+    }
+
+    /// <summary>
+    ///     Chunk tag <c>0x45</c> — the named sprite/effect animation table. Unlike the skeletal
+    ///     chunks this one carries 8-byte NUL-padded ASCII group names, and it ships in mesh-less
+    ///     files rather than character models. Verified in THPS2's <c>bits.psx</c>:
+    ///     <c>FONTSMLL</c> (41 anims), <c>SHADOW</c> (1), <c>SMOKE</c> (8), <c>ribbon</c> (1),
+    ///     <c>Buttons</c> (2). <c>FONTSMLL</c> is the same string <c>Font_Init</c> hands to
+    ///     <c>Spool_FindAnim</c> in the matched decomp (<c>FONT.cpp:146</c>).
+    /// </summary>
+    public const uint SpriteAnimChunkTag = 0x45;
+
+    /// <summary>
+    ///     Finds the first tagged chunk matching <paramref name="tag" />, returning where its
+    ///     data starts and how long it is. Walks the same chain as
+    ///     <see cref="TryGetAnimChunkTag" /> but does not require the file to contain meshes.
+    /// </summary>
+    public static bool TryGetChunk(byte[] data, uint tag, out int chunkDataOffset, out int chunkSize)
+    {
+        chunkDataOffset = -1;
+        chunkSize = 0;
+        if (data.Length < 8)
+            return false;
+
+        var metaTop = BitConverter.ToInt32(data, 4);
+        if (metaTop < 8 || metaTop > data.Length - 8)
+            return false;
+
+        var cursor = metaTop;
+        while (cursor + 8 <= data.Length)
+        {
+            var currentTag = BitConverter.ToUInt32(data, cursor);
+            if (currentTag == 0xFFFFFFFFu)
+                return false;
+
+            var size = BitConverter.ToUInt32(data, cursor + 4);
+            var dataOffset = cursor + 8;
+            if (size > (uint)(data.Length - dataOffset))
+                return false;
+
+            if (currentTag == tag)
+            {
+                chunkDataOffset = dataOffset;
+                chunkSize = (int)size;
+                return true;
+            }
+
+            cursor = dataOffset + (int)size;
+        }
+
+        return false;
     }
 
     /// <summary>

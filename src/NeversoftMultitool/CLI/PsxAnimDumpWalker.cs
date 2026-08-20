@@ -55,6 +55,31 @@ internal static class PsxAnimDumpWalker
     // ─── Layer 2: anim packet walk ──────────────────────────────────────
 
     /// <summary>
+    ///     Reads the group's 8-byte NUL-padded ASCII name. Falls back to the two raw words when
+    ///     the bytes are not printable, so a mis-framed packet is still legible rather than
+    ///     silently rendered as an empty name.
+    /// </summary>
+    internal static string ReadPackedName(byte[] data, int offset)
+    {
+        var span = data.AsSpan(offset, 8);
+        var length = span.IndexOf((byte)0);
+        if (length < 0)
+            length = 8;
+
+        var printable = length > 0;
+        for (var i = 0; i < length && printable; i++)
+            printable = span[i] is >= 0x20 and < 0x7F;
+
+        // Anything after the terminator must be padding for this to be a name at all.
+        for (var i = length; i < 8 && printable; i++)
+            printable = span[i] == 0;
+
+        return printable
+            ? System.Text.Encoding.ASCII.GetString(span[..length])
+            : $"0x{BitConverter.ToUInt32(data, offset):X8} 0x{BitConverter.ToUInt32(data, offset + 4):X8}";
+    }
+
+    /// <summary>
     ///     Tentatively walk the <c>PreProcessAnimPacket</c> structure starting
     ///     at <paramref name="offset" />. Returns the byte offset just past the
     ///     packet, or <paramref name="offset" /> unchanged if the structure
@@ -89,9 +114,12 @@ internal static class PsxAnimDumpWalker
                 return offset;
             }
 
-            // Per PreProcessAnimPacket: 2 words of group header, then animCount.
-            var hdr0 = BitConverter.ToUInt32(data, pos);
-            var hdr1 = BitConverter.ToUInt32(data, pos + 4);
+            // The "2 words of group header" are one 8-byte NUL-padded ASCII group NAME, then
+            // animCount. Verified on disk in bits.psx at 0x170: "SHADOW\0\0" + 1, "SMOKE\0\0\0"
+            // + 8, "ribbon\0\0" + 1, "Buttons\0" + 2. These names were previously printed as
+            // hex words, so the one place the PSX format does carry animation names never
+            // surfaced them.
+            var groupName = ReadPackedName(data, pos);
             var animCount = BitConverter.ToUInt32(data, pos + 8);
             pos += 12;
 
@@ -104,7 +132,7 @@ internal static class PsxAnimDumpWalker
 
             if (verbose || g < 4)
                 AnsiConsole.MarkupLine(
-                    $"  group {g}: hdr=0x{hdr0:X8} 0x{hdr1:X8} animCount={animCount}");
+                    $"  group {g}: name={Markup.Escape(groupName)} animCount={animCount}");
 
             for (var a = 0; a < animCount; a++)
             {
@@ -113,7 +141,9 @@ internal static class PsxAnimDumpWalker
                 var aux = BitConverter.ToUInt32(data, pos + 4);
                 pos += 8;
 
-                if (meshIdx >= (uint)meshCount) meshIdxOutOfRange++;
+                // meshCount 0 means the caller has no mesh table to validate against (the
+                // mesh-less 0x45 sprite table), so the range check is not evidence there.
+                if (meshCount > 0 && meshIdx >= (uint)meshCount) meshIdxOutOfRange++;
                 if (verbose && a < 4)
                     AnsiConsole.MarkupLine($"    anim {a}: meshIdx={meshIdx} aux=0x{aux:X8}");
             }

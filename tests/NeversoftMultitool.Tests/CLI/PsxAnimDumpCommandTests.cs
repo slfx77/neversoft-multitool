@@ -147,6 +147,99 @@ public sealed class PsxAnimDumpCommandTests
         return stream.ToArray();
     }
 
+    [Theory]
+    [InlineData(new byte[] { 0x53, 0x48, 0x41, 0x44, 0x4F, 0x57, 0, 0 }, "SHADOW")]
+    [InlineData(new byte[] { 0x46, 0x4F, 0x4E, 0x54, 0x53, 0x4D, 0x4C, 0x4C }, "FONTSMLL")]
+    [InlineData(new byte[] { 0x53, 0x70, 0, 0, 0, 0, 0, 0 }, "Sp")]
+    public void ReadPackedName_DecodesTheEightByteGroupName(byte[] raw, string expected)
+    {
+        Assert.Equal(expected, PsxAnimDumpWalker.ReadPackedName(raw, 0));
+    }
+
+    [Theory]
+    // Non-printable bytes, and a name with content after its terminator: neither is a name, so
+    // both must fall back to the raw words rather than silently decoding to something short.
+    [InlineData(new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 })]
+    [InlineData(new byte[] { 0x41, 0x42, 0, 0x43, 0, 0, 0, 0 })]
+    [InlineData(new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 })]
+    public void ReadPackedName_FallsBackToRawWordsWhenTheBytesAreNotAName(byte[] raw)
+    {
+        Assert.StartsWith("0x", PsxAnimDumpWalker.ReadPackedName(raw, 0), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SpriteAnimChunk_IsFoundInAMeshlessFileAndCarriesNames()
+    {
+        // The 0x45 table is the one place the PSX format stores animation names, and it ships in
+        // mesh-less files, so the post-mesh walk can never reach it. Synthetic equivalent of
+        // bits.psx: header, metaTop, one 0x45 chunk of two named groups.
+        var stream = new MemoryStream();
+        var writer = new BinaryWriter(stream);
+        writer.Write((ushort)4);       // version
+        writer.Write((ushort)2);       // magic
+        writer.Write(16);              // metaTop
+        writer.Write(new byte[8]);     // padding to 0x10
+        writer.Write(PsxMeshFile.SpriteAnimChunkTag);
+        writer.Write(4 + 12 + 8 + 12); // chunk size
+        writer.Write(2);               // groupCount
+        writer.Write(Encoding.ASCII.GetBytes("SHADOW\0\0"));
+        writer.Write(1);               // animCount
+        writer.Write(0L);              // one 8-byte anim entry
+        writer.Write(Encoding.ASCII.GetBytes("SMOKE\0\0\0"));
+        writer.Write(0);               // animCount
+        writer.Flush();
+        var data = stream.ToArray();
+
+        Assert.True(PsxMeshFile.TryGetChunk(
+            data, PsxMeshFile.SpriteAnimChunkTag, out var offset, out var size));
+        Assert.Equal(0x18, offset);
+        Assert.Equal(36, size);
+        Assert.Equal("SHADOW", PsxAnimDumpWalker.ReadPackedName(data, offset + 4));
+        Assert.Equal("SMOKE", PsxAnimDumpWalker.ReadPackedName(data, offset + 4 + 12 + 8));
+    }
+
+    [CorpusFact]
+    public void EveryCorpusSpriteAnimTableDecodesToPrintableNames()
+    {
+        var paths = new TestPaths();
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var files = 0;
+        var groups = 0;
+        var anims = 0;
+        foreach (var file in Directory
+                     .EnumerateFiles(paths.SampleBuildsDir!, "*", SearchOption.AllDirectories)
+                     .Where(static f => Path.GetExtension(f)
+                         .Equals(".psx", StringComparison.OrdinalIgnoreCase)))
+        {
+            var data = File.ReadAllBytes(file);
+            if (!PsxMeshFile.TryGetChunk(
+                    data, PsxMeshFile.SpriteAnimChunkTag, out var offset, out _))
+                continue;
+
+            files++;
+            var count = BitConverter.ToUInt32(data, offset);
+            Assert.InRange(count, 1u, 64u);
+            var pos = offset + 4;
+            for (var g = 0; g < count; g++)
+            {
+                var name = PsxAnimDumpWalker.ReadPackedName(data, pos);
+                // A raw-word fallback here would mean the grammar is mis-framed.
+                Assert.DoesNotContain("0x", name, StringComparison.Ordinal);
+                groups++;
+                var animCount = (int)BitConverter.ToUInt32(data, pos + 8);
+                anims += animCount;
+                pos += 12 + animCount * 8;
+            }
+        }
+
+        // Named sprite/effect tables across Apocalypse, THPS and the Spider-Man protos —
+        // e.g. FONTSMLL, SHADOW, SMOKE, ribbon, Buttons, WebKnot, RhinoBol, Compass, Slime.
+        Assert.Equal(138, files);
+        Assert.Equal(474, groups);
+        Assert.Equal(2_630, anims);
+    }
+
     private sealed class TempDirectory : IDisposable
     {
         public TempDirectory()

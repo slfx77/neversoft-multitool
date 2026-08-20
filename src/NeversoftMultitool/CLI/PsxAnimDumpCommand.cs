@@ -106,6 +106,19 @@ public static class PsxAnimDumpCommand
         cancellationToken.ThrowIfCancellationRequested();
         if (meshFile == null)
         {
+            // The named sprite/effect table lives in mesh-less files (bits.psx and friends), so
+            // the post-mesh route can never reach it. Walk the tagged chunk directly instead —
+            // this is the one place the PSX format carries animation names.
+            if (PsxMeshFile.TryGetChunk(data, PsxMeshFile.SpriteAnimChunkTag, out var spriteOffset, out _))
+            {
+                AnsiConsole.MarkupLine(
+                    "[grey]No mesh data; walking the tagged 0x45 sprite/effect anim table.[/]");
+                AnsiConsole.MarkupLine(
+                    "\n[bold underline]Layer 2[/] [grey]— named anim packet (chunk 0x45)[/]");
+                PsxAnimDumpWalker.TryWalkAnimPacket(data, spriteOffset, meshCount: 0, verbose: true);
+                return 0;
+            }
+
             AnsiConsole.MarkupLine("[red]No mesh data — cannot locate post-mesh region.[/]");
             return 1;
         }
