@@ -104,7 +104,7 @@ public sealed class N64RomArchiveTests(TestPaths paths)
         Assert.SkipWhen(romPath == null, "THPS2 N64 ROM sample not available");
 
         var entries = N64RomArchive.GetFileList(romPath!);
-        Assert.Equal(3_962, entries.Count);
+        Assert.Equal(3_995, entries.Count);
 
         int CountUnder(string dir) => entries.Count(entry => entry.Name.StartsWith(dir + "/", StringComparison.Ordinal));
         Assert.Equal(564, CountUnder("models")); // 141 bundles x 4 slots
@@ -152,10 +152,10 @@ public sealed class N64RomArchiveTests(TestPaths paths)
         "Tony Hawk's Pro Skater (USA).z64", 2_176, "textures", 1_488,
         "audiobanks/014.bfx.n64")]
     [InlineData("Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)",
-        "Tony Hawk's Pro Skater 3 (USA).z64", 3_313, "textures", 2_484,
+        "Tony Hawk's Pro Skater 3 (USA).z64", 3_346, "textures", 2_484,
         "misc/000.bfx.n64")]
     [InlineData("Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64",
-        4_286, "group2", 280, "audiobanks/000.bfx.n64")]
+        4_347, "group2", 280, "audiobanks/000.bfx.n64")]
     public void CarvedListing_PinsTheOtherRoms(
         string buildName,
         string romName,

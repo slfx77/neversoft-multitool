@@ -28,17 +28,17 @@ public sealed class N64SfxCueBankTests(TestPaths paths)
         },
         {
             Thps2N64Build, Thps2N64Rom,
-            3_962, 14, 671, 10_792, 32, 65, 497, 174,
+            3_995, 14, 671, 10_792, 32, 65, 497, 174,
             "BDCE333142A7AEB912444F74802F3A475BBE8CEE943F54683DF4DDCC00BE96EF"
         },
         {
             Thps3N64Build, Thps3N64Rom,
-            3_313, 14, 572, 9_208, 32, 54, 372, 200,
+            3_346, 14, 572, 9_208, 32, 54, 372, 200,
             "0E934D22BA9FF7D7F569E016DE7CCF033D35C333116893F240EA1094B66B0A0C"
         },
         {
             SpiderManN64Build, SpiderManN64Rom,
-            4_286, 55, 1_929, 31_084, 7, 53, 1_765, 164,
+            4_347, 55, 1_929, 31_084, 7, 53, 1_765, 164,
             "8030C60E9EDB23D4AC411EEEEEAC7EE882C0A4ED401BD8D8F9EB5F8FF6F6FEEA"
         }
     };

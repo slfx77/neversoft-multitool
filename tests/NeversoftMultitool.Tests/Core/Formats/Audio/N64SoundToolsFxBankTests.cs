@@ -901,7 +901,7 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
             ("ST314.TGZ:usr/src/PR/libsrc/libsoundtoolssc/player_commands.c",
                 17_078, SoundTools314PlayerCommandsSha256),
             ("ST314.TGZ:usr/src/PR/libsrc/libsoundtoolssc/libmus_data.h",
-                4_286, SoundTools314DataHeaderSha256)
+                4_347, SoundTools314DataHeaderSha256)
         };
         Assert.All(sourceOracle, static source =>
         {
@@ -940,7 +940,7 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
                     0xA1124, "5BAE2B85F38810CC9FA5F133D54376F77DCF916E452D4FA4CA4DA67399A1E212",
                     0xA144C, "CD00949474473E09999A819187381062BBD9C29FE9A6AFC7BD8A8C140C725DDF")),
             new("Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)",
-                "Tony Hawk's Pro Skater 2 (USA).z64", 3_962,
+                "Tony Hawk's Pro Skater 2 (USA).z64", 3_995,
                 0x80016B20u, 0xBBFE0, 0x800D2B00u,
                 "C3FB620AA6FA679671EEE7A340DBD7E96ECAF3C3559B57A120561850D4476787",
                 "misc/000.bfx.n64", "misc/001.ptr.n64", 379,
@@ -965,7 +965,7 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
                     0xBF208, "B042D96FA5A04BF1F1A994A1114E963AC882AF6C32F313BB6FAE456349B11FAC",
                     0xBF530, "9D9D4C70545857AEB1BCA4C01CA984534FCBC11F4F3285FAC6CFED1D37C0F3B9")),
             new("Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)",
-                "Tony Hawk's Pro Skater 3 (USA).z64", 3_313,
+                "Tony Hawk's Pro Skater 3 (USA).z64", 3_346,
                 0x80016B20u, 0xC0CF0, 0x800D7810u,
                 "E0CF7950E722EEB59555EF01D027771502C739ECB6CF47ED09522128B477249B",
                 "misc/000.bfx.n64", "misc/001.ptr.n64", 257,
@@ -990,7 +990,7 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
                     0xC3F18, "BDEF4D5B6982A62EA7B8EF41C91FA52553E703401B6F8527B30EDC5BAA3521AD",
                     0xC4240, "0EDAA4F9FC97D0390BD6FD91E8DE2F525149AB7D03AEF05E82CAC6D45F316549")),
             new("Spider-Man (2000-11-21, N64 - Final)",
-                "Spider-Man (USA).z64", 4_286,
+                "Spider-Man (USA).z64", 4_347,
                 0x80016AE0u, 0xC4690, 0x800DB170u,
                 "1D3ED3384F45ADA2EBF6CB0666DDC7FEC4C4FFDB6FDB993B8D566AA3CD4F3867",
                 "audiobanks/000.bfx.n64", "audiobanks/001.ptr.n64", 996,
@@ -1523,7 +1523,10 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
             }
         }
 
-        Assert.Equal(13_737, totalAssets);
+        // 13,737 before the overlay roster was carved (2026-08-20): +33 each for
+        // THPS2/THPS3 (16 overlays x code+reloc, plus one footer) and +61 for
+        // Spider-Man (30 overlays), with THPS1 unchanged since it ships none.
+        Assert.Equal(13_864, totalAssets);
         Assert.Equal(1_680, totalComponents);
         Assert.Equal(1_680, totalEffects);
         Assert.Equal(1_608, totalLocalWaves);

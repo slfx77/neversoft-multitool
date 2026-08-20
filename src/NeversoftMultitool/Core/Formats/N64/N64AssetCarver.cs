@@ -98,9 +98,66 @@ public static class N64AssetCarver
             }
         }
 
+        CarveOverlayRegion(rom, bootTable, groups, assets);
         NameSoundToolsFxBank(assets);
         NameBundles(assets);
         return true;
+    }
+
+    /// <summary>
+    ///     Emits the overlay roster the engine DMAs from a hardcoded cart
+    ///     address. Nothing in the master directory points at it, so without
+    ///     this it stays invisible.
+    ///     <para>
+    ///         The region's BOUNDS need no manifest — it runs from the end of
+    ///         directory coverage to the last non-pad byte — so when the roster
+    ///         cannot be proven to describe it the whole thing is still emitted
+    ///         as one blob. Splitting on an unproven fixup would mis-slice every
+    ///         file silently, which is strictly worse than one honest blob.
+    ///     </para>
+    /// </summary>
+    private static void CarveOverlayRegion(
+        byte[] rom,
+        N64RomArchive.SubFileTable bootTable,
+        IReadOnlyList<N64RomArchive.StreamGroup> groups,
+        List<CarvedAsset> assets)
+    {
+        var start = N64OverlayManifest.FindDirectoryEnd(bootTable, groups);
+        var end = N64OverlayManifest.FindRegionEnd(rom, start);
+        if (end <= start)
+            return; // THPS1 ships no overlay region.
+
+        var boot = assets.Count > 0 && assets[0].Path == BootAssetPath
+            ? N64BootImage.TryOpen(assets[0].Data)
+            : null;
+        var payloads = N64OverlayManifest.Slice(
+            N64OverlayManifest.ReadEntries(boot), start, end, rom.Length);
+
+        if (payloads.Count == 0)
+        {
+            assets.Add(new CarvedAsset(
+                $"{OverlayRole}/{OverlayRole}.bin", rom[start..end]));
+            return;
+        }
+
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var payload in payloads)
+        {
+            var stem = SanitizeStem(payload.Name);
+            var path = $"{OverlayRole}/{stem}{payload.Extension}";
+            // Two overlays sharing a name would otherwise overwrite each other.
+            if (!used.Add(path))
+                path = $"{OverlayRole}/{stem}_{payload.Offset:X6}{payload.Extension}";
+
+            assets.Add(new CarvedAsset(
+                path, rom[payload.Offset..(payload.Offset + payload.Length)]));
+        }
+
+        // A small footer sits past the last roster payload in every ROM that
+        // has one. Emit it rather than let the split quietly drop stored bytes.
+        var claimed = payloads.Max(static payload => payload.Offset + payload.Length);
+        if (claimed < end)
+            assets.Add(new CarvedAsset($"{OverlayRole}/trailer.bin", rom[claimed..end]));
     }
 
     /// <summary>
@@ -244,6 +301,9 @@ public static class N64AssetCarver
     private const string ModelRole = "models";
 
     private const string TriggerRole = "triggers";
+
+    /// <summary>Role for the hardcoded-DMA overlay roster.</summary>
+    private const string OverlayRole = "overlays";
 
     /// <summary>
     ///     The boot package's own asset path. The naming post-pass reads it for
