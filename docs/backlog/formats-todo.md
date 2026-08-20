@@ -463,6 +463,29 @@ through the existing BMP facade.
   *not* name skeletal clips, and no character `.psx` carries a 0x45 chunk.
 - What's left: runtime-accurate script timing/repeated spawns/road motion, plus any other placed skeletal family once a named fixture and binding contract exist. Do not broaden the traffic snapshot into a claim of general placed-object animation support.
 
+### ⚪ PSX 2P/HORSE "SP-instance leak" — INVESTIGATED 2026-08-20, does not reproduce
+- The report: `skny_2.glb` carries the same eight `obj_barrier01` instances as `skny.glb`
+  "despite `SkNY_O2` holding 2 objects", concluded to be one-player re-instances leaking through
+  `PsxLevelObjectPlacementResolver`, which overlays every PLATFORM/MANIPOB node with no region
+  filter. Measured, the premise is wrong on both halves.
+- **`obj_barrier01` is one of `SkNY_O2`'s two objects.** Eight placements is what the engine
+  produces: the two-player region shares `skny_t.trg`, so the same nodes run, and the only gate
+  is whether the node's model checksum resolves in the bound bank. It does.
+- **There is no spatial region filter to add.** `Trig_InitialParseTRGFile` (TRIG.cpp:3090,
+  PERFECT 130/130) only chooses AUTOEXEC2 over AUTOEXEC when two players are active — already
+  implemented by `PsxTrgBootScript` — and `Trig_ParseTRGFile` walks every node regardless of
+  region. The engine's bank scoping is `pCurrentObjFile` alone, which the resolver already
+  enforces by looking each node's checksum up in the bound bank.
+- The leak is not expressible by the current code: `Resolve` returns placements keyed by BANK
+  OBJECT INDEX, so every placement belongs to the bound bank by construction.
+- What made it look like a leak: `dt_park_rail03` appears in both outputs, but converting each
+  level with no companions shows it is LEVEL GEOMETRY in `skny.psx` and a BANK object in
+  `SkNY_O2` — same name, unrelated sources. Meanwhile `skny_2` correctly drops
+  `obj_ny_banks_backboard` and `obj_token01`, which are one-player-bank-only.
+- Pinned by `PsxVariantBankScopeTests` so the claim is checkable rather than re-litigated.
+  Re-open only with a variant where an emitted mesh is in NEITHER the bound bank nor the
+  region's own geometry.
+
 ### ⚪ THUG2 precompiled `.skin.ps2` without `.iskin.ps2` — no shipped orphan demonstrated
 - Re-audited 2026-08-10. The old extension census counted physical preload copies as unique unsupported assets. THUG2 PS2 contains 2,478 `.skin.ps2` copies but only 739 unique payload hashes. Every one of the 739 canonical files has a same-stem `.iskin.ps2`; all 1,739 apparent bare copies are byte-identical to one of those paired canonical skins. Archive and directory scans already prefer the higher-quality intermediate file, so every shipped unique model has a supported source.
 - The 746 non-THAW-conformant entry tables must continue to reject rather than replay through `ThawPs2SkinFile`. A native THUG2 precompiled VIF decoder is now evidence-gated, not active backlog: re-open only for a genuinely unique orphan fixture or an explicit detached-copy conversion requirement.
