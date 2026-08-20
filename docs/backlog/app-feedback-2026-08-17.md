@@ -649,7 +649,7 @@ different coplanar polygons.
 
 D3 family — subtractive window-darkening pass vs ENVMAPPED reflection pass; probe decides which.
 
-### E7. 🔴 z_bh: multiple object setups loaded simultaneously
+### E7. ✅ z_bh: multiple object setups loaded simultaneously — FIXED 2026-08-19
 
 ```
 # DATAP.WAD::worlds/worldzones/z_bh/z_bh.pak.ps2
@@ -712,6 +712,94 @@ z_sm 103, z_dn 99, z_ho 48, z_lv 12) parsed by the engine after the node array
 (`cfuncs.cpp:6417-6494`); world ambient/diffuse/direction are script commands whose global TOD
 driver script is not yet located. Authored `brightness` is a runtime placeholder (116/117 zero).
 Weather is particle-only (does not feed lighting).
+
+## E-series execution log — 2026-08-19 (same day)
+
+Seven commits: `6a13d53` (E-series recorded), `455231f` (TEX decode context), pak naming +
+mission pooling, `7fe0729` (node-array gating), viewer subtractive/MASK, depth bias, level lights.
+Evidence under `TestOutput/triage2/` (fresh Day/All/Night conversions with the gate-aware debug
+CSVs, all 12 E-pose probes + renders, E7 before/after renders).
+
+- **Latent regression caught first (not user-reported)**: `049db3c`'s zone-first TEX ordering
+  silently rewired all 332 THAW PS2 skin companions through the zone decoder — `IsThawZoneTex`
+  claims every skin companion (structural identity satisfied byte-for-byte), 331/332 diverged,
+  752/905 textures changed pixels. Both v6 parsers false-accept each other's layout, so bytes
+  cannot decide: `BuildPs2TextureProvider` now takes the CALLER's context (PakMdl → zone-first;
+  skins/scenes → scene decoder). Census + routing pins in `ThawSkinCompanionDecodeTests`.
+- **E1/E2 🔶** — three fixes shipped, one follow-up scoped. (1) Mission-pak extraction was LOSSY
+  (all unnamed entries named `mission.<ext>`, overwriting each other) — colliding generated names
+  now splice the pak offset in (`PakNameCollisionTests`; previously-unpacked mission dirs incl.
+  Sample's want re-extraction). (2) Mission paks pool their base zone's texture dictionaries
+  (m_zbhgaps4's catalog 3 → 866 textures; census: all 218 mission families map to exactly one
+  zone). (3) Texture resolution itself proved HEALTHY (`entry_exact` per leaf). The remaining
+  visual defect is **vehicle part assembly**: both mission vehicles render with parts at identity
+  (E2's police-car roof standing through the body). The assembly contract was DISCOVERED — the
+  vehicle's own mqb NodeArray carries `Class = ModelExport` nodes with exact per-part pos/Angles
+  (`car` rotated (−90°,90°,180°), `Car_Wheel01..04`, `Car_Shadow`) — but the part→leaf join is
+  unproven (13 leaves vs 11 ModelExport nodes; leaf ClassHashes are 0 on this path). Scoped
+  follow-up; also fixes regular-zone vehicles, which have never been placed (their triads carry
+  an interposed `.rnb` + nonzero CRCs). E2's uniform BLEND is faithful to the registers
+  (std-source-alpha + authored AREF=30 test).
+- **E3/E5/E9 🔶 (z-fight family)** — two mechanisms shipped: OPAQUE overlay passes above the base
+  layer now export the PSX-style rank-scaled node-transform offset (they previously exported ZERO
+  separation), and the viewer scales the log-depth term by `(1 − passIndex·2e-4)` per material —
+  constant RELATIVE separation at every view distance, which is what E9's distant fights needed
+  (fixed world-space offsets are sub-precision at 20k units; `polygonOffset` is inert under
+  `logarithmicDepthBuffer`). E5's opaque layer (`wilsher_preblast01`) additionally left the
+  default export via story-state gating. In-app confirmation = the Phase-4 pass.
+- **E4 🔶** — the subtractive bake now recovers the GS darkening magnitude in-app
+  (`applyNativeSubtractiveUnlit`: the portable 0.30 alpha constant divides back out; the exported
+  PNG alpha already carries the ×255/128 GS rescale, so 1/0.30 is exact). NOTE: the design-pass
+  theory "lit specular turns stacked shadows into a navy slab" was WRONG for current exports —
+  `RenderMaterial.Unlit` defaults true, worldzone GLBs already ship `KHR_materials_unlit` (now
+  pinned). The gain is the effective change; in-app confirmation pending.
+- **E6/E11 🔶 cause identified, fix scoped** — the "black overlay over window" is a THIRD blend
+  class: `alpha1 = 0x58` = (Cs−0)·**Ad**/128+Cd — a DEST-ALPHA-scaled additive envmap pass
+  (leafFlags carry NODEFLAG_ENVMAPPED 0x4000; all three E6 layers share one reflection texture
+  494971CE). It currently exports as plain BLEND, so the black-ish reflection texture DARKENS the
+  window instead of glinting. Follow-up: classify C=1 (Ad) additive-family blends into the
+  additive bake/blend-class path (approximating Ad; the GLB has no dest alpha), or default the
+  envmap pass off behind a group.
+- **E7 ✅ FIXED** (`7fe0729`) — see the entry above; A/B renders in `TestOutput/triage2/probes/E7*`
+  (both gas-sign states stacked → one intact sign). z_sm pins: All−Day=264 / All−Night=90; story
+  variants (FERRISAFRAME et al., 310 z_sm leaf instances) behind default-off `thaw.variant.*`
+  visibility groups, restorable per state and pinned exclusive (`Ps2WorldzoneTimeOfDayTests`).
+  The gate also fixed the TOD leak both ways (night-gated leaves without NightOn names now leave
+  Day; two NightOn-NAMED spot glows whose nodes author TOD_NightOff gates correctly stay).
+  Residue: nodes authored with NO flags at all (`Z_BH_g_cityhall_post_ball_shadow_01`) stay in
+  Base — script-created by name, no declarative gate to read.
+- **E8 🔶** — in-app fix shipped (`applyMaskCutoutStability`: alpha-to-coverage + max anisotropy,
+  hard test removed; the PS1 nearest/no-mip path self-excludes). Verify in-app at the E8 pose
+  near AND far, plus the B8 fence pose (the two reports are opposite failure directions of one
+  mechanism).
+- **E10 🔶 reframed** — the "computers" are `Class = levelobject` movables (`Z_CH_laptop` sits at
+  the exact pose target) whose BODIES are external models: the zone pak ships only their baked
+  shadow decals in the level MDL (z_ch has zero object MDLs / zero .mqb), and gameobjects
+  (SKATE letters, secret tape) name explicit `model = "gameobjects\..."` paths that don't resolve
+  in the curated Sample tree. The suspected local-space leaf drop was REFUTED (zero such leaves;
+  the drop is now rejection-logged writer-wide — z_sm shows 22). Note the movables are
+  `AbsentInNetGames`, so the _net export matching the engine lacks them regardless. Follow-up:
+  external-model placement for levelobject/gameobject nodes (needs the model source located —
+  likely another pak — and the levelobject name→model contract).
+- **E12 🔶 v1 shipped + A1 unblocked** — authored `levellight` nodes now parse
+  (`ResolveLevelLights`: z_bh 157 with position/colour/radii/exclusions/TOD gates, pinned against
+  the decompile) and ship as GLB scene extras `neversoftLevelLights` (data-only: authored
+  brightness is a runtime placeholder). **The global TOD driver is located and decompiled**:
+  `pak/qb.pak/scripts/engine/tod_manager.qb.ps2` carries
+  `tod_manager_default_{morning,afternoon,evening,night}` — per-phase level-colour modulation
+  (`lev_r/g/b`, ≈×/128 neutral), ambient RGB + mod factors, TWO directional lights
+  (heading/pitch/RGB/mod), an `indoor` sub-rig per phase, fog colour/alpha/dist, and `_sky`
+  structs (sun theta/phi/RGB + sky RGB); the engine's default state is **afternoon**, zones can
+  override via their level structure's `tod_manager_params`, and the NodeFlag switch mechanics
+  (`tod_manager_update_fakelights_and_geo`) match the shipped gate implementation exactly.
+  A1's remaining work is the application layer: viewer TOD tint/rigs + slider over the four
+  phases, point-light application policy, per-zone override survey.
+
+**Follow-ups spawned/updated**: vehicle part assembly (E1/E2 — ModelExport contract discovered);
+external-model placement (E10 + B9.1 synergy); dest-alpha additive envmap class 0x58 (E6/E11);
+Phase-4 in-app pass now also verifies Streams 5-7 (subtractive gain, depth bias, MASK stability);
+Sample mission-pak dirs want re-extraction post naming fix; A1 application layer (data model
+complete).
 
 ## Suggested working order
 
