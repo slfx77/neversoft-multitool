@@ -39,7 +39,8 @@ internal sealed class MeshConverterTabAnimationExporter(
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        SkaAnimationSourceRig? animationSourceRig = null)
+        SkaAnimationSourceRig? animationSourceRig = null,
+        bool oneShot = false)
     {
         if (animations.Count == 0)
         {
@@ -58,7 +59,7 @@ internal sealed class MeshConverterTabAnimationExporter(
         {
             var result = await Task.Run(
                 () => CharacterAnimationConverter.BuildAnimatedGlb(
-                    character, animations, visibilityOverrides, animationSourceRig),
+                    character, animations, visibilityOverrides, animationSourceRig, oneShot),
                 cts.Token);
 
             if (result.GlbBytes == null)
@@ -89,7 +90,8 @@ internal sealed class MeshConverterTabAnimationExporter(
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        SkaAnimationSourceRig? animationSourceRig = null)
+        SkaAnimationSourceRig? animationSourceRig = null,
+        bool oneShot = false)
     {
         if (animations.Count == 0)
         {
@@ -113,7 +115,7 @@ internal sealed class MeshConverterTabAnimationExporter(
             var result = await Task.Run(() =>
             {
                 var (document, error) = CharacterAnimationConverter.BuildDocument(
-                    character, animations, visibilityOverrides, animationSourceRig);
+                    character, animations, visibilityOverrides, animationSourceRig, oneShot);
                 if (document == null)
                     throw new InvalidOperationException(error ?? "Convert failed.");
 

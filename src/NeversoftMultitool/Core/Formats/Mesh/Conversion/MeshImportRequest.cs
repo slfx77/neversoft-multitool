@@ -98,6 +98,16 @@ public sealed class MeshImportRequest
     public bool IncludeAllN64Animations { get; init; }
 
     /// <summary>
+    ///     Selects the RunAnim one-shot clamp instead of the default CycleAnim
+    ///     wrap when expanding tween-compressed N64 clips. Scoped to N64 because
+    ///     PSX callers pre-decode and carry the same choice on
+    ///     <see cref="Core.Formats.Animation.PsxAnimationOptions.OneShot" />.
+    ///     Reaches only DIRECT (0x2A) clips — compressed 0x2C slots store every
+    ///     frame and have no end-of-clip branch to select.
+    /// </summary>
+    public bool N64AnimationOneShot { get; init; }
+
+    /// <summary>
     ///     Pre-decoded SKA animation slots, populated into <see cref="ModelDocument.Animations" />
     ///     by the PS2 Scene and RW DFF parsers. Null = no animations to embed.
     /// </summary>

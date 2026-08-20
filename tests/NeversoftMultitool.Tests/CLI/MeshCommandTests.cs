@@ -87,7 +87,7 @@ public sealed class MeshCommandTests
             verbose: true,
             format: MeshOutputFormat.Glb,
             blenderHelperPath: null,
-            includeN64Animations: false,
+            animationOptions: MeshAnimationExportOptions.None,
             cancellationToken ?? TestContext.Current.CancellationToken);
     }
 

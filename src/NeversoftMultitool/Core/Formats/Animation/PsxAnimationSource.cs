@@ -53,10 +53,15 @@ internal sealed class PsxAnimationSource : AssetSource
     ///     Parses the parent <c>.psx</c> bank, locates the animation table, and
     ///     decodes the slot identified by <see cref="AnimIndex" /> into a
     ///     ready-to-render <see cref="PsxAnimation" />.
+    ///     <paramref name="oneShot" /> selects the tween end-of-clip branch:
+    ///     false (default) = the CycleAnim wrap toward frame 0, true = the
+    ///     RunAnim clamp on the last stored keyframe. The file records neither,
+    ///     so it is the caller's choice — see <see cref="PsxAnimationOptions" />.
     /// </summary>
-    public PsxAnimation Decode()
+    public PsxAnimation Decode(bool oneShot = false)
     {
-        return PsxAnimationBank.DecodeSlot(BankSource, TargetBoneCount, AnimIndex, BoneRemap);
+        return PsxAnimationBank.DecodeSlot(
+            BankSource, TargetBoneCount, AnimIndex, BoneRemap, oneShot);
     }
 
     public override bool CompanionExists(string nameWithExtension)

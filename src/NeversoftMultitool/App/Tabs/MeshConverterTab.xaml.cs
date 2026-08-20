@@ -1065,7 +1065,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             entry.Probe,
             GetVisibilityOverridesSnapshot(character),
             preserveCamera,
-            sourceRig);
+            sourceRig,
+            OneShotCheckBox.IsChecked == true);
         if (!ReferenceEquals(FilesListView.SelectedItem, character) ||
             !ReferenceEquals(_animPanel.Character, character) ||
             !ReferenceEquals(_animPanel.SourceRig, sourceRig))
@@ -1225,6 +1226,19 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         _animPanel.RefreshFilter();
     }
 
+    private async void OneShot_Click(object sender, RoutedEventArgs e)
+    {
+        // The end-of-clip branch is chosen at DECODE time, so the preview has
+        // to be rebuilt to show it. Keep the camera: the user is comparing the
+        // two endings on the same pose.
+        var entry = AnimationListView.SelectedItem as AnimationListEntry;
+        var character = _animPanel.Character;
+        if (entry == null || character == null || _preview == null)
+            return;
+
+        await LoadAnimationPreviewAsync(character, entry, preserveCamera: true);
+    }
+
     private void AnimFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         _animPanel?.RefreshFilter();
@@ -1238,7 +1252,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             character,
             _animPanel.CheckedMatchingProbes(),
             GetVisibilityOverridesSnapshot(character),
-            _animPanel.SourceRig);
+            _animPanel.SourceRig,
+            OneShotCheckBox.IsChecked == true);
     }
 
     private async void ConvertBlend_Click(object sender, RoutedEventArgs e)
@@ -1249,7 +1264,8 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             character,
             _animPanel.CheckedMatchingProbes(),
             GetVisibilityOverridesSnapshot(character),
-            _animPanel.SourceRig);
+            _animPanel.SourceRig,
+            OneShotCheckBox.IsChecked == true);
     }
 
     // ─── Convert (batch over checked files) ───────────────────────────────

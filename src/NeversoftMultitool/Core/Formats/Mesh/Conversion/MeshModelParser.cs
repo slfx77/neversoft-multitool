@@ -155,7 +155,8 @@ public sealed class MeshModelParser : IModelParser
             document,
             native,
             request.N64AnimationIndices,
-            request.IncludeAllN64Animations);
+            request.IncludeAllN64Animations,
+            request.N64AnimationOneShot);
         return document;
     }
 

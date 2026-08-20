@@ -31,10 +31,11 @@ internal static class CharacterAnimationConverter
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        SkaAnimationSourceRig? animationSourceRig = null)
+        SkaAnimationSourceRig? animationSourceRig = null,
+        bool oneShot = false)
     {
         var (document, error) = BuildDocument(
-            character, animations, visibilityOverrides, animationSourceRig);
+            character, animations, visibilityOverrides, animationSourceRig, oneShot);
         if (document == null)
             return new Result(null, 0, error);
 
@@ -53,12 +54,16 @@ internal static class CharacterAnimationConverter
     ///     The document feeds either exporter (GLB via
     ///     <see cref="GltfModelExporter" />, .blend via
     ///     <see cref="ModelExportService" />).
+    ///     <paramref name="oneShot" /> selects the tween end-of-clip branch for
+    ///     the two families that store one: PSX banks and N64 direct (0x2A)
+    ///     clips. SKA-based PS2/RW characters store every frame and ignore it.
     /// </summary>
     public static DocumentResult BuildDocument(
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        SkaAnimationSourceRig? animationSourceRig = null)
+        SkaAnimationSourceRig? animationSourceRig = null,
+        bool oneShot = false)
     {
         if (animations.Count == 0)
             return new DocumentResult(null, "No animations selected.");
@@ -75,10 +80,10 @@ internal static class CharacterAnimationConverter
                 character, animations, visibilityOverrides, animationSourceRig);
 
         if (character.IsN64Model && character.N64HasEmbeddedAnimations)
-            return BuildN64(character, animations);
+            return BuildN64(character, animations, oneShot);
 
         if (character.IsPsx && character.PsxIsSuperModel)
-            return BuildPsx(character, animations, visibilityOverrides);
+            return BuildPsx(character, animations, visibilityOverrides, oneShot);
 
         return new DocumentResult(null,
             $"Animated preview not supported for {character.FormatDisplay}.");
@@ -128,7 +133,8 @@ internal static class CharacterAnimationConverter
 
     private static DocumentResult BuildN64(
         MeshFileEntry character,
-        IReadOnlyList<AnimationProbe> animations)
+        IReadOnlyList<AnimationProbe> animations,
+        bool oneShot)
     {
         var indices = animations
             .Select(static probe => probe.Source)
@@ -147,7 +153,8 @@ internal static class CharacterAnimationConverter
             FileName = fileName,
             OutputStem = MeshTypeDetector.GetN64BundleStem(fileName),
             SourceKind = ModelSourceKind.N64Model,
-            N64AnimationIndices = indices
+            N64AnimationIndices = indices,
+            N64AnimationOneShot = oneShot
         });
 
         return document.Animations.Count > 0
@@ -260,7 +267,8 @@ internal static class CharacterAnimationConverter
     private static DocumentResult BuildPsx(
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
-        IReadOnlyDictionary<string, bool>? visibilityOverrides)
+        IReadOnlyDictionary<string, bool>? visibilityOverrides,
+        bool oneShot)
     {
         var data = character.Source.ReadBytes();
         var psxFile = PsxMeshFile.Parse(data);
@@ -282,7 +290,7 @@ internal static class CharacterAnimationConverter
             if (probe.Source is not PsxAnimationSource psxSource) continue;
             try
             {
-                var animation = psxSource.Decode();
+                var animation = psxSource.Decode(oneShot);
                 if (animation.BoneCount != psxFile.Objects.Count) continue;
                 if (!parentsByBank.TryGetValue(psxSource.BankSource, out var parents))
                 {
@@ -311,7 +319,8 @@ internal static class CharacterAnimationConverter
             FileName = fileName,
             OutputStem = Path.GetFileNameWithoutExtension(fileName),
             SourceKind = ModelSourceKind.Psx,
-            PsxAnimationOptions = new PsxAnimationOptions(Fps: PsxAnimationBank.DefaultPreviewFps),
+            PsxAnimationOptions = new PsxAnimationOptions(
+                Fps: PsxAnimationBank.DefaultPreviewFps, OneShot: oneShot),
             PsxAnimationClips = clips,
             VisibilityOverrides = visibilityOverrides
         });

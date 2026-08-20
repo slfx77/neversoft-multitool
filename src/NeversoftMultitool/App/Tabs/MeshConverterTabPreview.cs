@@ -243,7 +243,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
         AnimationProbe animation,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool preserveCamera = false,
-        SkaAnimationSourceRig? animationSourceRig = null)
+        SkaAnimationSourceRig? animationSourceRig = null,
+        bool oneShot = false)
     {
         var cts = await ReplacePreviewCancellationAsync();
         if (cts == null) return null;
@@ -261,7 +262,7 @@ internal sealed class MeshConverterTabPreview : IDisposable
         {
             var result = await Task.Run(
                 () => CharacterAnimationConverter.BuildAnimatedGlb(
-                    character, [animation], visibilityOverrides, animationSourceRig),
+                    character, [animation], visibilityOverrides, animationSourceRig, oneShot),
                 token);
 
             if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;

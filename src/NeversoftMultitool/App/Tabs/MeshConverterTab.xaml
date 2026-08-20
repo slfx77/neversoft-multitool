@@ -503,6 +503,13 @@
                     IsChecked="False"
                     ToolTipService.ToolTip="Also list animations whose bone count doesn't match the active animation rig"
                     Click="ShowAllAnims_Click" />
+                  <CheckBox
+                    x:Name="OneShotCheckBox"
+                    Content="One-shot"
+                    MinWidth="0"
+                    IsChecked="False"
+                    ToolTipService.ToolTip="End tween-compressed clips on the RunAnim clamp (hold the last keyframe) instead of the default CycleAnim wrap toward frame 0. The file records which mode the engine used for neither, so this is a playback choice. Affects PSX banks and N64 direct clips; other formats store every frame."
+                    Click="OneShot_Click" />
                 </StackPanel>
 
                 <!-- List header -->

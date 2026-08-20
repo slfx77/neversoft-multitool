@@ -73,9 +73,28 @@ public static class MeshCommand
         {
             Description =
                 "Embed every direct 0x2A or compressed 0x2C clip for conservatively eligible "
-                + "N64 models. Off by default because character banks can contain hundreds of clips; "
-                + "direct tween endings use the PSX CycleAnim export policy while N64 timing and "
-                + "loop/clamp behavior remain unproven."
+                + "N64 models. Off by default because character banks can contain hundreds of clips "
+                + "(use --n64-animation <n> to pick individual slots); direct tween endings default "
+                + "to the PSX CycleAnim export policy, selectable with --one-shot, while N64 timing "
+                + "and loop/clamp behavior remain unproven."
+        };
+        var n64AnimationOption = new Option<int[]>("--n64-animation")
+        {
+            Description =
+                "Embed one specific N64 animation slot by index. Repeat the option to select "
+                + "several. Unlike --n64-animations this does not pull in a character bank's "
+                + "hundreds of clips. Out-of-range and undecodable slots are skipped.",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = true
+        };
+        var oneShotOption = new Option<bool>("--one-shot")
+        {
+            Description =
+                "Expand tween-compressed N64 clips with the RunAnim one-shot clamp (hold the last "
+                + "keyframe) instead of the default CycleAnim wrap toward frame 0. Applies to N64 "
+                + "DIRECT (0x2A) clips only: `mesh` emits no PSX animation tracks (use "
+                + "psx-anim-export --one-shot for those), and compressed 0x2C slots store every "
+                + "frame, so they have no end-of-clip branch to select."
         };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
@@ -98,6 +117,8 @@ public static class MeshCommand
         command.Options.Add(worldzoneDebugDirOption);
         command.Options.Add(psxLightOption);
         command.Options.Add(n64AnimationsOption);
+        command.Options.Add(n64AnimationOption);
+        command.Options.Add(oneShotOption);
         command.Options.Add(verboseOption);
         command.Options.Add(formatOption);
         command.Options.Add(blenderHelperOption);
@@ -113,7 +134,12 @@ public static class MeshCommand
             var ddmTexturePath = parseResult.GetValue(ddmTexturesOption);
             var scale = parseResult.GetValue(scaleOption);
             var verbose = parseResult.GetValue(verboseOption);
-            var includeN64Animations = parseResult.GetValue(n64AnimationsOption);
+            var animationOptions = new MeshAnimationExportOptions(
+                parseResult.GetValue(n64AnimationsOption),
+                parseResult.GetValue(n64AnimationOption) is { Length: > 0 } selected
+                    ? selected
+                    : null,
+                parseResult.GetValue(oneShotOption));
             if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
                 return Task.FromResult(1);
             var blenderHelperPath = parseResult.GetValue(blenderHelperOption);
@@ -157,7 +183,7 @@ public static class MeshCommand
                 verbose,
                 format,
                 blenderHelperPath,
-                includeN64Animations,
+                animationOptions,
                 cancellationToken,
                 parseResult.GetValue(worldzoneDebugDirOption)));
         });
@@ -179,7 +205,7 @@ public static class MeshCommand
         bool verbose,
         MeshOutputFormat format,
         string? blenderHelperPath,
-        bool includeN64Animations,
+        MeshAnimationExportOptions animationOptions,
         CancellationToken cancellationToken,
         string? worldzoneDebugDirectory = null)
     {
@@ -269,7 +295,7 @@ public static class MeshCommand
                     coordinateScale,
                     psxLightPreset,
                     exportStem,
-                    includeN64Animations,
+                    animationOptions,
                     worldzoneDebugDirectory);
 
                 if (result.OutputPaths.Count == 0)

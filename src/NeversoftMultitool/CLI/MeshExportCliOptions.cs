@@ -165,9 +165,10 @@ internal static class MeshExportCliOptions
         float worldzoneScale = 1f,
         string? psxLightPreset = null,
         string? exportStem = null,
-        bool includeN64Animations = false,
+        MeshAnimationExportOptions? animationOptions = null,
         string? worldzoneDebugDirectory = null)
     {
+        animationOptions ??= MeshAnimationExportOptions.None;
         var stem = outputStem ?? Path.GetFileNameWithoutExtension(file);
         var document = Parser.Parse(new MeshImportRequest
         {
@@ -185,7 +186,9 @@ internal static class MeshExportCliOptions
             WorldzoneTimeOfDay = worldzoneTimeOfDay,
             WorldzoneScale = worldzoneScale,
             PsxLightPreset = psxLightPreset,
-            IncludeAllN64Animations = includeN64Animations,
+            IncludeAllN64Animations = animationOptions.IncludeAllN64Animations,
+            N64AnimationIndices = animationOptions.N64AnimationIndices,
+            N64AnimationOneShot = animationOptions.OneShot,
             WorldzoneDebugDirectory = worldzoneDebugDirectory
         });
 

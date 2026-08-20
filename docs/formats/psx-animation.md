@@ -56,6 +56,48 @@ the exporter consumes the result through `Matrix4x4`/glTF's row-major convention
 as `qy * qx * qz`, which is the transpose of the usual column-vector
 `Ry · Rx · Rz` expansion.
 
+## Confirmed: playback rate is a 30 Hz game tick (settled 2026-08-20)
+
+Skeletal frames advance on the **game tick, which is 30 Hz** — not on the 60 Hz
+vblank. Both clocks exist in the engine and are easy to confuse, so the chain is
+recorded here in full.
+
+`CSuper::UpdateFrame` (`OB.cpp:1034`) advances the 16.16 frame accumulator by
+`AdjustedSpeed = mAnimSpeed * TimeScale >> 8`. The default `mAnimSpeed` is
+`0x10000` (1.0), so at nominal speed exactly one anim frame elapses per call.
+It is called once per game frame, via
+`Ob_AI` → `CBody::InterleaveAI` → `CSuper::UpdateFrame`, inside `Game_Logic`.
+
+`TimeScale` is defined by `FPS_Display` (`MAIN.cpp:1649-1690`):
+
+```c
+(&FPS)[FPSIndex] = Xblanks - LastXblanks;   /* vblanks used by this game frame */
+Total = FPS[0] + FPS[1] + FPS[2];           /* over three game frames          */
+averageFPS = 60 * 3 / Total;
+if (Total > 5 * 3) Total = 5 * 3;           /* slowdown clamp: TimeScale ≤ 640 */
+TimeScale = 256 * Total / (2 * 3);
+TimeScaleSquared = (TimeScale * TimeScale) >> 8;
+XFramesShifted += TimeScale * 2;
+XFrames = XFramesShifted >> 8;
+```
+
+`TimeScale` is 8.8 fixed point, so its neutral value is 256, reached at
+`Total == 6` — **two vblanks per game frame**. That is the cadence the entire
+time base is normalised against, and `averageFPS` reads 30 at exactly that
+point. `Xblanks` is the 60 Hz vblank counter; `XFrames` re-derives it
+(`+= TimeScale * 2`) and is what **surface** animation runs on — UV wibbles and
+colour pulses tick at 60 Hz while skeletal frames tick at 30 Hz.
+
+`Core/Formats/Animation/PsxAnimationBank.DefaultPreviewFps = 30f` is therefore
+correct, and `PsxAnimationBankTests.DefaultPreviewFps_IsTheEngineGameTickNotTheVblankRate`
+re-derives it from the constants above rather than restating the answer.
+
+> ⚠️ The matched decomp's converter handoff
+> (`thps2-psx-proto/docs/anim_metadata_tables.md` §1, "What the converter should
+> actually do") says to use *"1 anim-frame per game tick at 60 Hz"*. **That
+> guidance is wrong** — it conflates the vblank interrupt rate with the game
+> tick rate. Following it doubles the duration of every exported clip.
+
 ## Confirmed: scales
 
 - **Rotation**: PSY-Q angle units, low 12 bits = 360°. The decompiled

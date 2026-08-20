@@ -265,6 +265,184 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         Assert.False(probe.MatchesSkeleton);
     }
 
+    [CorpusFact]
+    public void TweenedDirectClips_AreApocalypseAndTheSpiderManLineageOnly()
+    {
+        // The one-shot / cycle choice is an END-OF-CLIP branch for TWEENED v1
+        // (0x2A) payloads: a tween flag of 0 stores every frame, so both
+        // branches produce identical output. This census answers "does the
+        // flag do anything for the shipped PS1 corpus at all?" — the whole
+        // reason to surface it in the GUI — and would catch a decoder change
+        // that started reading the field from the wrong place.
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var buildsWithTween = new SortedSet<string>(StringComparer.Ordinal);
+        var tweenedClips = 0;
+        var directClips = 0;
+
+        foreach (var file in Directory.EnumerateFiles(
+                     paths.SampleBuildsDir!, "*.psx", SearchOption.AllDirectories))
+        {
+            PsxAnimationBankInfo? bank;
+            try
+            {
+                bank = PsxAnimationBank.TryProbe(new FileSystemAssetSource(file), null);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (bank is not { AnimFile.IsDirectMatrix: true }) continue;
+
+            foreach (var entry in bank.AnimFile.Entries)
+            {
+                directClips++;
+                if (entry.TweenFlag <= 0) continue;
+                tweenedClips++;
+                buildsWithTween.Add(BuildNameOf(file));
+            }
+        }
+
+        // Just over half the shipped direct clips are tweened, so the choice is
+        // not a corner case: it changes the last frame of 3,599 clips.
+        Assert.Equal(7_097, directClips);
+        Assert.Equal(3_599, tweenedClips);
+
+        // Apocalypse (1998) plus the whole Spider-Man lineage — PSX protos and
+        // finals, the DC proto, the PC final, and all three SM2:EE builds.
+        Assert.Equal(11, buildsWithTween.Count);
+        Assert.All(buildsWithTween, build => Assert.True(
+            build.StartsWith("Apocalypse", StringComparison.Ordinal)
+            || build.StartsWith("Spider-Man", StringComparison.Ordinal),
+            $"Unexpected build with tweened direct clips: {build}"));
+
+        // No THPS build ships one, so the flag is inert for that whole line —
+        // worth knowing before chasing a "one-shot did nothing" report.
+        Assert.DoesNotContain(buildsWithTween, b => b.Contains("Tony Hawk", StringComparison.Ordinal));
+    }
+
+    private static string BuildNameOf(string file)
+    {
+        var parts = file.Replace('\\', '/').Split('/');
+        var index = Array.LastIndexOf(parts, "Builds");
+        return index >= 0 && index + 1 < parts.Length ? parts[index + 1] : parts[0];
+    }
+
+    [Fact]
+    public void DefaultPreviewFps_IsTheEngineGameTickNotTheVblankRate()
+    {
+        // Reproduces FPS_Display (MAIN.cpp:1649-1690) rather than restating its
+        // answer, so this fails if anyone "corrects" the constant to 60.
+        //
+        //   FPS[i]   = Xblanks elapsed during game frame i   (Xblanks are 60 Hz)
+        //   Total    = FPS[0] + FPS[1] + FPS[2]
+        //   TimeScale = 256 * Total / (2 * 3)
+        //
+        // TimeScale is 8.8 fixed point, so its neutral value is 256. Solving
+        // for the Total that produces it gives the engine's nominal cadence.
+        const int neutralTimeScale = 256;
+        var totalAtNeutral = neutralTimeScale * (2 * 3) / 256;
+        Assert.Equal(6, totalAtNeutral);
+
+        const float vblankHz = 60f;
+        var vblanksPerGameFrame = totalAtNeutral / 3f;
+        Assert.Equal(2f, vblanksPerGameFrame);
+
+        // UpdateFrame does AdjustedSpeed = mAnimSpeed * TimeScale >> 8, and the
+        // default mAnimSpeed is 1.0, so one anim frame advances per game tick.
+        var gameTickHz = vblankHz / vblanksPerGameFrame;
+        Assert.Equal(30f, gameTickHz);
+        // Derivation is the authority here; the constant is what's under test.
+        // Argument order follows xUnit2000 (constant first), not that reading.
+        Assert.Equal(PsxAnimationBank.DefaultPreviewFps, gameTickHz);
+
+        // FPS_Display's own readout agrees at the same point.
+        Assert.Equal(30, 60 * 3 / totalAtNeutral);
+
+        // The 60 Hz clock is real but belongs to XFrames (XFramesShifted +=
+        // TimeScale * 2), which drives surface animation, not skeletal frames.
+        Assert.Equal(vblankHz, PsxAnimationBank.DefaultPreviewFps * vblanksPerGameFrame);
+    }
+
+    [Fact]
+    public void DecodeSlot_ForwardsTheOneShotBranchToTweenExpansion()
+    {
+        // The GUI Animations pane reaches the decoder ONLY through DecodeSlot
+        // (via PsxAnimationSource.Decode), so the branch has to survive that
+        // hop. Two stored records over 4 frames at interval 2: the cycle
+        // branch blends the tail back toward frame 0 (→ 50), the one-shot
+        // branch extrapolates past the last key (→ 150). Those exact values
+        // are pinned against the engine's lerp by PsxAnimDecoderTests; here
+        // they are the witness that the flag was forwarded at all.
+        var bytes = BuildTweenedDirectMatrixPsx();
+        Assert.NotNull(PsxMeshFile.ParseHeaderOnly(bytes));
+        var animFile = PsxAnimFile.Parse(bytes, 1);
+        Assert.NotNull(animFile);
+        Assert.Single(animFile.Entries);
+        Assert.Equal(1, animFile.Entries[0].TweenFlag);
+        var source = new InMemoryAssetSource("tweened_bank.psx", bytes);
+
+        var cycle = PsxAnimationBank.DecodeSlot(source, 1, 0);
+        var oneShot = PsxAnimationBank.DecodeSlot(source, 1, 0, boneRemap: null, oneShot: true);
+
+        Assert.Equal(100, cycle.Channels[0, 3, 2]);
+        Assert.Equal(100, oneShot.Channels[0, 3, 2]);
+        Assert.Equal(50, cycle.Channels[0, 3, 3]);
+        Assert.Equal(150, oneShot.Channels[0, 3, 3]);
+    }
+
+    [Fact]
+    public void PsxAnimationSourceDecode_DefaultsToTheCycleBranch()
+    {
+        // Default must stay the CycleAnim wrap: it is the engine's dominant
+        // character-anim mode, and every previously exported GLB used it.
+        var source = new InMemoryAssetSource(
+            "tweened_bank.psx", BuildTweenedDirectMatrixPsx());
+        var slot = new PsxAnimationSource(source, animIndex: 0, frameCount: 4, targetBoneCount: 1);
+
+        Assert.Equal(50, slot.Decode().Channels[0, 3, 3]);
+        Assert.Equal(150, slot.Decode(oneShot: true).Channels[0, 3, 3]);
+    }
+
+    /// <summary>
+    ///     The minimal bank, but with a TWEEN flag: 4 playback frames stored as
+    ///     two records at interval 2, translating Tx 0 → 100.
+    /// </summary>
+    private static byte[] BuildTweenedDirectMatrixPsx()
+    {
+        const int stride = 24;
+        // Same shape as BuildMinimalDirectMatrixPsx, including its trailing
+        // slack past the terminator, which the header parser reads through.
+        var data = new byte[0x4C + 2 * stride + 4 + 8];
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(0x00), 0x04);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(0x02), 0x02);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x04), 0x38);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x08), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x30), 1);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x38), PsxMeshFile.HierChunkV1Tag);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            data.AsSpan(0x3C), (uint)(0x0C + 2 * stride));
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x40), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x44), 0x0C);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(0x48), 4);  // frames
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(0x4A), 1);  // tween: interval 2
+
+        short[] keyTx = [0, 100];
+        for (var record = 0; record < 2; record++)
+        {
+            var offset = 0x4C + record * stride;
+            Span<short> identity = [4096, 0, 0, 0, 4096, 0, 0, 0, 4096];
+            for (var i = 0; i < identity.Length; i++)
+                BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset + i * 2), identity[i]);
+            BinaryPrimitives.WriteInt16LittleEndian(data.AsSpan(offset + 18), keyTx[record]);
+        }
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0x4C + 2 * stride), 0xFFFFFFFF);
+        return data;
+    }
+
     private static PsxAnimationBankInfo ParseSyntheticBank()
     {
         var source = new InMemoryAssetSource("memory_bank.psx", BuildMinimalDirectMatrixPsx());

@@ -100,8 +100,11 @@ internal sealed class N64CompressedAnimationBank
     ///     Decodes one slot with the matching shared PS1 codec. The owned span
     ///     ends at the next entry's greater pool offset (or the chunk end), so
     ///     malformed data cannot borrow bytes from the following clip.
+    ///     <paramref name="oneShot" /> reaches only the DIRECT (0x2A) path,
+    ///     which is the sole family carrying a tween flag; compressed 0x2C
+    ///     clips store every frame and have no end-of-clip branch to select.
     /// </summary>
-    public PsxAnimation DecodeSlot(int index, int boneCount)
+    public PsxAnimation DecodeSlot(int index, int boneCount, bool oneShot = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(boneCount);
         if ((uint)index >= (uint)Entries.Count)
@@ -116,7 +119,7 @@ internal sealed class N64CompressedAnimationBank
             throw new InvalidDataException($"N64 animation {index} has an empty or reversed payload range.");
 
         if (_chunkTag == PsxMeshFile.HierChunkV1Tag)
-            return DecodeDirectSlot(index, boneCount, entry, available);
+            return DecodeDirectSlot(index, boneCount, entry, available, oneShot);
 
         // DecompressStream's bit-window reader peeks up to two bytes beyond
         // the last logically consumed byte. Supply zero sentinels rather than
@@ -142,7 +145,8 @@ internal sealed class N64CompressedAnimationBank
         int index,
         int boneCount,
         N64CompressedAnimationEntry entry,
-        int available)
+        int available,
+        bool oneShot)
     {
         int required;
         try
@@ -179,7 +183,8 @@ internal sealed class N64CompressedAnimationBank
             littleEndianPayload,
             boneCount,
             entry.FrameCount,
-            entry.TweenFlag);
+            entry.TweenFlag,
+            oneShot);
     }
 
     private static bool TryFindLastAnimationChunk(

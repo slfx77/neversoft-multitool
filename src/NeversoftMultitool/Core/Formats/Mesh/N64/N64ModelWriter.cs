@@ -66,7 +66,8 @@ public static class N64ModelWriter
         ModelDocument document,
         N64ModelNativeSource source,
         IReadOnlyList<int>? animationIndices = null,
-        bool includeAllAnimations = false)
+        bool includeAllAnimations = false,
+        bool oneShot = false)
     {
         var shell = source.Shell;
 
@@ -103,7 +104,7 @@ public static class N64ModelWriter
             : null;
         var decodedAnimations = animationPlan != null
             ? DecodeAnimations(
-                shell, animationPlan.Animations, animationIndices, includeAllAnimations)
+                shell, animationPlan.Animations, animationIndices, includeAllAnimations, oneShot)
             : [];
         if (decodedAnimations.Count > 0)
         {
@@ -174,7 +175,8 @@ public static class N64ModelWriter
         PsxMeshFile shell,
         N64CompressedAnimationBank bank,
         IReadOnlyList<int>? requestedIndices,
-        bool includeAllAnimations)
+        bool includeAllAnimations,
+        bool oneShot)
     {
         IReadOnlyList<int> indices = includeAllAnimations
             ? Enumerable.Range(0, bank.Entries.Count).ToArray()
@@ -188,7 +190,7 @@ public static class N64ModelWriter
 
             try
             {
-                clips.Add(($"anim_{index}", bank.DecodeSlot(index, shell.Objects.Count)));
+                clips.Add(($"anim_{index}", bank.DecodeSlot(index, shell.Objects.Count, oneShot)));
             }
             catch (Exception ex) when (ex is InvalidDataException or ArgumentOutOfRangeException
                                        or IndexOutOfRangeException or OverflowException)

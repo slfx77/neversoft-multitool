@@ -5,12 +5,35 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 internal static class PsxAnimationBank
 {
     /// <summary>
-    ///     Engine playback rate. UpdateFrame advances the 16.16 frame
-    ///     accumulator by <c>mAnimSpeed × TimeScale / 256</c> per 30 Hz tick,
-    ///     and the default <c>mAnimSpeed</c> is 0x10000 (1.0) — one anim frame
-    ///     per tick, i.e. 30 fps. (The old 10 fps default predates tween
-    ///     keyframe expansion, when v1 anims decoded to a fraction of their
-    ///     real frame counts and looked like flicker at engine speed.)
+    ///     Engine playback rate. <c>CSuper::UpdateFrame</c> (OB.cpp:1034)
+    ///     advances the 16.16 frame accumulator by
+    ///     <c>AdjustedSpeed = mAnimSpeed × TimeScale >> 8</c>, and the default
+    ///     <c>mAnimSpeed</c> is 0x10000 (1.0), so at nominal speed it is one
+    ///     anim frame per GAME TICK.
+    ///     <para>
+    ///         The tick is <b>30 Hz, not 60</b>. <c>FPS_Display</c>
+    ///         (MAIN.cpp:1649-1690) sets
+    ///         <c>TimeScale = 256 × Total / (2 × 3)</c>, where <c>Total</c> is
+    ///         <c>Xblanks</c> summed over three game frames. <c>TimeScale</c>
+    ///         therefore reaches its neutral 256 (1.0 in 8.8) at
+    ///         <c>Total == 6</c> — two vblanks per game frame — which is the
+    ///         rate the whole time base is normalised against. The same
+    ///         function's own <c>averageFPS = 60 × 3 / Total</c> reads 30 at
+    ///         that point, and its <c>XFramesShifted += TimeScale × 2</c>
+    ///         keeps the separate <b>60 Hz</b> Xblank counter that surface
+    ///         animation (UV wibbles, colour pulses) runs on. Two clocks, two
+    ///         purposes: do not collapse them.
+    ///     </para>
+    ///     <para>
+    ///         The matched decomp's converter handoff
+    ///         (<c>docs/anim_metadata_tables.md</c> §1) advises "1 anim-frame
+    ///         per game tick at 60 Hz". That guidance is <b>wrong</b> — it
+    ///         conflates the vblank interrupt rate with the game tick rate.
+    ///         Adopting it would double every exported clip's duration.
+    ///     </para>
+    ///     (The old 10 fps default predates tween keyframe expansion, when v1
+    ///     anims decoded to a fraction of their real frame counts and looked
+    ///     like flicker at engine speed.)
     /// </summary>
     public const float DefaultPreviewFps = 30f;
 
@@ -197,11 +220,18 @@ internal static class PsxAnimationBank
         return targetParents;
     }
 
+    /// <summary>
+    ///     Decodes a single slot. <paramref name="oneShot" /> selects the
+    ///     end-of-clip expansion branch for tween-compressed clips exactly as
+    ///     <see cref="Decode" /> does — see <see cref="PsxAnimationOptions" />
+    ///     for why the file cannot record which branch the engine used.
+    /// </summary>
     public static PsxAnimation DecodeSlot(
         AssetSource source,
         int targetBoneCount,
         int animIndex,
-        PsxAnimationBoneRemap? boneRemap = null)
+        PsxAnimationBoneRemap? boneRemap = null,
+        bool oneShot = false)
     {
         var bank = TryProbe(source, targetBoneCount)
                    ?? throw new InvalidDataException(
@@ -224,7 +254,8 @@ internal static class PsxAnimationBank
             bank,
             targetBoneCount,
             [new PsxAnimationBankSelection(animIndex, $"anim_{animIndex}")],
-            boneRemap);
+            boneRemap,
+            oneShot);
         if (result.Animations.Count == 1)
             return result.Animations[0].Animation;
 
