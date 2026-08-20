@@ -80,6 +80,21 @@ public sealed record N64LightRig(Vector3 Ambient, Vector3 Colour, Vector3 Direct
     /// </summary>
     public static N64LightRig? TryParse(ReadOnlySpan<byte> boot)
     {
+        var offset = TryFindBodyOffset(boot, out _);
+        return offset < 0 ? null : TryDecodeBody(boot[offset..]);
+    }
+
+    /// <summary>
+    ///     Locates the rig body's file offset and reports the RAM address the
+    ///     setup display list gives it. Their difference is the image's load
+    ///     base, which is why <see cref="Formats.N64.N64BootImage" /> shares
+    ///     this locator instead of tabling a base per game. Returns -1 when the
+    ///     display list is absent or the body is ambiguous.
+    /// </summary>
+    internal static int TryFindBodyOffset(ReadOnlySpan<byte> boot, out uint ambientPointer)
+    {
+        ambientPointer = 0;
+
         // The setup DL is unique: exactly one aligned occurrence of each of the
         // three command words per image, eight bytes apart.
         for (var offset = 0; offset + 24 <= boot.Length; offset += 4)
@@ -94,14 +109,19 @@ public sealed record N64LightRig(Vector3 Ambient, Vector3 Colour, Vector3 Direct
                 continue;
 
             var lightPointer = BinaryPrimitives.ReadUInt32BigEndian(boot[(offset + 12)..]);
-            var ambientPointer = BinaryPrimitives.ReadUInt32BigEndian(boot[(offset + 20)..]);
-            if ((ulong)lightPointer != (ulong)ambientPointer + 8)
+            var candidateAmbient = BinaryPrimitives.ReadUInt32BigEndian(boot[(offset + 20)..]);
+            if ((ulong)lightPointer != (ulong)candidateAmbient + 8)
                 continue;
 
-            return TryLocateBody(boot, offset);
+            var body = TryLocateBodyOffset(boot, offset);
+            if (body < 0)
+                return -1;
+
+            ambientPointer = candidateAmbient;
+            return body;
         }
 
-        return null;
+        return -1;
     }
 
     /// <summary>
@@ -119,18 +139,17 @@ public sealed record N64LightRig(Vector3 Ambient, Vector3 Colour, Vector3 Direct
     ///         offset. Ambiguity returns null rather than a guess.
     ///     </para>
     /// </summary>
-    private static N64LightRig? TryLocateBody(ReadOnlySpan<byte> boot, int displayListOffset)
+    private static int TryLocateBodyOffset(ReadOnlySpan<byte> boot, int displayListOffset)
     {
         var from = Math.Max(0, displayListOffset - BodySearchWindow);
-        N64LightRig? found = null;
+        var found = -1;
         for (var offset = from; offset + 24 <= displayListOffset; offset += 4)
         {
-            var rig = TryDecodeBody(boot[offset..]);
-            if (rig == null)
+            if (TryDecodeBody(boot[offset..]) == null)
                 continue;
-            if (found != null)
-                return null;
-            found = rig;
+            if (found >= 0)
+                return -1;
+            found = offset;
         }
 
         return found;
