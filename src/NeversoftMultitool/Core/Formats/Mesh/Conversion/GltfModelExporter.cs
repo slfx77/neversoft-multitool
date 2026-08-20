@@ -173,8 +173,54 @@ public sealed class GltfModelExporter : IModelExporter
             extras["neversoftSkyBackdrop"] = backdrop.SkyColor;
 
         ApplyColourPulseTable(extras, document);
+        ApplyLevelLights(extras, document);
         if (extras.Count > 0)
             model.DefaultScene.Extras = extras;
+    }
+
+    /// <summary>
+    ///     Publishes the zone's authored levellight nodes as SCENE extras
+    ///     (<c>neversoftLevelLights</c>): position (export space), colour,
+    ///     radii, exclusion flags, and the TOD/story gates. Data-only —
+    ///     authored brightness is a runtime placeholder (the TOD scripts own
+    ///     the live values), so consumers decide how to light with these.
+    /// </summary>
+    private static void ApplyLevelLights(
+        System.Text.Json.Nodes.JsonObject extras, ModelDocument document)
+    {
+        var metadata = document.NativeMetadata
+            .OfType<Ps2WorldzoneLevelLightsMetadata>().FirstOrDefault();
+        if (metadata == null || metadata.Lights.Count == 0)
+            return;
+
+        var lights = new System.Text.Json.Nodes.JsonArray();
+        foreach (var light in metadata.Lights)
+        {
+            var entry = new System.Text.Json.Nodes.JsonObject
+            {
+                ["name"] = QbKey.QbKey.TryResolve(light.NameChecksum) ?? $"0x{light.NameChecksum:X8}",
+                ["position"] = new System.Text.Json.Nodes.JsonArray(
+                    light.Position.X, light.Position.Y, light.Position.Z),
+                ["color"] = new System.Text.Json.Nodes.JsonArray(
+                    light.ColorR, light.ColorG, light.ColorB),
+                ["brightness"] = light.Brightness,
+                ["innerRadius"] = light.InnerRadius,
+                ["outerRadius"] = light.OuterRadius
+            };
+            if (light.ExcludeLevel)
+                entry["excludeLevel"] = true;
+            if (light.ExcludeSkater)
+                entry["excludeSkater"] = true;
+            if (light.CreatedFromTod != 0)
+                entry["todGroup"] = QbKey.QbKey.TryResolve(light.CreatedFromTod)
+                                    ?? $"0x{light.CreatedFromTod:X8}";
+            if (light.CreatedFromVariable != 0)
+                entry["storyState"] = QbKey.QbKey.TryResolve(light.CreatedFromVariable)
+                                      ?? $"0x{light.CreatedFromVariable:X8}";
+            lights.Add(entry);
+        }
+
+        extras["neversoftLevelLights"] = lights;
     }
 
     private static void ApplyColourPulseTable(

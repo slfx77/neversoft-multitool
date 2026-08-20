@@ -36,6 +36,13 @@ internal static class Ps2WorldzoneQbObjectResolver
     private static readonly uint AbsentInNetGamesFlag = QbKeyHash.HashLower("AbsentInNetGames");
     private static readonly uint CreatedFromVariableKey = QbKeyHash.HashLower("createdfromvariable");
     private static readonly uint CreatedFromTodKey = QbKeyHash.HashLower("createdfromtod");
+    private static readonly uint LevelLightValue = QbKeyHash.HashLower("levellight");
+    private static readonly uint BrightnessKey = QbKeyHash.HashLower("brightness");
+    private static readonly uint InnerRadiusKey = QbKeyHash.HashLower("innerradius");
+    private static readonly uint OuterRadiusKey = QbKeyHash.HashLower("outerradius");
+    private static readonly uint ColorKey = QbKeyHash.HashLower("color");
+    private static readonly uint ExcludeLevelFlag = QbKeyHash.HashLower("excludelevel");
+    private static readonly uint ExcludeSkaterFlag = QbKeyHash.HashLower("excludeskater");
 
     internal static IReadOnlyDictionary<long, ObjectResourceInstances> Resolve(
         byte[] pakBytes,
@@ -202,6 +209,125 @@ internal static class Ps2WorldzoneQbObjectResolver
             if (!gates.TryAdd(nodeName, gate) && gates[nodeName] != gate)
                 ambiguous.Add(nodeName);
         }
+    }
+
+    /// <summary>
+    ///     Collects every authored <c>Class = levellight</c> node across the
+    ///     pak's node-array QBs. Field defaults follow the engine's parse
+    ///     (THUG cfuncs.cpp:6417-6494: Brightness 100, radii 300, colour
+    ///     white); duplicate declarations keep first-wins order.
+    /// </summary>
+    internal static IReadOnlyList<Ps2WorldzoneLevelLight> ResolveLevelLights(
+        byte[] pakBytes,
+        IReadOnlyList<(uint TypeHash, ArchiveEntry Entry)> typedEntries)
+    {
+        ArgumentNullException.ThrowIfNull(pakBytes);
+        ArgumentNullException.ThrowIfNull(typedEntries);
+
+        var lights = new List<Ps2WorldzoneLevelLight>();
+        var seen = new HashSet<uint>();
+        foreach (var (typeHash, entry) in typedEntries)
+        {
+            if (typeHash != NodeQbTypeHash || !TryReadEntry(pakBytes, entry, out var qbBytes))
+                continue;
+
+            QbFile qb;
+            try
+            {
+                qb = QbFile.Parse(qbBytes, entry.FullName);
+            }
+            catch (Exception exception) when (IsOptionalQbParseFailure(exception))
+            {
+                continue;
+            }
+
+            if (!TryParseGlobals(qb, out var globals))
+                continue;
+
+            var resolver = new StructResolver(globals);
+            foreach (var (_, value) in globals)
+            {
+                if (value is not ArrayValue array)
+                    continue;
+
+                CollectLevelLights(array, resolver, lights, seen);
+            }
+        }
+
+        return lights;
+    }
+
+    private static void CollectLevelLights(
+        ArrayValue array,
+        StructResolver resolver,
+        List<Ps2WorldzoneLevelLight> lights,
+        HashSet<uint> seen)
+    {
+        foreach (var item in array.Items)
+        {
+            if (item is not StructValue node ||
+                !resolver.TryResolveInline(node, out var resolved) ||
+                !TryGetName(resolved, ClassKey, out var classValue) ||
+                classValue != LevelLightValue ||
+                !TryGetName(resolved, NameKey, out var nodeName) ||
+                !TryGetVector(resolved, PositionKey, out var position) ||
+                !IsFinite(position) ||
+                !seen.Add(nodeName))
+            {
+                continue;
+            }
+
+            TryGetName(resolved, CreatedFromTodKey, out var tod);
+            TryGetName(resolved, CreatedFromVariableKey, out var variable);
+            var (r, g, b) = TryGetIntTriple(resolved, ColorKey, out var color)
+                ? color
+                : (255, 255, 255);
+            lights.Add(new Ps2WorldzoneLevelLight(
+                nodeName,
+                position,
+                r, g, b,
+                TryGetNumber(resolved, BrightnessKey, out var brightness) ? brightness : 100f,
+                TryGetNumber(resolved, InnerRadiusKey, out var inner) ? inner : 300f,
+                TryGetNumber(resolved, OuterRadiusKey, out var outer) ? outer : 300f,
+                resolved.Flags.Contains(ExcludeLevelFlag),
+                resolved.Flags.Contains(ExcludeSkaterFlag),
+                tod,
+                variable));
+        }
+    }
+
+    private static bool TryGetNumber(ResolvedStruct value, uint key, out float number)
+    {
+        number = 0f;
+        if (!value.Fields.TryGetValue(key, out var field))
+            return false;
+        switch (field)
+        {
+            case FloatValue floatValue when float.IsFinite(floatValue.Float):
+                number = floatValue.Float;
+                return true;
+            case IntegerValue integerValue:
+                number = integerValue.Integer;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryGetIntTriple(ResolvedStruct value, uint key, out (int R, int G, int B) triple)
+    {
+        triple = default;
+        if (!value.Fields.TryGetValue(key, out var field) ||
+            field is not ArrayValue { Items.Count: 3 } array ||
+            array.Items[0] is not IntegerValue r ||
+            array.Items[1] is not IntegerValue g ||
+            array.Items[2] is not IntegerValue b)
+        {
+            return false;
+        }
+
+        triple = (r.Integer, g.Integer, b.Integer);
+        return true;
     }
 
     internal static IReadOnlyList<ObjectResourceTriad> FindObjectResourceTriads(

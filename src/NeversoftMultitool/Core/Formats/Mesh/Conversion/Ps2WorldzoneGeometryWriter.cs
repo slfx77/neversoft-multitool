@@ -50,6 +50,19 @@ internal static class Ps2WorldzoneGeometryWriter
             var nodeGates = Ps2WorldzoneQbObjectResolver.ResolveLevelGeometryGates(pakBytes, typedEntries);
             var enabledVariants = RegisterVariantVisibilityGroups(document, nodeGates, visibilityOverrides);
 
+            // Authored levellight nodes ship as document metadata → GLB scene
+            // extras (positions rescaled into export space). Data-only: the
+            // TOD scripts own live brightness, so application policy belongs
+            // to consumers.
+            var levelLights = Ps2WorldzoneQbObjectResolver.ResolveLevelLights(pakBytes, typedEntries);
+            if (levelLights.Count > 0)
+            {
+                document.NativeMetadata.Add(new Ps2WorldzoneLevelLightsMetadata(
+                    levelLights
+                        .Select(light => light with { Position = light.Position * coordinateScale })
+                        .ToList()));
+            }
+
             Ps2WorldzoneNodeGates? GateFor(Ps2GeomLeaf leaf) =>
                 leaf.Checksum != 0 && nodeGates.TryGetValue(leaf.Checksum, out var gate) ? gate : null;
 
