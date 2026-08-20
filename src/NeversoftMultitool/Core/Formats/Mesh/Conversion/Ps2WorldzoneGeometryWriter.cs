@@ -528,14 +528,6 @@ internal static class Ps2WorldzoneGeometryWriter
             // enforces submission order via renderOrder + LEQUAL, exactly like the
             // GS) and the .blend importer applies the separation vector below at
             // OBJECT level, where EEVEE needs it and users can remove it.
-            var depthBias = Ps2GeomRenderSemantics.ComputeWorldzoneMaterialDepthBias(leaf, alphaMode);
-            var blendOffset = Vector3.Zero;
-            if (depthBias > 0f && coordinateScale > 0f)
-            {
-                var offsetDirection = ComputeOverlayOffsetDirection(leaf.Vertices);
-                blendOffset = offsetDirection * (depthBias * coordinateScale);
-            }
-
             if (!overlapGroupIds.TryGetValue(geometryKey, out var overlapGroup))
             {
                 overlapGroup = overlapGroupIds.Count;
@@ -544,6 +536,14 @@ internal static class Ps2WorldzoneGeometryWriter
 
             overlapPassCounters.TryGetValue(geometryKey, out var passIndex);
             overlapPassCounters[geometryKey] = passIndex + 1;
+
+            var depthBias = Ps2GeomRenderSemantics.ComputeWorldzoneMaterialDepthBias(leaf, alphaMode, passIndex);
+            var blendOffset = Vector3.Zero;
+            if (depthBias > 0f && coordinateScale > 0f)
+            {
+                var offsetDirection = ComputeOverlayOffsetDirection(leaf.Vertices);
+                blendOffset = offsetDirection * (depthBias * coordinateScale);
+            }
 
             var sourceVertices = leaf.Vertices;
             var (min, max) = ComputeBbox(sourceVertices);

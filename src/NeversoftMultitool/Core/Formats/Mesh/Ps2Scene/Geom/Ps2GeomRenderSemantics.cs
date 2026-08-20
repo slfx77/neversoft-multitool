@@ -6,6 +6,7 @@ internal static class Ps2GeomRenderSemantics
 {
     private const float WorldzoneBlendOverlayDepthBias = 0.005f;
     private const float WorldzoneMaskCutoutDepthBias = 0.010f;
+    private const float WorldzoneOpaqueOverlayDepthBias = 0.005f;
     private const float WorldzoneRenderGroupSpacing = 0.002f;
     private const int FixBlendOpaqueThreshold = 96;
 
@@ -19,7 +20,7 @@ internal static class Ps2GeomRenderSemantics
             .ToArray();
     }
 
-    internal static float ComputeWorldzoneMaterialDepthBias(Ps2GeomLeaf leaf, string alphaMode)
+    internal static float ComputeWorldzoneMaterialDepthBias(Ps2GeomLeaf leaf, string alphaMode, int passIndex = 0)
     {
         if (leaf.IsBillboard)
             return 0f;
@@ -28,7 +29,12 @@ internal static class Ps2GeomRenderSemantics
         {
             "MASK" => WorldzoneMaskCutoutDepthBias,
             "BLEND" => WorldzoneBlendOverlayDepthBias,
-            _ => 0f
+            // OPAQUE coplanar stacks previously exported with ZERO separation
+            // — renderOrder+LEQUAL cannot split different polygons sharing a
+            // plane, so they z-fought in-app (E3/E5). Pass ranks above the
+            // base layer take the PSX opaque-overlay treatment: a rank-scaled
+            // node-transform offset (vertices stay authored).
+            _ => passIndex > 0 ? WorldzoneOpaqueOverlayDepthBias * passIndex : 0f
         };
         if (modeBias <= 0f)
             return 0f;

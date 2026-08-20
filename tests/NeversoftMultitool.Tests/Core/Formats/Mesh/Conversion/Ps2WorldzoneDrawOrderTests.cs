@@ -173,6 +173,63 @@ public sealed class Ps2WorldzoneDrawOrderTests
         Assert.Contains(null, blendClasses);
     }
 
+    [Fact]
+    public void PopulateLeaves_OpaqueOverlayPassesGetRankScaledSeparation()
+    {
+        // Coplanar OPAQUE stacks previously exported with ZERO separation —
+        // renderOrder+LEQUAL cannot split different polygons sharing a plane,
+        // so they z-fought in-app (E3/E5). The base layer stays authored; pass
+        // ranks above it take the PSX opaque-overlay treatment (rank-scaled
+        // node-transform offset, vertices untouched).
+        var opaqueBase = MakeQuadLeaf(0x6666_0006, 0x00);
+        var opaqueOverlay = MakeQuadLeaf(0x7777_0007, 0x00);
+        var document = Populate([opaqueBase, opaqueOverlay]);
+
+        var metadata = document.Meshes
+            .Select(static mesh => mesh.Primitives.Single().NativeMetadata
+                .OfType<Ps2WorldzoneLeafRenderMetadata>().Single())
+            .ToList();
+        var basePass = Assert.Single(metadata, static m => m.PassIndex == 0);
+        var overlayPass = Assert.Single(metadata, static m => m.PassIndex == 1);
+        Assert.Equal(0f, basePass.BlendOffsetZ, 6);
+        Assert.Equal(0.005f * CoordinateScale, overlayPass.BlendOffsetZ, 6);
+    }
+
+    [Fact]
+    public void BuildGlbBytes_SubtractiveBakesDeclareTheirClassAndShipUnlit()
+    {
+        // Subtractive GS blend (A=2,B=0,C=0,D=1 → byte 0x42): the portable
+        // bake is black RGB + luminance alpha, a pure darkening layer. The
+        // in-app opacity-gain pass keys on the "subtractive" blend-class
+        // extra, and the darkening only reads correctly UNLIT — which every
+        // PS2 worldzone material already is (RenderMaterial.Unlit defaults
+        // true → KHR_materials_unlit). This pins BOTH load-bearing facts.
+        var subtractive = MakeQuadLeaf(0x8888_0008, 0x42);
+        var plainBlend = MakeQuadLeaf(0x9999_0009, 0x44);
+        var document = Populate([subtractive, plainBlend]);
+
+        var (glbBytes, _) = new GltfModelExporter().BuildGlbBytes(document);
+        Assert.NotNull(glbBytes);
+        using var json = ParseGlbJson(glbBytes);
+
+        var subtractiveCount = 0;
+        foreach (var material in json.RootElement.GetProperty("materials").EnumerateArray())
+        {
+            Assert.True(
+                material.TryGetProperty("extensions", out var extensions) &&
+                extensions.TryGetProperty("KHR_materials_unlit", out _),
+                "worldzone materials ship unlit — the subtractive darkening depends on it");
+            if (material.TryGetProperty("extras", out var extras) &&
+                extras.TryGetProperty("neversoftBlendClass", out var blendClass) &&
+                blendClass.GetString() == "subtractive")
+            {
+                subtractiveCount++;
+            }
+        }
+
+        Assert.Equal(1, subtractiveCount);
+    }
+
     private static ModelDocument Populate(List<Ps2GeomLeaf> leaves)
     {
         var document = new ModelDocument
