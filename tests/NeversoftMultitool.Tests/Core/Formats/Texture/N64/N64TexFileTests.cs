@@ -292,6 +292,77 @@ public sealed class N64TexFileTests(TestPaths paths)
         Assert.Equal(expectedTexturesWithMips, texturesWithMips);
         Assert.Equal(expectedTexturesWithAuxiliaryPlanes, texturesWithAuxiliaryPlanes);
     }
+
+    /// <summary>
+    ///     Record bytes +0x2C/+0x2D are the RDP <c>G_SETTILE</c>
+    ///     <c>cmS</c>/<c>cmT</c> clamp-mirror fields. The independent evidence
+    ///     that this is the right reading — before any exported sampler
+    ///     depended on it — is the VALUE DOMAIN: across every carved record in
+    ///     all four ROMs the two bytes only ever hold 0, 1 or 2, exactly the
+    ///     defined <c>cm</c> encoding (wrap / mirror / clamp). An arbitrary
+    ///     pair of header bytes does not do that, and reading the field one
+    ///     byte off lands on the alpha-threshold byte (+0x2E, routinely 0xFF)
+    ///     or the render-flags word, both of which break the domain
+    ///     immediately.
+    /// </summary>
+    [CorpusTheory]
+    [InlineData("Tony Hawk's Pro Skater (2000-2-29, N64 - Final)",
+        "Tony Hawk's Pro Skater (USA).z64", 924, 560, 1)]
+    [InlineData(Thps2N64Build, RomName, 1_447, 1_429, 1)]
+    [InlineData("Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)",
+        "Tony Hawk's Pro Skater 3 (USA).z64", 1_672, 780, 1)]
+    [InlineData("Spider-Man (2000-11-21, N64 - Final)",
+        "Spider-Man (USA).z64", 1_399, 1_177, 4)]
+    public void AuthoredWrapBytes_OnlyEverHoldTheThreeDefinedClampMirrorValues(
+        string buildName,
+        string romName,
+        int expectedRepeatBoth,
+        int expectedClampBoth,
+        int expectedMirroring)
+    {
+        var romPath = paths.FindSampleFile(buildName, romName);
+        Assert.SkipWhen(romPath == null, $"{buildName} ROM sample not available");
+        Assert.True(N64AssetCarver.TryCarve(File.ReadAllBytes(romPath!), out var assets));
+
+        var histogram = new SortedDictionary<(byte S, byte T), int>();
+        foreach (var asset in assets)
+        {
+            if (!asset.Path.EndsWith(".tex.n64", StringComparison.Ordinal)) continue;
+            histogram.TryGetValue((asset.Data[0x2C], asset.Data[0x2D]), out var count);
+            histogram[(asset.Data[0x2C], asset.Data[0x2D])] = count + 1;
+        }
+
+        Assert.NotEmpty(histogram);
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"{buildName}: " + string.Join(
+                ", ", histogram.Select(kv => $"({kv.Key.S},{kv.Key.T})={kv.Value}")));
+
+        Assert.All(histogram.Keys, key =>
+        {
+            Assert.InRange(key.S, (byte)0, (byte)2);
+            Assert.InRange(key.T, (byte)0, (byte)2);
+        });
+
+        // The shape is authored art, not noise: almost every record either
+        // tiles on both axes or clamps on both, with a handful of mixed and
+        // mirrored ones. Random header bytes do not land like this, and the
+        // per-ROM totals below equal the pinned texture counts exactly.
+        Assert.Equal(expectedRepeatBoth, histogram.GetValueOrDefault(((byte)0, (byte)0)));
+        Assert.Equal(expectedClampBoth, histogram.GetValueOrDefault(((byte)2, (byte)2)));
+        Assert.Equal(
+            expectedMirroring,
+            histogram.Where(kv => kv.Key.S == 1 || kv.Key.T == 1).Sum(kv => kv.Value));
+
+        // Clamp is never a rarity: measured 0.33-0.50 of each ROM's records
+        // (THPS3 lowest, THPS2 highest). Exporting all of it as REPEAT, which
+        // is what happened before the field was read, bleeds edge texels
+        // across a third to a half of every ROM's art. Only the floor is
+        // asserted — an upper bound would pin nothing this test is about.
+        var clamping = histogram.Where(kv => kv.Key.S == 2 || kv.Key.T == 2).Sum(kv => kv.Value);
+        var total = histogram.Values.Sum();
+        var clampShare = clamping / (double)total;
+        Assert.True(clampShare > 0.30, $"clamped share unexpectedly low: {clampShare:P1}");
+    }
 }
 
 internal static class N64TexTestBuilder

@@ -927,9 +927,12 @@ public sealed class GltfModelExporter : IModelExporter
 
     private static TextureWrapMode ToTextureWrapMode(ModelTextureWrap wrap)
     {
-        return wrap == ModelTextureWrap.ClampToEdge
-            ? TextureWrapMode.CLAMP_TO_EDGE
-            : TextureWrapMode.REPEAT;
+        return wrap switch
+        {
+            ModelTextureWrap.ClampToEdge => TextureWrapMode.CLAMP_TO_EDGE,
+            ModelTextureWrap.MirroredRepeat => TextureWrapMode.MIRRORED_REPEAT,
+            _ => TextureWrapMode.REPEAT
+        };
     }
 
     private static int AddTriangles(

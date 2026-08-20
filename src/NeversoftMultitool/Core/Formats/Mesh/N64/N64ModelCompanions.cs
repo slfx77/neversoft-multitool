@@ -92,6 +92,15 @@ public static class N64ModelCompanions
         ///     framebuffer even when its decoded alpha is only binary or solid.
         /// </summary>
         public bool ForcesBlend { get; init; }
+
+        /// <summary>
+        ///     Authored RDP clamp/mirror state, carried through to the glTF
+        ///     sampler. Wrap belongs to the dictionary SLOT, not to a material,
+        ///     so it needs no extra material-cache key.
+        /// </summary>
+        public ModelTextureWrap WrapU { get; init; } = ModelTextureWrap.Repeat;
+
+        public ModelTextureWrap WrapV { get; init; } = ModelTextureWrap.Repeat;
     }
 
     /// <summary>
@@ -135,7 +144,9 @@ public static class N64ModelCompanions
                         cutout,
                         graduated)
                     {
-                        ForcesBlend = forcesBlend
+                        ForcesBlend = forcesBlend,
+                        WrapU = ToModelWrap(texture.WrapS),
+                        WrapV = ToModelWrap(texture.WrapT)
                     };
                 }
                 catch (InvalidDataException)
@@ -146,6 +157,16 @@ public static class N64ModelCompanions
 
             cache[slot] = resolved;
             return resolved;
+        };
+    }
+
+    private static ModelTextureWrap ToModelWrap(N64TexFile.N64TextureWrap wrap)
+    {
+        return wrap switch
+        {
+            N64TexFile.N64TextureWrap.Clamp => ModelTextureWrap.ClampToEdge,
+            N64TexFile.N64TextureWrap.Mirror => ModelTextureWrap.MirroredRepeat,
+            _ => ModelTextureWrap.Repeat
         };
     }
 

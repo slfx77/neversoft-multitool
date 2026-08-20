@@ -108,6 +108,17 @@ public static class N64TexFile
         ///     custom-threshold path retain <see cref="N64TextureRenderClass.Unspecified" />.
         /// </summary>
         public N64TextureRenderClass RenderClass { get; init; }
+
+        /// <summary>
+        ///     Authored horizontal RDP clamp/mirror mode from record byte
+        ///     +0x2C. Image records leave this <see cref="N64TextureWrap.Repeat" />.
+        /// </summary>
+        public N64TextureWrap WrapS { get; init; }
+
+        /// <summary>
+        ///     Authored vertical RDP clamp/mirror mode from record byte +0x2D.
+        /// </summary>
+        public N64TextureWrap WrapT { get; init; }
     }
 
     public enum N64TextureRenderClass
@@ -116,6 +127,19 @@ public static class N64TexFile
         Opaque,
         TextureCoverage,
         Translucent
+    }
+
+    /// <summary>
+    ///     The RDP <c>G_SETTILE</c> <c>cmS</c>/<c>cmT</c> field, whose two bits
+    ///     are <c>G_TX_MIRROR</c> (1) and <c>G_TX_CLAMP</c> (2); 0 is
+    ///     <c>G_TX_WRAP</c>. The dictionary record stores the authored value
+    ///     verbatim, one byte per axis.
+    /// </summary>
+    public enum N64TextureWrap
+    {
+        Repeat = 0,
+        Mirror = 1,
+        Clamp = 2
     }
 
     public static bool IsN64Texture(ReadOnlySpan<byte> data)
@@ -240,6 +264,8 @@ public static class N64TexFile
         {
             UndecodedPayloadByteCount = plan.UndecodedPayloadByteCount,
             HasAuxiliaryPlane = hasAuxiliaryPlane,
+            WrapS = ToWrap(span[0x2C]),
+            WrapT = ToWrap(span[0x2D]),
             RenderClass = span[0x2E] == 0xFF
                 ? (renderFlags & 3) switch
                 {
@@ -412,6 +438,22 @@ public static class N64TexFile
     ///     palette reproduces its PS1 CLUT color-for-color (brightness
     ///     re-sorted) and the l1a1 scoring digits are an exact gray ramp.
     /// </summary>
+    /// <summary>
+    ///     Maps a stored clamp/mirror byte. The corpus only ever stores the
+    ///     three defined <c>cm</c> values, so an unknown byte is a signal the
+    ///     field has been misread rather than a new mode to guess at: fall back
+    ///     to the hardware default rather than inventing a wrap.
+    /// </summary>
+    private static N64TextureWrap ToWrap(byte value)
+    {
+        return value switch
+        {
+            1 => N64TextureWrap.Mirror,
+            2 => N64TextureWrap.Clamp,
+            _ => N64TextureWrap.Repeat
+        };
+    }
+
     private static byte[] ReadPalette(ReadOnlySpan<byte> data, int offset)
     {
         if (offset + 32 > data.Length)

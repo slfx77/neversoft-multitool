@@ -675,6 +675,70 @@ public sealed class N64ModelParseTests(TestPaths paths)
     }
 
     [CorpusFact]
+    public void AuthoredTextureWrap_ReachesTheExportedGltfSampler()
+    {
+        // The dictionary record's cmS/cmT bytes were unread until 2026-08-20,
+        // so every N64 material exported REPEAT regardless of what the art
+        // authored. Roughly a third to a half of each ROM's records clamp
+        // (pinned per ROM by N64TexFileTests), which is why the omission bled
+        // edge texels rather than being cosmetic.
+        var romPath = paths.FindSampleFile(SpiderN64Build, SpiderRomName);
+        Assert.SkipWhen(romPath == null, "Spider-Man N64 ROM sample not available");
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        using var fs = backend.FileSystem;
+
+        // Scan rather than name one slot: which bundle happens to carry a
+        // clamped texture is incidental, but that BOTH modes reach the sampler
+        // somewhere in a ROM is the property under test.
+        var seen = new HashSet<(ModelTextureWrap U, ModelTextureWrap V)>();
+        byte[]? clampedGlb = null;
+        foreach (var entry in fs.Entries.Where(static e =>
+                     e.Name.EndsWith(".psx.n64", StringComparison.OrdinalIgnoreCase)))
+        {
+            ModelDocument document;
+            try
+            {
+                document = new MeshModelParser().Parse(new MeshImportRequest
+                {
+                    Source = new ArchiveAssetSource(backend, entry),
+                    FileName = entry.Name,
+                    OutputStem = "wrap_probe",
+                    SourceKind = ModelSourceKind.N64Model
+                });
+            }
+            catch (InvalidOperationException)
+            {
+                continue; // Authored-empty shell.
+            }
+
+            foreach (var texture in document.Textures)
+                seen.Add((texture.WrapU, texture.WrapV));
+
+            if (clampedGlb == null && document.Textures.Any(static t =>
+                    t.WrapU == ModelTextureWrap.ClampToEdge
+                    || t.WrapV == ModelTextureWrap.ClampToEdge))
+                clampedGlb = ModelExportService.BuildGlbBytes(document).GlbBytes;
+
+            if (clampedGlb != null && seen.Count > 1) break;
+        }
+
+        // Uniformly REPEAT would mean the sampler is not carrying authored
+        // state at all — which is exactly the pre-2026-08-20 behaviour.
+        Assert.Contains((ModelTextureWrap.Repeat, ModelTextureWrap.Repeat), seen);
+        Assert.Contains(seen, w =>
+            w.U == ModelTextureWrap.ClampToEdge || w.V == ModelTextureWrap.ClampToEdge);
+
+        Assert.NotNull(clampedGlb);
+        using var stream = new MemoryStream(clampedGlb!);
+        var model = ModelRoot.ReadGLB(stream);
+        Assert.Contains(
+            model.LogicalTextures,
+            static t => t.Sampler?.WrapS == TextureWrapMode.CLAMP_TO_EDGE
+                        || t.Sampler?.WrapT == TextureWrapMode.CLAMP_TO_EDGE);
+    }
+
+    [CorpusFact]
     public void Parse_RejectsAnEmptyBundleSlotWithAClearMessage()
     {
         // models/049 is a 24-byte authored-empty shell.
