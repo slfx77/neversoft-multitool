@@ -278,7 +278,25 @@ carts' art container is its own research arc.
    walking each object's tile grid (ROM 0x08754E60) and blitting `param_1`'s 1-bpp
    tile bitmaps — requires simulating the bespoke rasterizer at 0x087FE068 (per-row
    alignment shift + RLE early-out) and pinning the blit-value/colour table.
-4. **Audio — sequenced music (in progress):** samples ship (`gba-audio`); the GAX
-   *song* sequencer → WAV is under separate research.
+4. **Audio — sequenced music: SHIPPED (`gba-music`, 2026-08-21).** The THPS2 GAX
+   v1.99 song structure is fully decoded and rendered to WAV. Song headers (20
+   bytes: `{u16 channels, rows, orderLength, loopPoint, u32 notesAddr, instrAddr,
+   sampleAddr}`) are found by scanning for `sampleAddr == waveSetBase` (the null
+   `{0,0}` record before the `gba-audio` wave set). **Order-list stride = `pats*4`**
+   (per channel), the block sitting `[header − channels*pats*4, header)` — confirmed
+   both structurally (100% in-pool pattern offsets across all 11 songs) and by
+   disassembly (the engine's per-channel order pointer at `[channelObj+0x18]`,
+   pattern-seek at ROM 0x080362FC). Pattern grammar per the note interpreter (flag
+   byte, then `0xFF n` rest / `0x80` empty / `0x80|k` k≤0x79 note+instr / k=0x7A-7E
+   effect / `<0x80` note+instr+effect). The order-entry **transpose byte (+2) is
+   decoded but NOT applied** — THPS2 v1.99 note-on (0x080364CC) uses only `(note-2)`
+   and never reads it (likely an authoring/later-version field). `Core/Formats/Audio/
+   Gba/{GbaGaxMusic (faithful decoder), GaxRenderer (tone synth)}.cs`, pinned by
+   `GbaGaxMusicTests` (11 songs; song0 615 notes/D4; song1 1356 — the stride guard).
+   Faithful: pitch/rhythm/order. **Approximate: tempo** (no per-song field; policy
+   10 rows/s ≈ 60Hz÷speed6) and **timbre** (tone synth, not the instruments' PCM —
+   the audio-rate sample-binding DMA mixer is not yet RE'd). **THPS2-only:** later
+   carts use GAX 2.11/3.x header layouts (v2/v3, per gaxtapper) — cross-cart music
+   and PCM-timbre rendering are the remaining backlog.
 5. Later titles (THPS3+, the "real 3D editor" the dev interview mentions) may store
    scene data differently — recheck once a later-cart container is cracked.

@@ -51,7 +51,8 @@ public static class Program
         Thps2XFrontendAnimCommand.Create,
         FntCommand.Create,
         GbaGaxCommand.Create,
-        GbaImageCommand.Create
+        GbaImageCommand.Create,
+        GbaMusicCommand.Create
     ];
 
     private static readonly Lazy<HashSet<string>> CliCommandNames = new(

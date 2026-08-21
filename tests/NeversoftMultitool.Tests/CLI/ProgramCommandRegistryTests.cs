@@ -46,7 +46,8 @@ public sealed class ProgramCommandRegistryTests
         "thps2x-anim",
         "fnt",
         "gba-audio",
-        "gba-image"
+        "gba-image",
+        "gba-music"
     ];
 
     [Fact]
@@ -57,7 +58,7 @@ public sealed class ProgramCommandRegistryTests
             .Select(static command => command.Name)
             .ToArray();
 
-        Assert.Equal(43, actualNames.Length);
+        Assert.Equal(44, actualNames.Length);
         Assert.Equal(ExpectedCommandNames, actualNames);
         Assert.Equal(
             actualNames.Length,
