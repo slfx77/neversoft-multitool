@@ -13,11 +13,25 @@ Implemented by `Core/Formats/Animation/TricksFile.cs`; slot naming by
 
 | build | file size | dialect | tricks | with anim ids | uniquely-owned slots |
 |---|---|---|---|---|---|
-| THPS1 (all) | — | — | ships no `tricks.bin` | | |
-| THPS2 2000-3-29 proto | 13,362 | halfword | 121 | 103 | 38 |
-| THPS2 PSX / DC / 2X | 33,168 / 33,192 | byte | 202 | 181 | 111 |
-| THPS3 PS1 | 33,540 | byte | 230 | 202 | 125 |
-| THPS4 PS1 | 33,408 | byte | 229 | 201 | 125 |
+| THPS1 PS1 | — | — | ships no `tricks.bin` (and its EXE holds no trick strings) | | |
+| THPS2 2000-3-29 proto | 13,362 | halfword LE | 121 | 103 | 38 |
+| THPS2 PSX / DC / 2X | 33,168 / 33,192 | byte LE | 202 | 181 | 111 |
+| THPS3 PS1 | 33,540 | byte LE | 230 | 202 | 125 |
+| THPS4 PS1 | 33,408 | byte LE | 229 | 201 | 125 |
+| THPS2 N64 | 33,168 | byte **BE** | 202 | 181 | 110 |
+| THPS3 N64 | 33,540 | byte **BE** | 230 | 202 | 124 |
+| Spider-Man N64 | — | — | no trick table (not a skating game) | | |
+
+The N64 ports carry the table as an ordinary carved payload with no
+distinguishing name, so it is found by parsing rather than by path. Its bytes
+are **not** the PS1 sibling's — 21,318 of THPS2's 33,168 differ — because each
+port authored operands against its own animation bank; yet the two agree on
+every slot they both name.
+
+**THPS1 N64 is a separate case**: it ships no standalone table, but its
+`boot.bin` contains the trick name strings, so the data is embedded in the
+executable. THPS1's PS1 EXE contains no such strings. Naming THPS1 animations
+would need that embedded table located and is not attempted.
 
 ## Record grammar
 
@@ -25,7 +39,8 @@ A trick is a run of opcode records introduced by a name record (`0x0B`, opcode
 plus a NUL-terminated string) and closed by `0x07`. Record `0x01` carries an
 animation slot index.
 
-Two dialects, detected from the file rather than the build:
+Two dialects and two operand byte orders, all detected from the file rather than
+assumed from the build:
 
 - **Halfword** (2000-3-29 THPS2 prototype): opcode and operands are 16-bit, so
   records are 2-byte aligned and the name case ends with `& ~1`.
@@ -34,6 +49,28 @@ Two dialects, detected from the file rather than the build:
   explicit `lbu`/`lbu`/shift pair rather than an `lh` precisely because a record
   may now begin at an odd offset — which is the tell that the re-encoding is
   real and not a mis-parse.
+- **Operand byte order** follows the console: little-endian on PS1/DC/Xbox,
+  big-endian on N64. The record grammar is otherwise identical. This is not
+  cosmetic — read the wrong way, slot indices come back spread across the whole
+  s16 range (`0x8F00` instead of `0x008F`), so a file parses cleanly in exactly
+  one order and into garbage in the other.
+
+## Rejecting things that are not trick tables
+
+`0x0B` followed by printable ASCII occurs by chance in unrelated data, so
+`Parse` gates a candidate reading on four measured properties:
+
+| property | all 8 real tables | rejected examples |
+|---|---|---|
+| every trick terminates | 100% | 153/193 (N64 render bank) |
+| tricks carrying a plausible slot | 85–90% | — |
+| distinct names | 82–83% | 4/8 (`aaaaaaaa` ×8) |
+| trick count | 121–230 | 8 |
+
+Thresholds sit at half for the two ratios and 32 for the count — wide margins
+below every real table rather than tuned values. A real table read in the wrong
+byte order also fails these, which is what makes byte-order selection decisive
+rather than a coin-flip between near-equal scores.
 
 ## Where the retail table came from
 

@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.N64;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 
@@ -21,6 +22,10 @@ public sealed class TricksFileTests(TestPaths paths)
     private const string Thps2X = "Tony Hawk's Pro Skater 2X (2001-11-15, Xbox - Final)";
     private const string Thps3Ps1 = "Tony Hawk's Pro Skater 3 (2001-10-3, PSX - Final)";
     private const string Thps4Ps1 = "Tony Hawk's Pro Skater 4 (2002-9-28, PSX - Final)";
+    private const string Thps2N64Build = "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)";
+    private const string Thps2N64Rom = "Tony Hawk's Pro Skater 2 (USA).z64";
+    private const string Thps3N64Build = "Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)";
+    private const string Thps3N64Rom = "Tony Hawk's Pro Skater 3 (USA).z64";
 
     /// <summary>
     ///     Every trick reaching its terminator IS the verification: one wrong
@@ -139,6 +144,51 @@ public sealed class TricksFileTests(TestPaths paths)
         Assert.All(names.Values, n => Assert.DoesNotContain('{', n));
     }
 
+    /// <summary>
+    ///     The N64 ports keep the byte opcode and the whole record grammar but
+    ///     store their 16-bit operands big-endian. Read the PS1 way, the slot
+    ///     indices come back spread across the entire s16 range — so byte order
+    ///     is decided by scoring real parses, not assumed from the platform.
+    /// </summary>
+    [CorpusTheory]
+    [InlineData(Thps2N64Build, Thps2N64Rom, 202, 217, 110)]
+    [InlineData(Thps3N64Build, Thps3N64Rom, 230, 225, 124)]
+    public void TheN64PortsShipTheirOwnTableWithBigEndianOperands(
+        string build, string rom, int tricks, int highestSlot, int uniquelyOwned)
+    {
+        var file = LoadFromRom(build, rom);
+        Assert.Equal(TricksDialect.ByteOpcode, file.Dialect);
+        Assert.True(file.BigEndianOperands, "operands should read big-endian");
+        Assert.Equal(tricks, file.Tricks.Count);
+        Assert.All(file.Tricks, trick => Assert.True(trick.Terminated, trick.Name));
+
+        var names = TrickAnimationNames.Build(file);
+        Assert.Equal(uniquelyOwned, names.Count);
+        Assert.Equal(highestSlot, names.Keys.Concat(
+            file.Tricks.SelectMany(t => t.AnimationIds).Where(static id => id >= 0)).Max());
+    }
+
+    /// <summary>
+    ///     The N64 THPS2 table is NOT its PS1 sibling's bytes — 21,318 of 33,168
+    ///     differ — yet the two agree on the slots they both name. Two files,
+    ///     two byte orders, one answer.
+    /// </summary>
+    [CorpusFact]
+    public void ThePs1AndN64TablesAgreeOnTheSlotsTheyBothName()
+    {
+        var ps1 = TrickAnimationNames.Build(Load(Thps2Final));
+        var n64 = TrickAnimationNames.Build(LoadFromRom(Thps2N64Build, Thps2N64Rom));
+
+        var shared = ps1.Keys.Intersect(n64.Keys).ToArray();
+        Assert.True(shared.Length > 80, $"only {shared.Length} shared slots");
+        var disagree = shared
+            .Where(slot => !string.Equals(ps1[slot], n64[slot], StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        Assert.True(disagree.Length == 0,
+            $"{disagree.Length} slots disagree, e.g. {string.Join(", ", disagree.Take(4)
+                .Select(s => $"{s}: {ps1[s]} vs {n64[s]}"))}");
+    }
+
     [Fact]
     public void GarbageIsRejectedRatherThanParsedIntoNames()
     {
@@ -153,5 +203,28 @@ public sealed class TricksFileTests(TestPaths paths)
         var file = TricksFile.Parse(File.ReadAllBytes(path!));
         Assert.NotNull(file);
         return file!;
+    }
+
+    /// <summary>
+    ///     The carts carry the table as an ordinary carved payload with no
+    ///     distinguishing name, so it is found by parsing rather than by path —
+    ///     which also keeps the test from breaking when carve ordinals shift.
+    /// </summary>
+    private TricksFile LoadFromRom(string build, string rom)
+    {
+        var romPath = paths.FindSampleFile(build, rom);
+        Assert.SkipWhen(romPath == null, $"{build} ROM not available");
+        Assert.True(N64AssetCarver.TryCarve(File.ReadAllBytes(romPath!), out var assets));
+
+        // Exactly one carved asset in a cart is a credible trick table. Before
+        // Parse required every trick to terminate, a 430 KB render bank also
+        // qualified here, which is what surfaced that gap.
+        var candidates = assets
+            .Select(static asset => TricksFile.Parse(asset.Data))
+            .Where(static file => file != null)
+            .ToArray();
+
+        Assert.Single(candidates);
+        return candidates[0]!;
     }
 }

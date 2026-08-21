@@ -44,36 +44,145 @@ public sealed class TricksFile
     /// <summary>Runaway guard; the longest real trick is far shorter.</summary>
     private const int MaxRecordsPerTrick = 4096;
 
+    /// <summary>
+    ///     Widest slot index treated as plausible when choosing a byte order.
+    ///     Real banks hold 147-235 slots; the bound is deliberately loose because
+    ///     it only has to separate real indices from byte-swapped noise, and the
+    ///     wrong order produces values spanning the whole s16 range.
+    /// </summary>
+    private const int PlausibleSlotBound = 512;
+
     public required IReadOnlyList<TrickEntry> Tricks { get; init; }
 
     public required TricksDialect Dialect { get; init; }
 
     /// <summary>
+    ///     Whether operands are stored big-endian. True for the N64 ports, which
+    ///     keep the byte opcode and the whole record grammar but store their
+    ///     16-bit operands in the console's native order.
+    /// </summary>
+    public required bool BigEndianOperands { get; init; }
+
+    /// <summary>
     ///     Parses <c>tricks.bin</c>, or returns null when the bytes hold no
-    ///     recognisable trick stream in either dialect.
+    ///     recognisable trick stream.
+    ///     <para>
+    ///         Opcode width and operand byte order are both read off the file
+    ///         rather than assumed from the build, and both are decided by
+    ///         scoring real parses. Byte order is not a cosmetic choice: the
+    ///         N64 THPS2 table and its PS1 sibling hold the same 202 tricks, and
+    ///         each parses cleanly in exactly one order and into whole-range
+    ///         garbage in the other.
+    ///     </para>
     /// </summary>
     public static TricksFile? Parse(ReadOnlySpan<byte> data)
     {
         if (data.Length < 16) return null;
 
-        // Pick the dialect by which alignment the name records actually occur
-        // at. The two are cleanly separated in every shipped file: a retail
-        // build yields zero halfword-aligned names and a prototype zero
-        // byte-aligned ones, so this never has to arbitrate a close call.
-        var byteAnchors = FindNameAnchors(data, TricksDialect.ByteOpcode);
-        var halfAnchors = FindNameAnchors(data, TricksDialect.HalfwordOpcode);
-        if (byteAnchors.Count == 0 && halfAnchors.Count == 0) return null;
+        TricksFile? best = null;
+        var bestScore = (Plausible: -1, Terminated: -1);
+        foreach (var dialect in new[] { TricksDialect.ByteOpcode, TricksDialect.HalfwordOpcode })
+        {
+            // The halfword reading finds no anchors in a byte-opcoded file and
+            // vice versa, so a wrong dialect scores zero rather than competing.
+            var anchors = FindNameAnchors(data, dialect);
+            if (anchors.Count == 0) continue;
 
-        var dialect = byteAnchors.Count >= halfAnchors.Count
-            ? TricksDialect.ByteOpcode
-            : TricksDialect.HalfwordOpcode;
-        var anchors = dialect == TricksDialect.ByteOpcode ? byteAnchors : halfAnchors;
+            foreach (var bigEndian in new[] { false, true })
+            {
+                var tricks = new List<TrickEntry>(anchors.Count);
+                foreach (var (offset, name) in anchors)
+                    tricks.Add(ReadTrick(data, offset, name, dialect, bigEndian));
 
-        var tricks = new List<TrickEntry>(anchors.Count);
-        foreach (var (offset, name) in anchors)
-            tricks.Add(ReadTrick(data, offset, name, dialect));
+                if (!IsCredible(tricks)) continue;
 
-        return new TricksFile { Tricks = tricks, Dialect = dialect };
+                var score = Score(tricks);
+                if (score.CompareTo(bestScore) <= 0) continue;
+
+                bestScore = score;
+                best = new TricksFile
+                {
+                    Tricks = tricks,
+                    Dialect = dialect,
+                    BigEndianOperands = bigEndian,
+                };
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    ///     How well a candidate reading explains the file: how many slot indices
+    ///     land in a plausible range, then how many tricks reached a terminator.
+    ///     <para>
+    ///         Slot plausibility leads because its margin is enormous — the
+    ///         wrong byte order spreads indices across the entire s16 range —
+    ///         whereas termination separates the orders by only a trick or two,
+    ///         which is too thin to arbitrate on alone.
+    ///     </para>
+    /// </summary>
+    /// <summary>
+    ///     Whether a candidate reading is a trick table at all, rather than
+    ///     arbitrary bytes that happen to contain <c>0x0B</c> followed by ASCII.
+    ///     <para>
+    ///         The gate is that EVERY trick reaches its terminator. That is not
+    ///         arbitrary strictness — it is measured. All eight shipped tables
+    ///         terminate 100% of their tricks in the correct reading, a real
+    ///         table read in the WRONG byte order drops to 201 of 202, and the
+    ///         one false positive in an N64 carve (a 430 KB render bank that
+    ///         yields 193 plausible-looking "tricks") terminates only 153 of
+    ///         them. Requiring completeness rejects junk and sharpens byte-order
+    ///         selection at the same time, and errs toward naming nothing rather
+    ///         than naming animations wrongly.
+    ///     </para>
+    /// </summary>
+    private static bool IsCredible(List<TrickEntry> tricks)
+    {
+        if (tricks.Count < MinimumTricks) return false;
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        var carryingSlots = 0;
+        foreach (var trick in tricks)
+        {
+            if (!trick.Terminated) return false;
+            names.Add(trick.Name);
+            foreach (var slot in trick.AnimationIds)
+            {
+                if (slot is < 0 or >= PlausibleSlotBound) continue;
+                carryingSlots++;
+                break;
+            }
+        }
+
+        // A trick table references animations and names its tricks distinctly.
+        // Both ratios sit at 0.82-0.90 in all eight shipped tables and collapse
+        // in anything else, so half is a wide margin rather than a tuned value.
+        return carryingSlots * 2 >= tricks.Count && names.Count * 2 >= tricks.Count;
+    }
+
+    /// <summary>
+    ///     Fewest tricks a credible table may hold. The smallest shipped one
+    ///     carries 121, so this keeps a wide margin while excluding incidental
+    ///     runs in unrelated data — an N64 render bank yields eight
+    ///     "tricks" all named <c>aaaaaaaa</c>, which clears every other gate.
+    /// </summary>
+    private const int MinimumTricks = 32;
+
+    private static (int Plausible, int Terminated) Score(List<TrickEntry> tricks)
+    {
+        var plausible = 0;
+        var terminated = 0;
+        foreach (var trick in tricks)
+        {
+            if (trick.Terminated) terminated++;
+            foreach (var slot in trick.AnimationIds)
+            {
+                if (slot is >= 0 and < PlausibleSlotBound) plausible++;
+            }
+        }
+
+        return (plausible, terminated);
     }
 
     /// <summary>
@@ -88,7 +197,7 @@ public sealed class TricksFile
     ///     </para>
     /// </summary>
     private static TrickEntry ReadTrick(
-        ReadOnlySpan<byte> data, int start, string name, TricksDialect dialect)
+        ReadOnlySpan<byte> data, int start, string name, TricksDialect dialect, bool bigEndian)
     {
         var ids = new List<int>();
         var offset = start;
@@ -106,15 +215,22 @@ public sealed class TricksFile
             {
                 var operandAt = offset + OpcodeWidth(dialect);
                 if (operandAt + 2 > data.Length) break;
-                ids.Add(BinaryPrimitives.ReadInt16LittleEndian(data[operandAt..]));
+                ids.Add(ReadOperand(data, operandAt, bigEndian));
             }
 
-            var next = Skip(data, offset, dialect);
+            var next = Skip(data, offset, dialect, bigEndian);
             if (next <= offset || next > data.Length) break;
             offset = next;
         }
 
         return new TrickEntry(name, ids, terminated);
+    }
+
+    private static int ReadOperand(ReadOnlySpan<byte> data, int offset, bool bigEndian)
+    {
+        return bigEndian
+            ? BinaryPrimitives.ReadInt16BigEndian(data[offset..])
+            : BinaryPrimitives.ReadInt16LittleEndian(data[offset..]);
     }
 
     /// <summary>
@@ -173,7 +289,8 @@ public sealed class TricksFile
     ///         accounting for the extra byte.
     ///     </para>
     /// </summary>
-    private static int Skip(ReadOnlySpan<byte> data, int offset, TricksDialect dialect)
+    private static int Skip(
+        ReadOnlySpan<byte> data, int offset, TricksDialect dialect, bool bigEndian)
     {
         var opcode = ReadOpcode(data, offset, dialect);
         if (opcode < 0) return -1;
@@ -194,7 +311,7 @@ public sealed class TricksFile
             {
                 var countAt = offset + width;
                 if (countAt + 2 > data.Length) return -1;
-                var count = BinaryPrimitives.ReadInt16LittleEndian(data[countAt..]);
+                var count = ReadOperand(data, countAt, bigEndian);
                 if (count < 0) return -1;
                 return countAt + 2 + count * 2;
             }
