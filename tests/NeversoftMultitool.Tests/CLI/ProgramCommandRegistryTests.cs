@@ -47,7 +47,8 @@ public sealed class ProgramCommandRegistryTests
         "fnt",
         "gba-audio",
         "gba-image",
-        "gba-music"
+        "gba-music",
+        "gba-level"
     ];
 
     [Fact]
@@ -58,7 +59,7 @@ public sealed class ProgramCommandRegistryTests
             .Select(static command => command.Name)
             .ToArray();
 
-        Assert.Equal(44, actualNames.Length);
+        Assert.Equal(45, actualNames.Length);
         Assert.Equal(ExpectedCommandNames, actualNames);
         Assert.Equal(
             actualNames.Length,

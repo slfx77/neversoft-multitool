@@ -231,9 +231,41 @@ extracting polygon meshes from it is not possible — there are none.
 **What IS extractable** (the achievable "render a level" deliverable, in 2D):
 compose the isometric level image by walking each object's tile grid and blitting
 `param_1`'s 1-bpp tile bitmaps at each cell — i.e. reconstruct the tile art and
-the level layout, not a 3D model. The tile-bitmap plane/colour encoding (the
-element is one bit-plane; the blit value comes from a table indexed by a stack
-arg) is the remaining detail to pin before a faithful colour composite.
+the level layout, not a 3D model.
+
+## SHIPPED (2026-08-21): isometric level reconstruction (`gba-level`)
+
+Reconstructs THPS2's 9 distinct levels to PNG from the ROM alone — no capture.
+Two corrections to the notes above fell out of getting it working:
+
+1. **The element library is BIOS-LZ77 COMPRESSED, not raw.** `param_1[0] == 0x10`;
+   the header decompresses to 24288 bytes = **253 elements × 96 bytes**. The earlier
+   `F0 07`/`01 F0` "bit-rows" were *compressed* bytes. Decompressed (via the shipped
+   `GbaBiosLz77`), each 96-byte element is a **24×24 1-bpp bitmap**, one u32 per row,
+   pixel column c = bit c (LSB first — derived from the blitter's shift math).
+2. **The blitter writes a hardcoded value 0** (`mov r5,#0`), and the SMC table at
+   0x087FE004 is a **left-clip computed-goto** (skip leading pixel-stores), NOT a
+   blit-value table. The tile pass is therefore MONOCHROME index-0; the mid-tone
+   in `zoom_surface.png` is a **50% checkerboard dither**, real drawn pixels, not a
+   solid fill or an occlusion plane.
+
+**ROM level table** (independently verified, `level_table_probe.py`): stride
+**0x15C** at ~0x08753540, record `{ shared@+0, objectListPtr@+4, elementLibraryPtr@+8,
+meta@+0xC }` (the RE agent's field order was off by one word; `@+0xC` is a pointer,
+not an id). 14 valid records → 9 distinct object-list/element-library pairs (records
+9–13 reuse Hangar). The table is located by content (4 consecutive records whose
+object list opens on a real object and whose element library LZ77-decompresses to
+N×96). **Object list**: 96-byte records `{s32 bbox@0, u32 gridPtr@0x10, u32
+gridWidth@0x14}` ending at a **zero terminator** (level 0 = 31 objects); cell V≠0
+blits element V at `(minX+col*24, minY+row*24)`.
+
+`Core/Formats/Gba/GbaLevelImages.cs` + CLI `gba-level`, pinned by `GbaLevelImagesTests`
+(9 levels, level-0 coverage SHA). Verified visually: level 0 is a recognizable Hangar
+(rails, helicopter with rotor, halfpipe), level 2 a quarterpipe skatepark. **Faithful
+in shape/layout/shading; rendered 2-tone (ink coverage).** COLOUR is still open: the
+in-game surface colour comes from a separate fill/clear subsystem + the level BG
+palette (candidate fns 0x087FE660 / 0x087FE0-region → 0x087FEB90) that is NOT decoded,
+so the reconstruction is monochrome dither, not the game's colours.
 
 ## SHIPPED (2026-08-21): full-screen BIOS-LZ77 image extraction (`gba-image`)
 

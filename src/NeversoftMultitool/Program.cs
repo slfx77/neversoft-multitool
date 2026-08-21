@@ -52,7 +52,8 @@ public static class Program
         FntCommand.Create,
         GbaGaxCommand.Create,
         GbaImageCommand.Create,
-        GbaMusicCommand.Create
+        GbaMusicCommand.Create,
+        GbaLevelCommand.Create
     ];
 
     private static readonly Lazy<HashSet<string>> CliCommandNames = new(
