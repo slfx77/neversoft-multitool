@@ -235,16 +235,50 @@ the level layout, not a 3D model. The tile-bitmap plane/colour encoding (the
 element is one bit-plane; the blit value comes from a table indexed by a stack
 arg) is the remaining detail to pin before a faithful colour composite.
 
+## SHIPPED (2026-08-21): full-screen BIOS-LZ77 image extraction (`gba-image`)
+
+The first image deliverable is media-derived and in the tool. A census of BIOS
+LZ77 (`SWI 0x11`) streams (`lz77_sweep.py` → `image_census.py`) found THPS2 packs
+its front-end art as full-screen paletted screens:
+
+- **240×160 8-bit screens** = 38400-byte LZ77 streams; **256-colour palettes** =
+  512-byte streams (reduced-palette art ships a shorter one — the studio logo uses
+  41 colours / 82 bytes). Pairing rule: **nearest preceding palette stream large
+  enough to cover the indices used** (not nearest-512 — that mis-coloured the logo).
+- Two pixel orders, mixed within the cart and decided **per image** by a
+  horizontal-smoothness score (`discriminate.py`): **linear** mode-4 framebuffer
+  order (7 images — Activision/VV logos, legal screen, title, both competition-invite
+  cards, Rooftops) vs **tiled** 8×8 order, 30×20 tiles (6 menu backdrops). Same
+  "pick the layout that stays continuous" test as the `.fnt` nibble-order picker.
+
+Implemented as `Core/Formats/Gba/GbaBiosLz77.cs` (strict codec that doubles as the
+stream validator — the carts have no filename table, so images are located by
+content) + `Core/Formats/Texture/Gba/GbaRomImages.cs` (scanner/decoder) + CLI
+`gba-image`. Pinned by `GbaRomImagesTests` (synthetic codec cases + THPS2's 13
+screens with an aggregate RGBA digest + a 7-cart count sweep). All 13 decode
+pixel-perfect.
+
+**Cross-cart divergence (engine evolution):** THPS2 is the ONLY cart with
+BIOS-LZ77 full-screen art. THPS3 has 463 LZ77 streams but **0** of these screens
+(distinctive 884-byte ×159 shape instead); THPS4→DHJ have only 53–69 LZ77 streams
+total (DHJ just 3) — the later carts moved most art off BIOS LZ77 to a different
+packaging. The scanner returns empty for them (pinned), and cracking the later
+carts' art container is its own research arc.
+
 ## Next steps (in order)
 
-1. **Geometry (hard, multi-session):** find the level-load code that builds the
-   `*(0x03001E50)` element table (watchpoint a WRITE to 0x03001E50, or trace the
-   IWRAM-overlay copy + the loader that fills it), then decode the 96-byte
-   element format → extract real 3D geometry → GLB. This is the headline but the
-   largest remaining effort.
-2. **Audio (tractable):** build the C# GAX extractor (samples first, then the
-   sequence renderer). Fast, self-contained, delivers WAVs.
-3. **Images (medium):** determine the display mode (DISPCNT), then decode the
-   real tile/sprite/texture art to PNG.
-4. Cross-check the engine across the other six ROMs; later titles (THPS3+, which
-   the dev interview says got a "real 3D editor") may store geometry differently.
+1. **GBA tile-sheets / sprites (backlog):** THPS2's 221 32-aligned LZ77 tile
+   sheets (2048-byte ×126 = 64-tile 4bpp sheets, sprite/anim frames, fonts) are
+   located but their palette + arrangement binding is runtime state — needs a
+   palette-pairing heuristic or a loader trace before a faithful render. Lower
+   value than the full-screen screens already shipped.
+2. **Later-cart art container:** RE THPS3's 884-byte streams and the THPS4→DHJ
+   packaging (they abandoned BIOS LZ77) to extend image extraction across the line.
+3. **Level tile-art reconstruction (hard):** compose the isometric level image by
+   walking each object's tile grid (ROM 0x08754E60) and blitting `param_1`'s 1-bpp
+   tile bitmaps — requires simulating the bespoke rasterizer at 0x087FE068 (per-row
+   alignment shift + RLE early-out) and pinning the blit-value/colour table.
+4. **Audio — sequenced music (in progress):** samples ship (`gba-audio`); the GAX
+   *song* sequencer → WAV is under separate research.
+5. Later titles (THPS3+, the "real 3D editor" the dev interview mentions) may store
+   scene data differently — recheck once a later-cart container is cracked.
