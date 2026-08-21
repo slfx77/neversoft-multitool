@@ -1,5 +1,6 @@
 ﻿using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Font;
+using NeversoftMultitool.Core.Formats.Texture.Gba;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Pvr;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
@@ -60,6 +61,7 @@ internal static class FormatProbeTexture
             ".tex" or ".img" => ProbePs2TexFile(filePath),
             ".pvr" => ProbePvrFile(filePath),
             ".fnt" => ProbeFntFile(filePath),
+            ".gba" => ProbeGbaRom(filePath),
             ".rle" or ".bmr" => new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "RLE Bitmap"),
             ".tdx" or ".txx" => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
@@ -274,6 +276,34 @@ internal static class FormatProbeTexture
             FormatProbe.FormatSupport.Unsupported,
             "PVR Texture",
             reason);
+    }
+
+    /// <summary>
+    ///     A GBA ROM is a texture source only when it carries the full-screen
+    ///     BIOS-LZ77 images the Vicarious Visions engine packs (THPS2 GBA). The scan
+    ///     is content-based, so carts that moved their art off BIOS LZ77 (THPS3+)
+    ///     report unsupported rather than listing empty.
+    /// </summary>
+    private static FormatProbe.FormatProbeResult ProbeGbaRom(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
+            return HeaderReadFailure();
+
+        // The Nintendo logo's first word (0x04) gates real GBA ROMs.
+        if (data.Length < 0xC0 || data[0x04] != 0x24 || data[0x05] != 0xFF
+            || data[0x06] != 0xAE || data[0x07] != 0x51)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported, "GBA ROM", "Not a GBA ROM (missing Nintendo logo)");
+        }
+
+        var count = GbaRomImages.ScanFullScreenImages(data).Count;
+        return count > 0
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, $"GBA Image ({count} screens)")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "GBA ROM",
+                "No full-screen BIOS-LZ77 images (this cart packs its art differently)");
     }
 
     private static FormatProbe.FormatProbeResult ProbeN64TexFile(string filePath)

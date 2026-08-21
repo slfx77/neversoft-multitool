@@ -1,6 +1,8 @@
 ﻿using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Font;
+using NeversoftMultitool.Core.Formats.Texture.Gba;
 using NeversoftMultitool.Core.Formats.Texture.N64;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
@@ -42,7 +44,8 @@ internal static class TextureTabTextureOperations
                || ext.Equals(".pvr", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".tex", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".img", StringComparison.OrdinalIgnoreCase)
-               || ext.Equals(".fnt", StringComparison.OrdinalIgnoreCase);
+               || ext.Equals(".fnt", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".gba", StringComparison.OrdinalIgnoreCase);
     }
 
     public static TextureFileFormat ClassifyFormat(string fileName)
@@ -52,6 +55,8 @@ internal static class TextureTabTextureOperations
         // Must precede the PSX fallthrough below, which would otherwise claim .fnt.
         if (OrdinalFileName.HasSuffix(fileName, ".fnt"))
             return TextureFileFormat.Fnt;
+        if (OrdinalFileName.HasSuffix(fileName, ".gba"))
+            return TextureFileFormat.GbaImage;
         if (OrdinalFileName.HasAnySuffix(fileName, NgcTexExtensions))
             return TextureFileFormat.NgcTex;
         if (OrdinalFileName.HasAnySuffix(fileName, XboxTexExtensions))
@@ -79,6 +84,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.Pvr => PvrFileDecoder.DecodeToRgba(data) != null ? 1 : 0,
             TextureFileFormat.N64Tex => N64TexFile.IsN64Texture(data) ? 1 : 0,
             TextureFileFormat.Fnt => TryParseFnt(data)?.Glyphs.Length ?? 0,
+            TextureFileFormat.GbaImage => GbaRomImages.ScanFullScreenImages(data).Count,
             _ => PsxLibrary.EnumerateTextures(data).Count
         };
     }
@@ -95,6 +101,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.Pvr => BuildPvrEntries(data, parent),
             TextureFileFormat.N64Tex => BuildN64Entries(data, parent),
             TextureFileFormat.Fnt => BuildFntEntries(data, parent),
+            TextureFileFormat.GbaImage => BuildGbaEntries(data, parent),
             _ => BuildPsxEntries(data, parent)
         };
     }
@@ -117,6 +124,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.XbxImg => ExtractXbxImage(data, outputDir, stem, createSubDirs),
             TextureFileFormat.Pvr => ExtractPvr(data, outputDir, stem, createSubDirs),
             TextureFileFormat.N64Tex => ExtractN64Texture(data, outputDir, stem, createSubDirs),
+            TextureFileFormat.GbaImage => ExtractGbaImages(data, outputDir, stem),
             // A font is one packed atlas plus one metrics manifest rather than a PNG per glyph,
             // and .fnt is a simple extension the compound-suffix stripper leaves intact.
             TextureFileFormat.Fnt => ExtractFnt(
@@ -164,6 +172,13 @@ internal static class TextureTabTextureOperations
 
                 var glyph = font.Glyphs[textureIndex];
                 return (FntAtlasBuilder.RenderGlyph(font, glyph), glyph.Width, glyph.Height);
+            }
+            case TextureFileFormat.GbaImage:
+            {
+                var images = GbaRomImages.ScanFullScreenImages(data);
+                if (textureIndex < 0 || textureIndex >= images.Count)
+                    return null;
+                return (images[textureIndex].Rgba, GbaRomImages.ScreenWidth, GbaRomImages.ScreenHeight);
             }
             default:
                 return PsxLibrary.ExtractTextureAt(data, textureIndex, source.EntryName);
@@ -327,6 +342,22 @@ internal static class TextureTabTextureOperations
         return FntFile.TryParse(data, out var font) ? font : null;
     }
 
+    private static List<PsxTextureEntry> BuildGbaEntries(byte[] data, PsxFileEntry parent)
+    {
+        return GbaRomImages.ScanFullScreenImages(data)
+            .Select((image, index) => new PsxTextureEntry
+            {
+                Parent = parent,
+                NameHash = 0,
+                Width = GbaRomImages.ScreenWidth,
+                Height = GbaRomImages.ScreenHeight,
+                PaletteType = $"GBA 8bpp {image.Layout}",
+                Index = index,
+                ResolvedName = image.Name
+            })
+            .ToList();
+    }
+
     private static N64TexFile.N64Texture? TryDecodeN64(byte[] data)
     {
         try
@@ -437,6 +468,32 @@ internal static class TextureTabTextureOperations
         // deterministic _mipN companions beside the historical top-level PNG.
         N64TextureOutput.WritePngLevels(texture, outPath);
         return (1, 1, false, true);
+    }
+
+    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractGbaImages(
+        byte[] data,
+        string outputDir,
+        string stem)
+    {
+        var images = GbaRomImages.ScanFullScreenImages(data);
+        if (images.Count == 0)
+            return (0, 0, false, false);
+
+        // A ROM yields many anonymous screens; group them under the ROM's own
+        // folder so distinct carts extracted together never collide. (.gba is a
+        // simple extension the compound-suffix stripper leaves on the stem.)
+        var dir = Path.Combine(outputDir, Path.GetFileNameWithoutExtension(stem));
+        Directory.CreateDirectory(dir);
+        var written = 0;
+        foreach (var image in images)
+        {
+            ImageWriter.WritePng(
+                Path.Combine(dir, image.Name + ".png"),
+                GbaRomImages.ScreenWidth, GbaRomImages.ScreenHeight, image.Rgba);
+            written++;
+        }
+
+        return (images.Count, written, false, true);
     }
 
     private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractPsxTextures(

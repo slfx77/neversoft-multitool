@@ -13,5 +13,8 @@ internal enum TextureFileFormat
     N64Tex,
 
     /// <summary>PS1-era Neversoft .fnt bitmap fonts (one row per glyph).</summary>
-    Fnt
+    Fnt,
+
+    /// <summary>Full-screen BIOS-LZ77 images scanned from a GBA ROM (one row per screen).</summary>
+    GbaImage
 }
