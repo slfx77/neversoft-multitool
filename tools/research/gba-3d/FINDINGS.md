@@ -262,10 +262,35 @@ blits element V at `(minX+col*24, minY+row*24)`.
 `Core/Formats/Gba/GbaLevelImages.cs` + CLI `gba-level`, pinned by `GbaLevelImagesTests`
 (9 levels, level-0 coverage SHA). Verified visually: level 0 is a recognizable Hangar
 (rails, helicopter with rotor, halfpipe), level 2 a quarterpipe skatepark. **Faithful
-in shape/layout/shading; rendered 2-tone (ink coverage).** COLOUR is still open: the
-in-game surface colour comes from a separate fill/clear subsystem + the level BG
-palette (candidate fns 0x087FE660 / 0x087FE0-region → 0x087FEB90) that is NOT decoded,
-so the reconstruction is monochrome dither, not the game's colours.
+in shape/layout; rendered 2-tone (ink coverage).**
+
+### Colour (2026-08-21): palette SOLVED, surface shading PROCEDURAL
+
+**Correction to the record layout** (from the loader `FUN_08010CC8`): the true level
+table is base **0x087533FC**, stride 0x15C, record `{ … palette@+0x3C, dims W/H@+0x13C/
++0x13E, colourMap u16[W*H]@+0x140, cellRecTable(32B)@+0x144, objectList@+0x148,
+elementLibrary@+0x14C }`. `GbaLevelImages` content-scans the {obj,elem} pair, so its
+"record" pointer is **+0x144** past the true base — extraction still works (fields
+repeat at stride), and the palette is now read at scan-record −0x108 (= true +0x3C).
+
+- **Palette — SOLVED, media-derived.** Each level's BG palette is BIOS-LZ77 at
+  record+0x3C → **512 bytes = 256 BGR555** (index 0 = green transparent key). All 9
+  levels have one. The attract-demo palette (0x0851EF5C) decompresses **byte-identical**
+  to the emulator PAL dump, and re-quantising the demo screenshot to it gives mean
+  error 2.79/255 (just LCD gamma) — proof it is the colour source.
+  `GbaLevelImages.TryGetPalette` exposes it; `gba-level` emits `level_NN_palette.png`.
+- **Surface colour — PROCEDURAL, deferred.** The engine does NOT store a per-cell
+  colour. A per-frame renderer (ROM 0x08023xxx) reads `colourMap[cell]` → a 32-byte
+  cellRec → `shapeType` (0–7, jump table @0x080231D4) + `materialIndex` (0–36) → a
+  **37-entry × 20-byte material table @0x08745028 of C++ vtable method pointers**;
+  each material PROJECTS + SHADES its cell polygon, indexing the palette by
+  height/slope/light. So a pixel-exact colour render needs those ~37 shaders + the
+  affine projection reimplemented — a separate multi-session arc. The 1-bpp tile
+  layer we render is the detail/overlay pass (rails/edges/dither), carrying no colour.
+- The two candidate fns were NOT the fill: **0x087FE660** = screen-space clip/project;
+  **0x087FEB90** = OAM affine setup for the skater sprite (`r1=0x100` is 8.8 fixed 1.0,
+  not a colour count). Backlog: the material shaders (faithful colour) + the cell/
+  material map (`+0x13C/+0x140/+0x144`, media-derived level structure).
 
 ## SHIPPED (2026-08-21): full-screen BIOS-LZ77 image extraction (`gba-image`)
 

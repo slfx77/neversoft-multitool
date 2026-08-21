@@ -44,6 +44,15 @@ public static class GbaLevelImages
     private const int ObjectStride = 0x60;
     private const int MaxImageDimension = 8192; // guards a pathological bbox
 
+    // The record is located by content-scanning for the {objectList, elementLibrary}
+    // pointer pair (at scan-relative +4/+8). The engine's loader addresses the same
+    // record 0x144 bytes earlier — its true base is 0x087533FC, stride 0x15C, with
+    // palette@+0x3C, dims@+0x13C/+0x13E, colourMap@+0x140, cellRecs@+0x144,
+    // objectList@+0x148, elementLibrary@+0x14C. So from the scanned base the
+    // per-level BG palette pointer sits at -0x108 (= true +0x3C).
+    private const int PaletteFieldDelta = -0x108;
+    private const int PaletteColors = 256;
+
     public readonly record struct GbaLevel(
         uint RecordAddress, uint ObjectListAddress, uint ElementLibraryAddress, int ElementCount);
 
@@ -120,6 +129,40 @@ public static class GbaLevelImages
         }
 
         return new GbaLevelBitmap(width, height, coverage);
+    }
+
+    /// <summary>
+    ///     The level's real 256-colour background palette (BGR555 → RGBA), or null.
+    ///     This is the actual colour source — re-quantising a screenshot to it is
+    ///     byte-exact — but the engine paints each surface with a per-material
+    ///     procedural shader that indexes this palette by height/slope/light, so the
+    ///     palette alone does not give a pixel-faithful colour render (that needs the
+    ///     37 material shaders reimplemented). Exposed as the level's colour asset.
+    /// </summary>
+    public static byte[]? TryGetPalette(ReadOnlySpan<byte> rom, GbaLevel level)
+    {
+        var pointerOffset = (int)(level.RecordAddress - RomBase) + PaletteFieldDelta;
+        if (pointerOffset < 0 || pointerOffset + 4 > rom.Length)
+            return null;
+        var paletteAddress = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(pointerOffset, 4));
+        if (!IsRomPointer(paletteAddress))
+            return null;
+        if (!GbaBiosLz77.TryDecompress(rom, (int)(paletteAddress - RomBase), out var raw, out _))
+            return null;
+        if (raw.Length != PaletteColors * 2)
+            return null;
+
+        var rgba = new byte[PaletteColors * 4];
+        for (var i = 0; i < PaletteColors; i++)
+        {
+            var c = raw[i * 2] | (raw[i * 2 + 1] << 8);
+            rgba[i * 4] = Expand5(c & 0x1F);
+            rgba[i * 4 + 1] = Expand5((c >> 5) & 0x1F);
+            rgba[i * 4 + 2] = Expand5((c >> 10) & 0x1F);
+            rgba[i * 4 + 3] = 0xFF;
+        }
+
+        return rgba;
     }
 
     /// <summary>Renders a coverage bitmap to RGBA — ink (set bits) dark on a light ground.</summary>
@@ -247,4 +290,6 @@ public static class GbaLevelImages
     }
 
     private static bool IsRomPointer(uint address) => address is >= RomBase and < RomEnd;
+
+    private static byte Expand5(int v) => (byte)((v << 3) | (v >> 2));
 }

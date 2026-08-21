@@ -81,15 +81,40 @@ public static class GbaLevelCommand
             var path = Path.Combine(dir, $"level_{i:D2}.png");
             ImageWriter.WritePng(path, bitmap.Value.Width, bitmap.Value.Height, GbaLevelImages.ToRgba(bitmap.Value));
             written++;
+
+            // The level's real 256-colour palette — the actual colour source (the
+            // shaded surface itself is procedural per-material, not reproduced here).
+            var palette = GbaLevelImages.TryGetPalette(rom, levels[i]);
+            var hasPalette = palette != null;
+            if (hasPalette)
+                ImageWriter.WritePng(Path.Combine(dir, $"level_{i:D2}_palette.png"), 256, 256, PaletteSwatch(palette!));
+
             if (verbose)
                 AnsiConsole.MarkupLine(
                     $"  level_{i:D2}.png  obj 0x{levels[i].ObjectListAddress:X8}  "
                     + $"elem 0x{levels[i].ElementLibraryAddress:X8} ({levels[i].ElementCount} tiles)  "
-                    + $"{bitmap.Value.Width}x{bitmap.Value.Height}");
+                    + $"{bitmap.Value.Width}x{bitmap.Value.Height}{(hasPalette ? "  +palette" : "")}");
         }
 
         AnsiConsole.MarkupLine($"Reconstructed [green]{written}[/] level images to [green]{Markup.Escape(dir)}[/]");
-        AnsiConsole.MarkupLine("[grey]Note: 2-tone ink coverage; per-level colour is a separate pass, not yet decoded.[/]");
+        AnsiConsole.MarkupLine(
+            "[grey]Note: the render is 2-tone tile coverage; each level's real palette is emitted "
+            + "alongside, but the shaded surface colour is procedural (per-material) and not reproduced.[/]");
         return 0;
+    }
+
+    // A 256×256 swatch of a 256-colour RGBA palette (16×16 grid of 16px cells).
+    private static byte[] PaletteSwatch(byte[] palette)
+    {
+        var rgba = new byte[256 * 256 * 4];
+        for (var y = 0; y < 256; y++)
+        for (var x = 0; x < 256; x++)
+        {
+            var index = (y / 16) * 16 + (x / 16);
+            var o = (y * 256 + x) * 4;
+            Array.Copy(palette, index * 4, rgba, o, 4);
+        }
+
+        return rgba;
     }
 }

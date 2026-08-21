@@ -56,6 +56,27 @@ public sealed class GbaLevelImagesTests(TestPaths paths)
         Assert.Equal("4ab43a0e1ebd2c99f2573062c08f6ad925e47976f0caac5826ad83ee131efc20", sha);
     }
 
+    [Fact]
+    public void ExtractsLevel0Palette_TheRealColourSource()
+    {
+        var rom = LoadThps2();
+        Assert.SkipWhen(rom == null, "THPS2 GBA ROM sample not available");
+        var levels = GbaLevelImages.FindLevels(rom);
+
+        var palette = GbaLevelImages.TryGetPalette(rom, levels[0]);
+        Assert.NotNull(palette);
+        Assert.Equal(256 * 4, palette.Length);
+        // Index 0 is the green transparent key; this palette re-quantises the demo
+        // screenshot byte-exact, so it is the true colour source.
+        Assert.Equal(new byte[] { 0, 255, 0, 255 }, palette[..4]);
+        Assert.Equal(
+            "324b614decfa9c113e512868547ff67a15d97f4d6c6dee896ecbd8db73d4b260",
+            Convert.ToHexStringLower(SHA256.HashData(palette)));
+
+        // Every level carries a full 256-colour palette.
+        Assert.All(levels, l => Assert.Equal(256 * 4, GbaLevelImages.TryGetPalette(rom, l)?.Length));
+    }
+
     // Only THPS2 packs BIOS-LZ77 tile libraries + the isometric level table; the
     // later carts moved their art elsewhere, so no level table is found.
     [CorpusTheory]
