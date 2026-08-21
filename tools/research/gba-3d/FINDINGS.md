@@ -168,6 +168,36 @@ version-token fingerprint had to stop before the version, since the leading `v`
 was dropped after v1.99). Sample counts: THPS2 101, THPS3 53, THPS4 52, THUG 55,
 THUG2 55, Sk8land 55, DHJ 39. Pinned by `GbaGaxAudioTests` (`[CorpusTheory]`).
 
+## Scene architecture (2026-08-20, Ghidra decompile of the builder)
+
+Located the level-setup builder by searching the ROM for the runtime-global
+literal pools (`find_globals.py` — Ghidra's own search missed them in the huge
+undefined region): the globals `elemPtr/gridPtr/gridWidth` are referenced by a
+THUMB cluster at **ROM 0x08011800** (`FUN_08011800`), decompiled cleanly:
+
+- The scene is a **list of 96-byte polymorphic objects** (iterated at stride
+  `0x60`, terminated by a per-object field). Each object's first 16 bytes are a
+  2D world-XZ bounding box.
+- `FUN_08011800` builds a **spatial acceleration grid**: world divided into
+  256-unit cells (`cols = worldW/256`, grid width = `cols*10`, matching the
+  width-90 seen at runtime); it allocates `elemPtr` = a size-prefixed element
+  blob (`FUN_08034ae8` = `*p >> 8`) plus the grid, then for each cell stores
+  pointers to every object whose box overlaps that cell.
+- Object overlap is tested via **method dispatch** — `FUN_08037954` is an
+  indirect `(*method)()` call, i.e. the objects are **C++-style polymorphic**
+  (vtable/method-pointer), not plain structs. `FUN_08011bec` is the allocator,
+  `FUN_08034a00` the block copy.
+
+**Why clean mesh extraction is hard (the honest blocker).** The drawable
+geometry is produced by **per-object-type methods** (polymorphic), and the
+render path emits **spans**, not vertex buffers — so there is no flat
+mesh-in-ROM to lift. Extracting real geometry means reverse-engineering each
+object type's geometry method and reconstructing meshes from the span/parametric
+representation. The 3D is real (world-space boxes, 24.8 fixed-point, a spatial
+grid), but it is an engine-specific scene graph, so this is a genuinely
+multi-session effort — the builder + object model are now mapped, but the
+per-type geometry methods are not.
+
 ## Next steps (in order)
 
 1. **Geometry (hard, multi-session):** find the level-load code that builds the
