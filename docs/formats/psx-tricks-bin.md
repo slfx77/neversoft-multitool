@@ -131,6 +131,37 @@ the bank's **last index**.
 | THPS3 PS1 | 226 | 225 |
 | THPS4 PS1 | 235 | 234 |
 
+## Finding the table on an N64 cart
+
+The carts ship the same table, but a carve has no name for it — it is emitted as
+an unclassified payload (`misc/164.bin` in both THPS2 and THPS3, though the
+ordinal is not guaranteed). So `N64TrickTableLocator` finds it by **parsing**
+rather than by path, which the credibility gate above makes safe: exactly one
+carved asset per cart qualifies.
+
+The sweep is kept cheap by skipping the three bulk roles (`models/`, `group2/`,
+`textures/`) — none of which can hold the table — applying a size band, and then
+a one-pass count of `0x0B`-plus-printable-ASCII pairs before any parse. Results
+cache per cart. Both source shapes are covered: an archive walk for a ROM opened
+in place, and a carve-root walk for a carve extracted to disk. They must agree,
+and that parity is pinned — the two take different branches and it is not free.
+
+**The bank gate is EXACT here, not "every slot fits."** On disc the table sits
+beside its bank, so containment is enough; on a cart the pairing is found by
+search, and a cart holds shells with as many as 300 clips — any of which would
+swallow a 218-slot table's names under a containment test.
+`TrickAnimationNames.BuildForExactBank` therefore requires the bank's last index
+to BE the table's highest reference. Measured, both skating carts keep their
+skater bank at slot 045 and both fit exactly:
+
+| cart | bank slots | table max slot | slots named |
+|---|---|---|---|
+| THPS2 N64 | 218 | 217 | 110 |
+| THPS3 N64 | 226 | 225 | 124 |
+| Spider-Man N64 | — | no table | 0 |
+
+A per-cart census pins that exactly one bundle takes the names.
+
 ## Naming policy
 
 **Only uniquely-owned slots are named.** Trick scripts share approach and

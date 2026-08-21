@@ -1,14 +1,20 @@
 namespace NeversoftMultitool.Core.Formats.Animation;
 
 /// <summary>
-///     One anonymous direct or compressed slot embedded in a carved N64 model shell.
-///     The source keeps the owning bundle so GUI selection can route the exact
+///     One direct or compressed slot embedded in a carved N64 model shell. The
+///     source keeps the owning bundle so GUI selection can route the exact
 ///     index back through <c>MeshImportRequest.N64AnimationIndices</c>.
+///     <para>
+///         Slots are anonymous in the file. Where the cart's own
+///         <c>tricks.bin</c> uniquely owns a slot, <paramref name="trickName" />
+///         carries its real name; everything else keeps the synthetic label.
+///     </para>
 /// </summary>
 internal sealed class N64AnimationSource(
     AssetSource modelSource,
     int animationIndex,
-    int frameCount) : AssetSource
+    int frameCount,
+    string? trickName = null) : AssetSource
 {
     public AssetSource ModelSource { get; } = modelSource;
 
@@ -16,10 +22,13 @@ internal sealed class N64AnimationSource(
 
     public int FrameCount { get; } = frameCount;
 
-    public override string DisplayName =>
-        $"{Path.GetFileName(ModelSource.EntryName)}::anim_{AnimationIndex}";
+    /// <summary>The slot's label — a trick name where one is known.</summary>
+    public string Label { get; } = trickName ?? $"anim_{animationIndex}";
 
-    public override string EntryName => $"anim_{AnimationIndex}";
+    public override string DisplayName =>
+        $"{Path.GetFileName(ModelSource.EntryName)}::{Label}";
+
+    public override string EntryName => Label;
 
     public override string? FileSystemPath => ModelSource.FileSystemPath;
 

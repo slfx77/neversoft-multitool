@@ -27,11 +27,16 @@ internal static class N64EmbeddedAnimationDiscovery
             if (plan == null)
                 return [];
 
+            // The cart ships the same tricks.bin the disc does, so the slots it
+            // uniquely owns get their real names here as well as in the export.
+            var slotNames = N64TrickTableLocator.ForBundle(source, plan.Animations.Entries.Count);
+
             return plan.Animations.Entries
                 .Select((entry, index) =>
                 {
                     var animationSource = new N64AnimationSource(
-                        source, index, entry.FrameCount);
+                        source, index, entry.FrameCount,
+                        slotNames.TryGetValue(index, out var trick) ? trick : null);
                     return new AnimationProbe(
                         animationSource,
                         animationSource.DisplayName,

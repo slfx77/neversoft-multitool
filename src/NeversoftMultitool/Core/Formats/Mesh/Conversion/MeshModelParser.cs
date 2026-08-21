@@ -148,7 +148,11 @@ public sealed class MeshModelParser : IModelParser
             N64.N64ModelCompanions.TryReadRenderBank(request.Source),
             N64.N64ModelCompanions.TryReadRenderBankId(request.Source),
             N64.N64ModelCompanions.BuildTextureProvider(request.Source),
-            N64.N64ModelCompanions.TryReadLightRig(request.Source));
+            N64.N64ModelCompanions.TryReadLightRig(request.Source),
+            // Bound here rather than in the writer so the GUI and the CLI share
+            // one path — the writer has no asset source of its own. Deferred so
+            // a static export never runs the scan.
+            slots => Animation.N64TrickTableLocator.ForBundle(request.Source, slots));
 
         var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.N64Model, native);
         N64.N64ModelWriter.Populate(

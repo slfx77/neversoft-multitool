@@ -62,6 +62,32 @@ public static class TrickAnimationNames
     }
 
     /// <summary>
+    ///     As <see cref="BuildForBank" />, but requires the bank to be EXACTLY
+    ///     the one the table describes: its last index must be the highest slot
+    ///     any trick references.
+    ///     <para>
+    ///         Needed where the table is paired with a bank by search rather
+    ///         than by being its sibling on disc. "Every slot fits" is far too
+    ///         weak then — a carved N64 cart holds shells with as many as 300
+    ///         clips, and every one of those would swallow a 218-slot table's
+    ///         names. The equality is not an extra assumption: it holds in all
+    ///         four shipped pairings (147/218/226/235) and is pinned.
+    ///     </para>
+    /// </summary>
+    public static IReadOnlyDictionary<int, string> BuildForExactBank(
+        TricksFile tricks, int bankSlotCount)
+    {
+        var highest = tricks.Tricks
+            .SelectMany(static trick => trick.AnimationIds)
+            .DefaultIfEmpty(-1)
+            .Max();
+
+        return highest == bankSlotCount - 1
+            ? BuildForBank(tricks, bankSlotCount)
+            : new Dictionary<int, string>();
+    }
+
+    /// <summary>
     ///     Strips the braces retail wraps "special" trick names in, so a slot
     ///     reads <c>Christ Air</c> rather than <c>{Christ Air}</c>.
     /// </summary>

@@ -104,7 +104,8 @@ public static class N64ModelWriter
             : null;
         var decodedAnimations = animationPlan != null
             ? DecodeAnimations(
-                shell, animationPlan.Animations, animationIndices, includeAllAnimations, oneShot)
+                shell, animationPlan.Animations, animationIndices, includeAllAnimations, oneShot,
+                source.TrickNamesForBank?.Invoke(animationPlan.Animations.Entries.Count))
             : [];
         if (decodedAnimations.Count > 0)
         {
@@ -176,12 +177,14 @@ public static class N64ModelWriter
         N64CompressedAnimationBank bank,
         IReadOnlyList<int>? requestedIndices,
         bool includeAllAnimations,
-        bool oneShot)
+        bool oneShot,
+        IReadOnlyDictionary<int, string>? slotNames)
     {
         IReadOnlyList<int> indices = includeAllAnimations
             ? Enumerable.Range(0, bank.Entries.Count).ToArray()
             : requestedIndices ?? [];
         var seen = new HashSet<int>();
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var clips = new List<(string Name, PsxAnimation Animation)>();
         foreach (var index in indices)
         {
@@ -190,7 +193,17 @@ public static class N64ModelWriter
 
             try
             {
-                clips.Add(($"anim_{index}", bank.DecodeSlot(index, shell.Objects.Count, oneShot)));
+                // The cart's own tricks.bin names the slots it uniquely owns;
+                // everything else keeps the synthetic label. Two slots CAN
+                // carry the same trick name (the prototype's "Backflip" is
+                // slots 141 and 146), so the name is disambiguated the same
+                // way the PSX path does it — and only after a successful
+                // decode, so a slot that throws cannot consume a name.
+                var animation = bank.DecodeSlot(index, shell.Objects.Count, oneShot);
+                var label = slotNames != null && slotNames.TryGetValue(index, out var trick)
+                    ? trick
+                    : $"anim_{index}";
+                clips.Add((AnimationExportName.ForMesh(string.Empty, label, used), animation));
             }
             catch (Exception ex) when (ex is InvalidDataException or ArgumentOutOfRangeException
                                        or IndexOutOfRangeException or OverflowException)

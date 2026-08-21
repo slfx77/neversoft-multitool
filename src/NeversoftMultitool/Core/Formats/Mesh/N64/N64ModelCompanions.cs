@@ -329,7 +329,7 @@ public static class N64ModelCompanions
     ///     directory that holds <c>group2/</c> and <c>textures/</c>. Bounded to
     ///     a few levels: the real depth is exactly two (<c>models/NNN</c>).
     /// </summary>
-    private static string? TryFindCarveRoot(AssetSource source)
+    internal static string? TryFindCarveRoot(AssetSource source)
     {
         var path = source.FileSystemPath;
         if (string.IsNullOrEmpty(path))
