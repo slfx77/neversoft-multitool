@@ -49,7 +49,8 @@ public static class Program
         GsDumpCommand.Create,
         SkaCommand.Create,
         Thps2XFrontendAnimCommand.Create,
-        FntCommand.Create
+        FntCommand.Create,
+        GbaGaxCommand.Create
     ];
 
     private static readonly Lazy<HashSet<string>> CliCommandNames = new(

@@ -52,23 +52,132 @@ Evidence, from the attract-demo RAM trace:
   12, 13, 14 …) referencing a vertex pool, exactly the shape of per-object
   triangle/quad connectivity.
 
-**Open (needs the loader disassembled — GG3 blocker).** The **vertex position
-encoding** is not yet cracked: an in-bounds s16(x,y,z) scan of the raw region
-against the descriptors' own bounding boxes found nothing (`find_verts.py`), so
-positions are either s8/packed, delta-coded, or reached by a second pointer.
-The exact descriptor stride/field meaning is also unconfirmed (a naive 24-byte
-tiling desyncs after the first record). Both fall out of disassembling the
-model loader: locate it with `gba_disasm.py --find-word 0x08754E60` (the
-descriptor-table address seen in RAM) or breakpoint the raw region's reads,
-then read the record walk directly rather than guessing.
+## Renderer RE (2026-08-20) — it is a GRID/SECTOR-based software 3D engine
+
+Ghidra (12.0, headless, ARM:LE:32:v4t @0x08000000, `TestOutput/gba-ghidra/`)
+plus a BizHawk memory-read watchpoint pinned the geometry code. The watchpoint
+on the descriptor addresses fired once per frame from **IWRAM 0x030005A8** — the
+VV engine copies its hot routines into IWRAM at load (confirmed: that IWRAM code
+matches ROM **0x087FE178**, in the 0x87Fxxxx IWRAM-overlay region the GAX
+research also flagged). So the renderer/loader runs from IWRAM, which is why
+static Ghidra xrefs to the 0x750000 region are empty (0 refs) — the data is
+reached only through runtime-computed pointers.
+
+Disassembling the ROM source (`gba_disasm.py thps2 0x087FE130 …`) decoded three
+functions and reshaped the picture:
+
+- **0x087FE150 — 2D AABB overlap test.** Compares two rects
+  `{minX@0, minY@4, maxX@8, maxY@C}` and returns 1 on overlap. This is the
+  per-object **visibility cull**, and it proves the descriptor's four leading
+  fields are a **2D bounding box in world XZ** (the earlier "bounding box"
+  reading was right). One call/object/frame = the single read the watchpoint saw.
+- **0x087FE19C — the draw/traverse function.** A double-nested loop over a **2D
+  grid of s16 indices** (`grid = *(descriptor+0x10)`, walked by a column
+  counter). For each non-zero grid value `V`: `V*3` then `<<5` (so `V*96`) indexes
+  a **96-byte geometry element** in a **runtime-built table** (`*(0x03001E50)`),
+  which is handed to a rasterizer sub-call at 0x087FE068. Coordinates are **24.8
+  fixed-point** (`asr #8` throughout).
+- **0x087FE3AC — world→grid lookup.** Takes a world (x,y) in 24.8, `>>8` to
+  integer cells, `cell = y*width + x` (`width = *(0x03002454)`), indexes a runtime
+  grid `*(0x03002450)`. The spatial/collision query.
+
+**Conclusion: THPS2 GBA renders real 3D**, but as **grid-indexed geometry**, not
+triangle soup: the world is a 2D grid (world XZ); each populated cell references
+a 96-byte geometry element; a software rasterizer (in IWRAM) draws them with
+fixed-point transforms. This validates the user's "there is 3D" instinct while
+explaining why a naive vertex-buffer scan found nothing — the drawable geometry
+lives in **runtime-built RAM tables** (`*(0x03001E50)` / `*(0x03002450)` /
+`*(0x03002454)`), decompressed/transformed from ROM at load. The 24-byte ROM
+descriptors + s16 grids at 0x750000+ are the loader's INPUT; the 96-byte
+elements are its OUTPUT.
+
+Following those runtime pointers from the existing RAM dumps (`follow_elem.py`,
+no live run needed — the IWRAM globals sit in `iwram.bin`, their targets in
+`ewram_full.bin`): the attract demo has `*(0x03001E50)=0x020017BC` (element
+table, EWRAM), `*(0x03002450)=0x0200769C` (grid, mostly zero in that demo),
+`*(0x03002454)=0x5A` (grid width 90). The 96-byte elements are **not raw source
+geometry** — they read as **processed render spans** (repeating fixed-point pairs
+like `(0x8000, 0x00AA, 0x4000, 0x0055)`), i.e. the per-scanline output the
+rasterizer consumes, one transform stage downstream of the model data.
+
+**GG3 blocker (revised).** Full geometry extraction needs the **runtime-table
+BUILDER** reverse-engineered — the level-load code that converts the ROM
+descriptors/grids into those elements. A write-watchpoint on `0x03001E50` stalled
+the emulator (the pointer is rewritten per frame, not just at load), so the next
+approach is to watchpoint the ELEMENT BUFFER's first bytes during level load (set
+early, before the demo), or decompile the level-load path statically. This is the
+largest remaining GBA effort.
+
+## Other formats (2026-08-20)
+
+- **Audio — GAX Sound Engine sample extraction SHIPPED (2026-08-20).**
+  `Core/Formats/Audio/Gba/GbaGaxAudio.cs` + CLI `gba-audio`. GAX has no magic and
+  (in v1.99) no per-song mixing-rate/instrument/wave fields — those are global —
+  so the reliable anchor is the **wave set**: the `{u32 romAddr, u32 size}` array
+  is self-validating because the samples are packed back-to-back
+  (`addr[i]+size[i]==addr[i+1]`). The extractor scans for the longest such
+  contiguous in-ROM run, then dumps each sample (mono **signed 8-bit PCM**,
+  widened to 16-bit) to WAV. Verified on THPS2 GBA: engine banner
+  `GAX Sound Engine v1.99d`, wave set at 0x7F26C0, **101 samples**, all real PCM.
+  Pinned by `GbaGaxAudioTests`. NOT yet done: sequenced-music rendering (needs the
+  song/instrument/perf-list playback + the global rate-table index the driver
+  selects at init) — a larger second stage.
+- **Images/tiles/textures — display format not yet pinned.** The entropy-based
+  `stream_census` "tiles4" label is unreliable (a rendered "tiles4" payload at
+  0x455FEC is noise, not art). Rendering the attract-demo VRAM as Mode-4 bitmap
+  and as 4/8bpp tiles both came out garbled, so the level is NOT a trivial BG
+  bitmap/tilemap — likely composited from OBJ sprites and/or an affine BG, or
+  software-rasterized to a framebuffer the dump didn't capture cleanly. Next:
+  read **DISPCNT/BGxCNT** (the Lua IO read via BizHawk's System Bus domain did
+  not return — IO 0x04000000 may need a different domain or a savestate) to get
+  the real mode, then trace the on-screen tiles/sprites back to their ROM LZ77
+  source.
+
+## Engine evolution across the 7 carts (2026-08-20)
+
+The line spans two GBA generations and the engine clearly changed over time
+(`cross_rom_survey.py`, `ptr_scan.py`):
+
+| Cart | Game code | ROM | GAX version (build) | non-overlap LZ77 |
+|---|---|---|---|---|
+| THPS2 (2001) | ATHE | 8 MB | v1.99d (Mar 2001) | 384 / 12.6% |
+| THPS3 (2002) | AT3E | 8 MB | 2.11 (Dec 2001) | 463 / 4.9% |
+| THPS4 (2002) | AT6E | 8 MB | 3.0 (Jul 2002) | 53 / 2.7% |
+| THUG (2003) | BTOE | 8 MB | 3.03A (Jul 2003) | 63 / 2.6% |
+| THUG2 (2004) | B2TE | 8 MB | 3.05 (Aug 2003) | 69 / 4.9% |
+| Sk8land (2005) | BH9E | 8 MB | 3.05A (Aug 2004) | 65 / 3.3% |
+| **Downhill Jam (2006)** | **BXSE** | **16 MB** | **3.05 (Aug 2003)** | **3 / 0.1%** |
+
+- **Two generations by game code:** A-prefix (THPS2/3/4) and B-prefix
+  (THUG/THUG2/Sk8land/DHJ).
+- **The geometry renderer changed after THPS2:** the exact THPS2 cull signature
+  (`04 20 90 E5 …`) appears in no other cart, so the render code was rewritten.
+- **Audio decouples from the game year:** DHJ (2006) ships the *same* GAX 3.05
+  Aug-2003 build as THUG2 — its audio engine is not "new."
+- **Downhill Jam is the structural outlier** and matches the user's read that it
+  "seems completely different": it is the only 16 MB cart, and it uses almost no
+  BIOS LZ77 (3 non-overlapping streams / 0.1%, vs 12.6% in THPS2) and no zlib —
+  so its assets are stored **largely uncompressed** in a different layout (its
+  pointer tables use 68-byte-stride records, unlike THPS2's 24-byte descriptors).
+  Characterizing DHJ's geometry is its own RE effort, separate from THPS2's.
+
+## Audio — shipped across the whole line (2026-08-20)
+
+`GbaGaxAudio` + `gba-audio` extracts samples from **all 7 carts** (the
+version-token fingerprint had to stop before the version, since the leading `v`
+was dropped after v1.99). Sample counts: THPS2 101, THPS3 53, THPS4 52, THUG 55,
+THUG2 55, Sk8land 55, DHJ 39. Pinned by `GbaGaxAudioTests` (`[CorpusTheory]`).
 
 ## Next steps (in order)
 
-1. Ghidra-import THPS2 GBA (ARM v4T LE @0x08000000); find the reader that
-   consumes the 0x750000+ region → exact descriptor layout + vertex codec.
-2. Decode one attract-demo object to an OBJ point cloud and eyeball it against
-   the screenshot (**GG3**). Only then start the implementation wave
-   (`GbaRomArchive` carve route → mesh parser/writer → viewer), per the plan.
-3. Cross-check the descriptor/codec shape across the other six ROMs
-   (`ptr_scan.py` shows the table shapes persist), building the per-title
-   support map the carver will need.
+1. **Geometry (hard, multi-session):** find the level-load code that builds the
+   `*(0x03001E50)` element table (watchpoint a WRITE to 0x03001E50, or trace the
+   IWRAM-overlay copy + the loader that fills it), then decode the 96-byte
+   element format → extract real 3D geometry → GLB. This is the headline but the
+   largest remaining effort.
+2. **Audio (tractable):** build the C# GAX extractor (samples first, then the
+   sequence renderer). Fast, self-contained, delivers WAVs.
+3. **Images (medium):** determine the display mode (DISPCNT), then decode the
+   real tile/sprite/texture art to PNG.
+4. Cross-check the engine across the other six ROMs; later titles (THPS3+, which
+   the dev interview says got a "real 3D editor") may store geometry differently.
