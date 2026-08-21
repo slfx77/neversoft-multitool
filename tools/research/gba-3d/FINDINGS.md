@@ -198,6 +198,43 @@ grid), but it is an engine-specific scene graph, so this is a genuinely
 multi-session effort — the builder + object model are now mapped, but the
 per-type geometry methods are not.
 
+## RESOLVED (2026-08-21): the render path is 2D isometric TILE art, not 3D meshes
+
+Capturing the builder's arguments live (`capture_builder.lua`, execute-breakpoint
+on `FUN_08011800`) gave the ground truth: everything is in ROM.
+`param_2` (object list) `= 0x08754E60`, `param_1` (element/tile library)
+`= 0x0873DC78`, world `0x810 × 0x540`. So no runtime reconstruction is needed.
+
+- **Objects** (`decode_objects.py`): ROM 0x08754E60, **96 bytes each**
+  (`{s32 bbox[4], u32 tileGridPtr@0x10, u32 count@0x14, misc fields}`). The
+  earlier 24-byte reading was a wrong stride. `tileGridPtr` → `count` rows of a
+  2D grid of small **tile indices** `V`.
+- **The draw loop** maps each grid value `V` to element `param_1[V]` (V×96) and
+  hands it to the rasterizer.
+- **The rasterizer at ROM 0x087FE068** (IWRAM-overlay, disassembled) is a **1-bit-per-pixel
+  stencil blitter**: per row it reads a 32-bit word and, bit by bit (an unrolled
+  `lsls #2` + `strbhs`/`strbmi` chain), writes a pixel into the framebuffer at a
+  scanline stride. So a `param_1` element is a **1-bpp tile bitmap**, and
+  `decode_elements.py` confirms the element bytes are packed bit-rows
+  (`F0 07`/`01 F0` patterns), not vertex data.
+
+**Conclusion — there are no extractable 3D meshes in the GBA render data.** The
+level is drawn as **2D isometric tile art**: a grid of tile indices per object,
+each index selecting a pre-drawn 1-bpp tile bitmap that the software blitter
+composites to the screen. This matches the Vicarious Visions dev interview
+verbatim ("the images were 2D tiles; the collision had to be represented in 3D").
+The earlier "grid-based 3D engine" framing was half-right: the *spatial grid* and
+world-space bounding boxes are real (and the **collision** is a separate 3D
+parametric system, not yet decoded), but the **render geometry is 2D tiles**, so
+extracting polygon meshes from it is not possible — there are none.
+
+**What IS extractable** (the achievable "render a level" deliverable, in 2D):
+compose the isometric level image by walking each object's tile grid and blitting
+`param_1`'s 1-bpp tile bitmaps at each cell — i.e. reconstruct the tile art and
+the level layout, not a 3D model. The tile-bitmap plane/colour encoding (the
+element is one bit-plane; the blit value comes from a table indexed by a stack
+arg) is the remaining detail to pin before a faithful colour composite.
+
 ## Next steps (in order)
 
 1. **Geometry (hard, multi-session):** find the level-load code that builds the
