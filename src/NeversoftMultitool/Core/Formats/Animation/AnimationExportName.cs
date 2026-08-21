@@ -22,6 +22,13 @@ internal static class AnimationExportName
             var normalizedStem = FileNameOnly(meshStem);
             resolvedName = $"{normalizedStem}_{unnamedSlot}";
         }
+        else if (TryGetNamedSlot(animationName, out var namedSlot))
+        {
+            // A slot the build's tricks.bin names needs no bank qualifier: the
+            // trick name already identifies the clip, and "Christ Air" reads
+            // better in a glTF clip list than "sk2anim.psx::Christ Air".
+            resolvedName = namedSlot;
+        }
 
         if (usedNames == null || usedNames.Add(resolvedName))
             return resolvedName;
@@ -52,6 +59,23 @@ internal static class AnimationExportName
 
         slot = "";
         return false;
+    }
+
+    /// <summary>
+    ///     A bank-qualified name whose slot part is a real name rather than a
+    ///     synthetic <c>anim_N</c> — i.e. one <c>tricks.bin</c> supplied.
+    /// </summary>
+    private static bool TryGetNamedSlot(string name, out string slot)
+    {
+        slot = "";
+        var qualifier = name.LastIndexOf("::", StringComparison.Ordinal);
+        if (qualifier < 0) return false;
+
+        var candidate = name[(qualifier + 2)..];
+        if (candidate.Length == 0 || IsUnnamedSlot(FileNameOnly(candidate))) return false;
+
+        slot = candidate;
+        return true;
     }
 
     internal static bool IsUnnamedSlot(string name)

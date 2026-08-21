@@ -71,10 +71,17 @@ internal static class PsxAnimationBank
         }
     }
 
+    /// <param name="displayNameFactory">
+    ///     Builds the probe's display name from the slot index and the slot's
+    ///     resolved label — a trick name where <c>tricks.bin</c> names the slot,
+    ///     otherwise the synthetic <c>anim_N</c>. Taking the label as an argument
+    ///     keeps callers from re-deriving the fallback and silently losing the
+    ///     trick names.
+    /// </param>
     public static IReadOnlyList<AnimationProbe> CreateProbes(
         AssetSource source,
         int? targetBoneCount,
-        Func<int, string>? displayNameFactory = null,
+        Func<int, string, string>? displayNameFactory = null,
         PsxAnimationBoneRemap? boneRemap = null)
     {
         var bank = TryProbe(source, targetBoneCount);
@@ -82,11 +89,18 @@ internal static class PsxAnimationBank
 
         var decodeBoneCount = targetBoneCount ?? bank.BoneCount;
         var results = new List<AnimationProbe>(bank.AnimFile.Entries.Count);
+
+        // PSX animation slots carry no names in the file; the engine plays them
+        // by index from game code. A sibling tricks.bin is that code's table, so
+        // where one pairs with this bank the slots it uniquely owns get their
+        // real trick names instead of a synthetic anim_N.
+        var slotNames = TrickNameLocator.ForBank(source, bank.AnimFile.Entries.Count);
         for (var i = 0; i < bank.AnimFile.Entries.Count; i++)
         {
             var entry = bank.AnimFile.Entries[i];
-            var displayName = displayNameFactory?.Invoke(i)
-                              ?? $"{Path.GetFileName(source.EntryName)}::anim_{i}";
+            var label = slotNames.TryGetValue(i, out var trick) ? trick : $"anim_{i}";
+            var displayName = displayNameFactory?.Invoke(i, label)
+                              ?? $"{Path.GetFileName(source.EntryName)}::{label}";
             var animSource = new PsxAnimationSource(
                 source, i, entry.FrameCount, decodeBoneCount, displayName, boneRemap);
             results.Add(new AnimationProbe(
@@ -101,11 +115,16 @@ internal static class PsxAnimationBank
         return results;
     }
 
+    /// <param name="slotNames">
+    ///     Trick names for the slots a sibling <c>tricks.bin</c> uniquely owns.
+    ///     Slots it does not name keep their synthetic <c>anim_N</c> label.
+    /// </param>
     public static IReadOnlyList<PsxAnimationBankSelection> ResolveSelections(
         PsxAnimFile animFile,
         int animIndex,
         string? animName,
-        string? namePrefix)
+        string? namePrefix,
+        IReadOnlyDictionary<int, string>? slotNames = null)
     {
         var usePrefix = !string.IsNullOrWhiteSpace(namePrefix);
         if (animIndex == -1)
@@ -122,11 +141,15 @@ internal static class PsxAnimationBank
 
         string BuildName(int index)
         {
+            var label = slotNames != null && slotNames.TryGetValue(index, out var trick)
+                ? trick
+                : $"anim_{index}";
+
             if (usePrefix)
-                return $"{namePrefix}_anim_{index}";
+                return $"{namePrefix}_{label}";
 
             return string.IsNullOrWhiteSpace(animName)
-                ? $"anim_{index}"
+                ? label
                 : animName;
         }
     }

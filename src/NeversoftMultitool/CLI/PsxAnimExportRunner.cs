@@ -162,7 +162,8 @@ internal static class PsxAnimExportRunner
                 bank.AnimFile,
                 animIndex,
                 externalSource == null ? animName : null,
-                prefix);
+                prefix,
+                TrickNameLocator.ForBank(bank.Source, bank.AnimFile.Entries.Count));
             cancellationToken.ThrowIfCancellationRequested();
             if (selected.Count == 0)
                 continue;

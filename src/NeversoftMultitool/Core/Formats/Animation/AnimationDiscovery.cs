@@ -227,7 +227,8 @@ internal static class AnimationDiscovery
 
         var boneCount = psxFile.Objects.Count;
         var results = new List<AnimationProbe>();
-        results.AddRange(PsxAnimationBank.CreateProbes(skinSource, boneCount, i => $"anim_{i}"));
+        results.AddRange(PsxAnimationBank.CreateProbes(
+            skinSource, boneCount, static (_, label) => label));
 
         // Most PS1 characters don't embed their own anim table — animations ship
         // in sibling bank .psx files (anims_*.psx, companion libraries). This was
