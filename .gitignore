@@ -108,3 +108,8 @@ tools/vendor/*
 !tools/vendor/gltf-validator/
 tools/vendor/gltf-validator/*
 !tools/vendor/gltf-validator/README.md
+
+# BizHawk (GBA dynamic analysis) — same deal: track only its setup note.
+!tools/vendor/bizhawk/
+tools/vendor/bizhawk/*
+!tools/vendor/bizhawk/README.md
