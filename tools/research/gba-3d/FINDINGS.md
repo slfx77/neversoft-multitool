@@ -279,18 +279,31 @@ repeat at stride), and the palette is now read at scan-record −0x108 (= true +
   to the emulator PAL dump, and re-quantising the demo screenshot to it gives mean
   error 2.79/255 (just LCD gamma) — proof it is the colour source.
   `GbaLevelImages.TryGetPalette` exposes it; `gba-level` emits `level_NN_palette.png`.
-- **Surface colour — PROCEDURAL, deferred.** The engine does NOT store a per-cell
-  colour. A per-frame renderer (ROM 0x08023xxx) reads `colourMap[cell]` → a 32-byte
-  cellRec → `shapeType` (0–7, jump table @0x080231D4) + `materialIndex` (0–36) → a
-  **37-entry × 20-byte material table @0x08745028 of C++ vtable method pointers**;
-  each material PROJECTS + SHADES its cell polygon, indexing the palette by
-  height/slope/light. So a pixel-exact colour render needs those ~37 shaders + the
-  affine projection reimplemented — a separate multi-session arc. The 1-bpp tile
-  layer we render is the detail/overlay pass (rails/edges/dither), carrying no colour.
-- The two candidate fns were NOT the fill: **0x087FE660** = screen-space clip/project;
-  **0x087FEB90** = OAM affine setup for the skater sprite (`r1=0x100` is 8.8 fixed 1.0,
-  not a colour count). Backlog: the material shaders (faithful colour) + the cell/
-  material map (`+0x13C/+0x140/+0x144`, media-derived level structure).
+- **Geometry (heightfield) — SHIPPED.** The per-cell grid at the true record's
+  `+0x13C/+0x13E` (W,H) + `+0x140` (colourMap `u16[W*H]`) + `+0x144` (32-byte cellRecs:
+  `[0]`=shape 0–7 = D4 orientation, `[+2]`=material 0–36, `[+8]`=height 20.12) is
+  media-derived and renders as an accurate **isometric heightfield** — the real 3D
+  level structure (cell = 3 world units; iso basis TW18/TH9). Verified across all 9
+  levels (0 bad cells; level 0 = Hangar, level 4 = a two-section skatepark).
+  `GbaLevelImages.RenderIsoHeightfield`; `gba-level` emits `level_NN_iso.png`. Surfaces
+  are height-shaded and tinted per material FOR STRUCTURE VISIBILITY (not the engine's
+  colours). NB the cellRec heightfield is the **collision/physics terrain** (its vtables
+  are called from collision code 0x0801Bxxx, e.g. slope tests), which mirrors the
+  visual surface — so it is a faithful geometry render, not the literal render mesh.
+- **Surface colour — separate pixel renderer, BLOCKED (needs dynamic analysis).**
+  CORRECTION to the earlier note: the material vtable system is PHYSICS, not the pixel
+  path — the value once read as "colour" (`leafRecord[+0xc]`) is a 0/1 draw flag, and
+  none of the demo's dominant indices appear in the leaf bytes. The actual displayed
+  colour comes from a separate pixel renderer that could not be located statically:
+  the framebuffer address `0x06000000` is never a literal (built arithmetically), so
+  "find the strb to VRAM" is a dead end without dynamic analysis. **The way through:**
+  a BizHawk write-watchpoint on the framebuffer (or the affine-BG char base) during a
+  level load → capture the store site + call stack → walk back to the per-face colour
+  source. Candidate render geometry is the pre-projected mesh at record `+0x30` (faces,
+  stride-18 quads) / `+0x34`/`+0x38` (iso vertices), which did not decode cleanly as
+  paired vertices. Backlog: locate + reimplement the pixel renderer for faithful colour.
+- The two earlier candidate fns were NOT the fill: **0x087FE660** = screen-space
+  clip/project; **0x087FEB90** = OAM affine setup for the skater sprite.
 
 ## SHIPPED (2026-08-21): full-screen BIOS-LZ77 image extraction (`gba-image`)
 

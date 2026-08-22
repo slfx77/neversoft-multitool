@@ -57,6 +57,26 @@ public sealed class GbaLevelImagesTests(TestPaths paths)
     }
 
     [Fact]
+    public void RendersLevel0IsoHeightfield_AccurateGeometry()
+    {
+        var rom = LoadThps2();
+        Assert.SkipWhen(rom == null, "THPS2 GBA ROM sample not available");
+        var levels = GbaLevelImages.FindLevels(rom);
+
+        var render = GbaLevelImages.RenderIsoHeightfield(rom, levels[0]);
+        Assert.NotNull(render);
+        Assert.Equal(458, render.Value.Width);
+        Assert.Equal(282, render.Value.Height);
+        Assert.Equal(render.Value.Width * render.Value.Height * 4, render.Value.Rgba.Length);
+        Assert.Equal(
+            "bd68b63790bf6c348941efcc074badb36b966f913a994c2a4ff23392bdf7aa12",
+            Convert.ToHexStringLower(SHA256.HashData(render.Value.Rgba)));
+
+        // Every level renders an iso heightfield (accurate geometry across the corpus).
+        Assert.All(levels, l => Assert.NotNull(GbaLevelImages.RenderIsoHeightfield(rom, l)));
+    }
+
+    [Fact]
     public void ExtractsLevel0Palette_TheRealColourSource()
     {
         var rom = LoadThps2();

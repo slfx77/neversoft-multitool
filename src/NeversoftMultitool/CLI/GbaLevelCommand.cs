@@ -75,32 +75,50 @@ public static class GbaLevelCommand
         for (var i = 0; i < levels.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var bitmap = GbaLevelImages.RenderLevel(rom, levels[i]);
-            if (bitmap is null)
-                continue;
-            var path = Path.Combine(dir, $"level_{i:D2}.png");
-            ImageWriter.WritePng(path, bitmap.Value.Width, bitmap.Value.Height, GbaLevelImages.ToRgba(bitmap.Value));
-            written++;
-
-            // The level's real 256-colour palette — the actual colour source (the
-            // shaded surface itself is procedural per-material, not reproduced here).
-            var palette = GbaLevelImages.TryGetPalette(rom, levels[i]);
-            var hasPalette = palette != null;
-            if (hasPalette)
-                ImageWriter.WritePng(Path.Combine(dir, $"level_{i:D2}_palette.png"), 256, 256, PaletteSwatch(palette!));
-
-            if (verbose)
-                AnsiConsole.MarkupLine(
-                    $"  level_{i:D2}.png  obj 0x{levels[i].ObjectListAddress:X8}  "
-                    + $"elem 0x{levels[i].ElementLibraryAddress:X8} ({levels[i].ElementCount} tiles)  "
-                    + $"{bitmap.Value.Width}x{bitmap.Value.Height}{(hasPalette ? "  +palette" : "")}");
+            if (WriteLevelImages(rom, levels[i], i, dir, verbose))
+                written++;
         }
 
         AnsiConsole.MarkupLine($"Reconstructed [green]{written}[/] level images to [green]{Markup.Escape(dir)}[/]");
         AnsiConsole.MarkupLine(
-            "[grey]Note: the render is 2-tone tile coverage; each level's real palette is emitted "
-            + "alongside, but the shaded surface colour is procedural (per-material) and not reproduced.[/]");
+            "[grey]Each level: the tile-detail render (level_NN), the accurate iso heightfield "
+            + "(level_NN_iso, real geometry / representative colours), and the real palette "
+            + "(level_NN_palette). The engine's exact per-pixel surface colour is not yet reproduced.[/]");
         return 0;
+    }
+
+    // Writes every view for one level (tile detail + iso heightfield + palette).
+    // Returns true when the main tile-detail render was produced.
+    private static bool WriteLevelImages(
+        byte[] rom, GbaLevelImages.GbaLevel level, int index, string dir, bool verbose)
+    {
+        var bitmap = GbaLevelImages.RenderLevel(rom, level);
+        if (bitmap is null)
+            return false;
+        ImageWriter.WritePng(
+            Path.Combine(dir, $"level_{index:D2}.png"),
+            bitmap.Value.Width, bitmap.Value.Height, GbaLevelImages.ToRgba(bitmap.Value));
+
+        // The accurate 3D structure as an isometric heightfield render — real
+        // geometry, per-material visualization colours, not the engine's exact shading.
+        var iso = GbaLevelImages.RenderIsoHeightfield(rom, level);
+        if (iso != null)
+            ImageWriter.WritePng(
+                Path.Combine(dir, $"level_{index:D2}_iso.png"),
+                iso.Value.Width, iso.Value.Height, iso.Value.Rgba);
+
+        // Emit the level's real background palette (its true colour source).
+        var palette = GbaLevelImages.TryGetPalette(rom, level);
+        if (palette != null)
+            ImageWriter.WritePng(Path.Combine(dir, $"level_{index:D2}_palette.png"), 256, 256, PaletteSwatch(palette));
+
+        if (verbose)
+            AnsiConsole.MarkupLine(
+                $"  level_{index:D2}  obj 0x{level.ObjectListAddress:X8}  "
+                + $"elem 0x{level.ElementLibraryAddress:X8} ({level.ElementCount} tiles)  "
+                + $"{bitmap.Value.Width}x{bitmap.Value.Height}"
+                + $"{(iso != null ? "  +iso" : "")}{(palette != null ? "  +palette" : "")}");
+        return true;
     }
 
     // A 256×256 swatch of a 256-colour RGBA palette (16×16 grid of 16px cells).
@@ -108,11 +126,13 @@ public static class GbaLevelCommand
     {
         var rgba = new byte[256 * 256 * 4];
         for (var y = 0; y < 256; y++)
-        for (var x = 0; x < 256; x++)
         {
-            var index = (y / 16) * 16 + (x / 16);
-            var o = (y * 256 + x) * 4;
-            Array.Copy(palette, index * 4, rgba, o, 4);
+            for (var x = 0; x < 256; x++)
+            {
+                var index = (y / 16) * 16 + (x / 16);
+                var o = (y * 256 + x) * 4;
+                Array.Copy(palette, index * 4, rgba, o, 4);
+            }
         }
 
         return rgba;
