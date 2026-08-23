@@ -63,15 +63,17 @@ public sealed class GbaLevelImagesTests(TestPaths paths)
         Assert.SkipWhen(rom == null, "THPS2 GBA ROM sample not available");
         var levels = GbaLevelImages.FindLevels(rom);
 
-        // The true full-colour surface: 129×84 tiles × 8 = 1032×672, composited from
-        // the record's +0x34/+0x38 tilemaps, +0x2C tile pool, and +0x3C palette.
+        // The true full-colour surface. +0x24/+0x26 are the size in 8×8 TILES
+        // (258×168 for the Hangar) so the image is 2064×1344; the maps are half that
+        // in METATILES, each naming a 2×2 tile block via the +0x30 table. Reading the
+        // maps as direct tile indices (the old bug) rendered a quarter-size mush.
         var render = GbaLevelImages.RenderColourSurface(rom, levels[0]);
         Assert.NotNull(render);
-        Assert.Equal(1032, render.Value.Width);
-        Assert.Equal(672, render.Value.Height);
+        Assert.Equal(2064, render.Value.Width);
+        Assert.Equal(1344, render.Value.Height);
         Assert.Equal(render.Value.Width * render.Value.Height * 4, render.Value.Rgba.Length);
         Assert.Equal(
-            "840e8cff3372d95573c8b4513874c898122e2d8374191a7505cb7136fa27c093",
+            "26d167f8e5b61939e4fb8a154cd6c869e6a08d318c07c64c031a1309a4f5b1b6",
             Convert.ToHexStringLower(SHA256.HashData(render.Value.Rgba)));
 
         // Every level composites a colour surface.
@@ -90,8 +92,11 @@ public sealed class GbaLevelImagesTests(TestPaths paths)
         Assert.Equal(458, render.Value.Width);
         Assert.Equal(282, render.Value.Height);
         Assert.Equal(render.Value.Width * render.Value.Height * 4, render.Value.Rgba.Length);
+        // Mirrored horizontal term (gy - gx) so the projection agrees with the game's
+        // own art: the levels' tall structures form a grid row, which must draw
+        // right-and-up (as the Hangar's vert ramp does), not right-and-down.
         Assert.Equal(
-            "bd68b63790bf6c348941efcc074badb36b966f913a994c2a4ff23392bdf7aa12",
+            "ba6d668ad3c3ead806f6102964d6ae4b1cbf87fb5cc075ae30e65946e5af1bc5",
             Convert.ToHexStringLower(SHA256.HashData(render.Value.Rgba)));
 
         // Every level renders an iso heightfield (accurate geometry across the corpus).

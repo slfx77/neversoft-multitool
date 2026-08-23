@@ -381,38 +381,42 @@ carts' art container is its own research arc.
    carts use GAX 2.11/3.x header layouts (v2/v3, per gaxtapper) — cross-cart music
    and PCM-timbre rendering are the remaining backlog.
 
-## KNOWN BROKEN (2026-08-23) — the shipped colour render is NOT correct
+## FIXED (2026-08-23) — the two defects user review caught
 
-Two defects, both found by user review after the render was (wrongly) called coherent.
-The mechanism findings above stand; these are decode/presentation bugs on top of them.
+Both are resolved; the levels now render as the real game art. Kept on the record
+because the *cause* of each was not what the evidence first suggested.
 
-1. **`RenderColourSurface` output is GARBLED.** Levels come out as repeating
-   checkerboard-ish mush with fragments of real art (see `level_03_colour.png`). The
-   decisive test: rendering the supposed tile pool at `+0x2C` (0x0851F1A0) as a grid
-   with boundary lines shows art flowing **continuously across** the 8×8 tile
-   boundaries — so that region is not a pool of self-contained 8bpp tiles at the
-   assumed 64-byte stride. The earlier "pool base was 44 tiles too high" correction
-   moved the base but did not land on the right one. What still holds: the Mode-2
-   affine-tile mechanism, the palette (frame-validated), the two tilemaps and their
-   129×84 dims (`+0x24/+0x26` = 2×(w,h), product = map length for all 9 levels).
-   **Open: the true map-index → tile-bytes mapping** (pool base, tile format/stride,
-   or an indirection between map and pool).
-2. **`RenderIsoHeightfield` is viewed from a different corner than the level art.**
-   The iso render projects the collision grid with `sx=(gx−gy)`, so the grid's BOTTOM
-   edge lands on the iso's LEFT edge — which does not match how the game's own
-   pre-baked art presents the level (user observation on level 2 / Marseilles). The
-   two renders are in different spaces (mine grid-space + my projection; the art is
-   already iso) and were never checked against each other. Note the art *is* roughly a
-   2:1 iso projection of the grid (level 2: grid 56×35, art 207×106 tiles → 1.95:1),
-   so the fix is a sign/axis convention, not a different projection. **Blocked on (1)**:
-   two attempts to settle the orientation objectively (silhouette IoU, edge
-   correlation) were inconclusive — the grid is ~100% occupied so silhouettes are
-   identical under all 8 orientations, and the garbled render's edges are decode noise.
-   Once (1) is fixed the correct corner is directly readable.
+1. **Garbled colour render — the maps are METATILED.** The pool base and the 8bpp
+   64-byte tile format were **already correct**; the missing piece was an indirection.
+   `+0x34`/`+0x38` hold **metatile** indices, not tile indices. `+0x30` is an LZ77
+   stream of `nMeta × 4` u16 — each metatile names a 2×2 block of 8×8 tiles in
+   row-major order (TL, TR, BL, BR). `+0x24/+0x26` are the level size in **tiles**
+   (Hangar 258×168 → a 2064×1344 image), so each map is `(w8/2)×(h8/2)` metatiles.
+   Counts at `+0x28`/`+0x2A` bound both tables exactly on all 9 levels, with zero
+   out-of-range entries — so there are no flip/palette-bank/bias bits anywhere.
+   Two red herrings worth recording: (a) *"art flows across tile boundaries in a
+   contact sheet"* does **not** imply a bad base — this game's iso floor/wall tiles are
+   genuinely near-seamless and were authored in horizontal runs; (b) the earlier
+   "44 tiles too high" theory was wrong in both directions — a 381-candidate sweep
+   (whole-tile and sub-tile phase) scored the declared base `+0x2C` best outright.
+   Validation: seam scores 2–4× better than the old decode on all 9 levels, and NY
+   City's "WHERE'S RIOT?" ticker renders as **legible text**, which a misaligned tile
+   decode cannot produce.
+2. **Iso heightfield viewed from the wrong corner — it needed a mirror.** The
+   horizontal term is `(gy − gx)`, not `(gx − gy)`. Measured, not assumed: every
+   level's tall structures form a grid **row**, which `(gx − gy)` draws going
+   right-and-**down**, whereas the art (e.g. the Hangar's vert ramp) runs
+   right-and-**up**. The depth term `(gx + gy)` is unchanged by the mirror, so
+   painter's ordering is unaffected. Corroborated by edge correlation against the
+   corrected art (mirror wins 5/7 levels, by 2.7× on the Hangar and 8× on Marseille;
+   the dissenters include Rooftops, where the correlation is negative either way, i.e.
+   no signal). Note what did **not** work: silhouette IoU is degenerate here because
+   the collision grid is ~100% occupied, so all 8 orientations give an identical
+   filled diamond — and global edge correlation alone put a different winner on each
+   level. Only the asymmetric structural feature settled it.
 
 ## Next steps (in order)
 
-0. **Fix the two KNOWN BROKEN items above** — highest priority; (2) depends on (1).
 1. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
    faithfully, but a minority of `+0x38` tiles still show noise: off-screen level
    areas the captured frames could not validate, plus ~24 tiles that are not in the

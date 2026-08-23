@@ -48,19 +48,25 @@ public static class GbaLevelImages
     // pointer pair (at scan-relative +4/+8). The engine's loader addresses the same
     // record 0x144 bytes earlier — its true base is 0x087533FC, stride 0x15C. Fields,
     // as deltas from the scanned base (= true base + 0x144):
-    //   true +0x24/+0x26 colour-plane dims (2× tile width/height)   -> -0x120/-0x11E
-    //   true +0x2C tile pool (raw 8bpp 64-byte tiles, index 0 transparent) -> -0x118
-    //   true +0x34 plane 0 tilemap (floor/wall, behind)             -> -0x110
-    //   true +0x38 plane 1 tilemap (ramps/detail, front)            -> -0x10C
+    //   true +0x24/+0x26 level size in 8×8 TILES (w8, h8)           -> -0x120/-0x11E
+    //   true +0x28 tile count, +0x2A metatile count                 -> -0x11C/-0x11A
+    //   true +0x2C tile pool (RAW 8bpp 64-byte tiles, index 0 transparent) -> -0x118
+    //   true +0x30 metatile table (LZ77 -> nMeta × 4 u16)           -> -0x114
+    //   true +0x34 plane 0 metatile map (floor/walls)               -> -0x110
+    //   true +0x38 plane 1 metatile map (ramps/objects, over)       -> -0x10C
     //   true +0x3C BG palette (LZ77 -> 256 BGR555)                  -> -0x108
     //   true +0x13C/+0x140/+0x144 collision heightfield (see RenderIsoHeightfield)
     private const int PaletteFieldDelta = -0x108;
     private const int ColourDimsDelta = -0x120;
+    private const int TileCountDelta = -0x11C;
+    private const int MetaCountDelta = -0x11A;
     private const int TilePoolPtrDelta = -0x118;
+    private const int MetaTablePtrDelta = -0x114;
     private const int Plane0PtrDelta = -0x110;
     private const int Plane1PtrDelta = -0x10C;
     private const int PaletteColors = 256;
     private const int TileBytes = 64; // 8×8 8bpp
+    private const int MetaBytes = 8;  // 2×2 tile indices, u16 each
 
     public readonly record struct GbaLevel(
         uint RecordAddress, uint ObjectListAddress, uint ElementLibraryAddress, int ElementCount);
@@ -209,7 +215,7 @@ public static class GbaLevelImages
                 var top = y < h && x < w ? heights[y, x] : 0;
                 foreach (var z in (ReadOnlySpan<double>)[top, 0.0])
                 {
-                    var px = (x - y) * (IsoTileW / 2.0);
+                    var px = (y - x) * (IsoTileW / 2.0);
                     var py = (x + y) * (IsoTileH / 2.0) - z * IsoZScale;
                     minX = Math.Min(minX, px);
                     maxX = Math.Max(maxX, px);
@@ -235,8 +241,13 @@ public static class GbaLevelImages
             rgba[i * 4 + 3] = 0xFF;
         }
 
+        // Horizontal term is (gy - gx), not (gx - gy): the mirrored convention is the one
+        // that matches the game's own pre-baked art. Measured, not assumed — the levels'
+        // tall structures form a grid ROW, which (gx - gy) draws going right-and-DOWN while
+        // the art (e.g. the Hangar's vert ramp) runs right-and-UP. The depth term (gx + gy)
+        // is unchanged by the mirror, so the painter's ordering below stays correct.
         (double X, double Y) Project(double gx, double gy, double gz) =>
-            (originX + (gx - gy) * (IsoTileW / 2.0), originY + (gx + gy) * (IsoTileH / 2.0) - gz * IsoZScale);
+            (originX + (gy - gx) * (IsoTileW / 2.0), originY + (gx + gy) * (IsoTileH / 2.0) - gz * IsoZScale);
 
         // Painter's order: back-to-front along the gx+gy diagonal.
         for (var s = 0; s <= w + h - 2; s++)
@@ -353,13 +364,23 @@ public static class GbaLevelImages
     ///     game appearance. The engine draws the level as GBA Mode-2 affine backgrounds
     ///     whose art is pre-baked isometric 8-bit tile graphics in ROM (there is no
     ///     software rasterizer and no CPU framebuffer write — the tiles are DMA'd and
-    ///     hardware-affine-transformed). This composites that art directly from media:
-    ///     two tilemaps (record <c>+0x34</c> floor/wall behind, <c>+0x38</c> ramps in
-    ///     front) index an 8bpp tile pool (<c>+0x2C</c>, 64-byte tiles, index 0
-    ///     transparent) coloured through the palette (<c>+0x3C</c>); the tile
-    ///     width/height are stored at <c>+0x24/+0x26</c> as twice the tile count.
-    ///     Validated against the emulator: every tile is byte-exact and the frame
-    ///     quantises to this palette at 1.03/255.
+    ///     hardware-affine-transformed), so the art composites directly from media.
+    ///
+    ///     <para>The layout is <b>metatiled</b>, which is the piece that makes it work:
+    ///     the two maps (<c>+0x34</c> floor/walls, <c>+0x38</c> ramps/objects over it)
+    ///     do <b>not</b> hold tile indices — they hold <b>metatile</b> indices into the
+    ///     table at <c>+0x30</c> (LZ77, <c>nMeta × 4</c> u16), and each metatile names a
+    ///     2×2 block of 8×8 tiles in row-major order (top-left, top-right, bottom-left,
+    ///     bottom-right). Those resolve into the raw 8bpp pool at <c>+0x2C</c>
+    ///     (64-byte tiles) and colour through the palette at <c>+0x3C</c> (index 0
+    ///     transparent). Reading the maps as direct tile indices renders recognisable
+    ///     fragments inside a repeating mush — the failure this indirection explains.</para>
+    ///
+    ///     <para><c>+0x24/+0x26</c> are the level size in 8×8 <b>tiles</b>, so the image is
+    ///     <c>w8×8</c> by <c>h8×8</c> pixels and each map is <c>(w8/2)×(h8/2)</c> metatiles.
+    ///     Counts at <c>+0x28</c>/<c>+0x2A</c> (tiles/metatiles) bound both tables exactly
+    ///     on all 9 levels. No flip bits, palette banks, or index bias are in play — every
+    ///     map entry is &lt; nMeta and every metatile entry &lt; nTiles corpus-wide.</para>
     /// </summary>
     public static GbaLevelRender? RenderColourSurface(ReadOnlySpan<byte> rom, GbaLevel level)
     {
@@ -371,21 +392,32 @@ public static class GbaLevelImages
         if (rec + ColourDimsDelta < 0 || rec + PaletteFieldDelta + 4 > rom.Length)
             return null;
 
-        var width2 = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + ColourDimsDelta, 2));
-        var height2 = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + ColourDimsDelta + 2, 2));
-        if (width2 == 0 || height2 == 0 || width2 % 2 != 0 || height2 % 2 != 0)
+        // +0x24/+0x26 are the level size in 8×8 tiles; the maps are half that in metatiles.
+        int tilesWide = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + ColourDimsDelta, 2));
+        int tilesHigh = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + ColourDimsDelta + 2, 2));
+        if (tilesWide <= 0 || tilesHigh <= 0 || tilesWide % 2 != 0 || tilesHigh % 2 != 0)
             return null;
-        var tilesWide = width2 / 2;
-        var tilesHigh = height2 / 2;
+        var mapWide = tilesWide / 2;
+        var mapHigh = tilesHigh / 2;
         var imageW = tilesWide * 8;
         var imageH = tilesHigh * 8;
         if (imageW is <= 0 or > MaxImageDimension || imageH is <= 0 or > MaxImageDimension)
             return null;
 
+        int tileCount = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + TileCountDelta, 2));
+        int metaCount = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + MetaCountDelta, 2));
         var poolAddress = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(rec + TilePoolPtrDelta, 4));
-        if (!IsRomPointer(poolAddress))
+        var metaAddress = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(rec + MetaTablePtrDelta, 4));
+        if (tileCount <= 0 || metaCount <= 0 || !IsRomPointer(poolAddress) || !IsRomPointer(metaAddress))
             return null;
         var poolOffset = (int)(poolAddress - RomBase);
+        if (poolOffset < 0 || poolOffset + tileCount * TileBytes > rom.Length)
+            return null;
+
+        if (!GbaBiosLz77.TryDecompress(rom, (int)(metaAddress - RomBase), out var metaTable, out _))
+            return null;
+        if (metaTable.Length != metaCount * MetaBytes)
+            return null;
 
         var rgba = new byte[imageW * imageH * 4];
         for (var i = 0; i < imageW * imageH; i++)
@@ -396,28 +428,36 @@ public static class GbaLevelImages
             rgba[i * 4 + 3] = 0xFF;
         }
 
-        // Draw the detail plane (+0x38) first, then the main surface plane (+0x34)
-        // in front — the main surface (floor / corrugated wall) occludes the detail
-        // plane except through its own transparent cells, matching the hardware BG order.
-        foreach (var planeDelta in (ReadOnlySpan<int>)[Plane1PtrDelta, Plane0PtrDelta])
+        // Plane 0 (floor/walls) lays the ground; plane 1 (ramps/objects) draws over it.
+        // The two are near-complementary in practice, so the order is barely observable.
+        foreach (var planeDelta in (ReadOnlySpan<int>)[Plane0PtrDelta, Plane1PtrDelta])
         {
             var planeAddress = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(rec + planeDelta, 4));
             if (!IsRomPointer(planeAddress))
                 continue;
             if (!GbaBiosLz77.TryDecompress(rom, (int)(planeAddress - RomBase), out var map, out _))
                 continue;
-            if (map.Length != tilesWide * tilesHigh * 2)
+            if (map.Length != mapWide * mapHigh * 2)
                 continue;
 
-            for (var cell = 0; cell < tilesWide * tilesHigh; cell++)
+            for (var cell = 0; cell < mapWide * mapHigh; cell++)
             {
-                var tileIndex = BinaryPrimitives.ReadUInt16LittleEndian(map.AsSpan(cell * 2, 2));
-                if (tileIndex == 0) // whole-tile transparent
+                int metaIndex = BinaryPrimitives.ReadUInt16LittleEndian(map.AsSpan(cell * 2, 2));
+                if (metaIndex >= metaCount)
                     continue;
-                var tileOffset = poolOffset + tileIndex * TileBytes;
-                if (tileOffset < 0 || tileOffset + TileBytes > rom.Length)
-                    continue;
-                BlitTile(rgba, imageW, rom, tileOffset, palette, (cell % tilesWide) * 8, (cell / tilesWide) * 8);
+                var px = (cell % mapWide) * 16;
+                var py = (cell / mapWide) * 16;
+                // Four 8×8 tiles per metatile, row-major within the 2×2 block.
+                for (var quad = 0; quad < 4; quad++)
+                {
+                    int tileIndex = BinaryPrimitives.ReadUInt16LittleEndian(
+                        metaTable.AsSpan(metaIndex * MetaBytes + quad * 2, 2));
+                    if (tileIndex == 0 || tileIndex >= tileCount) // 0 = fully transparent tile
+                        continue;
+                    BlitTile(
+                        rgba, imageW, rom, poolOffset + tileIndex * TileBytes, palette,
+                        px + (quad % 2) * 8, py + (quad / 2) * 8);
+                }
             }
         }
 
