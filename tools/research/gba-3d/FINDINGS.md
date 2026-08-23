@@ -290,18 +290,27 @@ repeat at stride), and the palette is now read at scan-record −0x108 (= true +
   colours). NB the cellRec heightfield is the **collision/physics terrain** (its vtables
   are called from collision code 0x0801Bxxx, e.g. slope tests), which mirrors the
   visual surface — so it is a faithful geometry render, not the literal render mesh.
-- **Surface colour — separate pixel renderer, BLOCKED (needs dynamic analysis).**
-  CORRECTION to the earlier note: the material vtable system is PHYSICS, not the pixel
-  path — the value once read as "colour" (`leafRecord[+0xc]`) is a 0/1 draw flag, and
-  none of the demo's dominant indices appear in the leaf bytes. The actual displayed
-  colour comes from a separate pixel renderer that could not be located statically:
-  the framebuffer address `0x06000000` is never a literal (built arithmetically), so
-  "find the strb to VRAM" is a dead end without dynamic analysis. **The way through:**
-  a BizHawk write-watchpoint on the framebuffer (or the affine-BG char base) during a
-  level load → capture the store site + call stack → walk back to the per-face colour
-  source. Candidate render geometry is the pre-projected mesh at record `+0x30` (faces,
-  stride-18 quads) / `+0x34`/`+0x38` (iso vertices), which did not decode cleanly as
-  paired vertices. Backlog: locate + reimplement the pixel renderer for faithful colour.
+- **Surface colour — SOLVED + SHIPPED (2026-08-23, dynamic analysis).** The level
+  colour is NOT a shader and NOT a software framebuffer rasterizer (the material
+  vtable system is PHYSICS; `0x06000000` is never a literal because there is no CPU
+  write to VRAM). The engine draws the level as **GBA Mode-2 with two affine 8bpp
+  tiled backgrounds** — the appearance is **pre-baked isometric 8-bit tile art in
+  ROM**, DMA'd to VRAM and hardware-affine-transformed. Live BizHawk read: DISPCNT
+  0x1C42 (Mode 2), BG2/BG3 8bpp affine. Colour = the tile art through the palette
+  (frame quantises to the +0x3C palette at **1.03/255**; every tile byte-exact vs the
+  pool). **Decode** (all offsets from the true record base 0x087533FC): `+0x24/+0x26`
+  = 2×(tile width, height); `+0x2C` = raw 8bpp 64-byte tile pool (index 0 transparent);
+  `+0x34` = plane 0 tilemap (main surface: floor/corrugated wall, drawn IN FRONT);
+  `+0x38` = plane 1 tilemap (detail, behind); `+0x3C` = palette. `tile(V)=pool+V·64`,
+  V=0 transparent, no masking/flip. Two gotchas cost a day: the pool base was first
+  read 44 tiles too high (→ scrambled wall), and the plane order was inverted (+0x34
+  must occlude +0x38, else the detail plane covers the surface). `GbaLevelImages.
+  RenderColourSurface`; `gba-level` emits `level_NN_colour.png`. All 9 levels composite
+  coherent full-colour isometric surfaces (Hangar = corrugated metal roof + concrete
+  floor; level 2 = a full skatepark). Pinned by `GbaLevelImagesTests` (level-0 1032×672
+  SHA). Residual: a minority of +0x38 detail tiles show noise (off-screen areas the
+  emulator frames don't cover, plus ~24 non-pool sprite/overlay tiles) — the surface is
+  faithful, the fine detail-plane decode is a follow-up.
 - The two earlier candidate fns were NOT the fill: **0x087FE660** = screen-space
   clip/project; **0x087FEB90** = OAM affine setup for the skater sprite.
 

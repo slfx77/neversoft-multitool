@@ -81,9 +81,9 @@ public static class GbaLevelCommand
 
         AnsiConsole.MarkupLine($"Reconstructed [green]{written}[/] level images to [green]{Markup.Escape(dir)}[/]");
         AnsiConsole.MarkupLine(
-            "[grey]Each level: the tile-detail render (level_NN), the accurate iso heightfield "
-            + "(level_NN_iso, real geometry / representative colours), and the real palette "
-            + "(level_NN_palette). The engine's exact per-pixel surface colour is not yet reproduced.[/]");
+            "[grey]Each level: the full-colour isometric surface (level_NN_colour, the actual "
+            + "game appearance), the tile-detail render (level_NN), the geometry heightfield "
+            + "(level_NN_iso), and the palette (level_NN_palette).[/]");
         return 0;
     }
 
@@ -98,6 +98,14 @@ public static class GbaLevelCommand
         ImageWriter.WritePng(
             Path.Combine(dir, $"level_{index:D2}.png"),
             bitmap.Value.Width, bitmap.Value.Height, GbaLevelImages.ToRgba(bitmap.Value));
+
+        // The true full-colour isometric surface — the actual game appearance,
+        // composited from the ROM's pre-baked iso tile art + palette.
+        var colour = GbaLevelImages.RenderColourSurface(rom, level);
+        if (colour != null)
+            ImageWriter.WritePng(
+                Path.Combine(dir, $"level_{index:D2}_colour.png"),
+                colour.Value.Width, colour.Value.Height, colour.Value.Rgba);
 
         // The accurate 3D structure as an isometric heightfield render — real
         // geometry, per-material visualization colours, not the engine's exact shading.
@@ -117,7 +125,8 @@ public static class GbaLevelCommand
                 $"  level_{index:D2}  obj 0x{level.ObjectListAddress:X8}  "
                 + $"elem 0x{level.ElementLibraryAddress:X8} ({level.ElementCount} tiles)  "
                 + $"{bitmap.Value.Width}x{bitmap.Value.Height}"
-                + $"{(iso != null ? "  +iso" : "")}{(palette != null ? "  +palette" : "")}");
+                + $"{(colour != null ? "  +colour" : "")}{(iso != null ? "  +iso" : "")}"
+                + $"{(palette != null ? "  +palette" : "")}");
         return true;
     }
 

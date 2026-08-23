@@ -57,6 +57,28 @@ public sealed class GbaLevelImagesTests(TestPaths paths)
     }
 
     [Fact]
+    public void RendersLevel0ColourSurface_FromRomTileArt()
+    {
+        var rom = LoadThps2();
+        Assert.SkipWhen(rom == null, "THPS2 GBA ROM sample not available");
+        var levels = GbaLevelImages.FindLevels(rom);
+
+        // The true full-colour surface: 129×84 tiles × 8 = 1032×672, composited from
+        // the record's +0x34/+0x38 tilemaps, +0x2C tile pool, and +0x3C palette.
+        var render = GbaLevelImages.RenderColourSurface(rom, levels[0]);
+        Assert.NotNull(render);
+        Assert.Equal(1032, render.Value.Width);
+        Assert.Equal(672, render.Value.Height);
+        Assert.Equal(render.Value.Width * render.Value.Height * 4, render.Value.Rgba.Length);
+        Assert.Equal(
+            "840e8cff3372d95573c8b4513874c898122e2d8374191a7505cb7136fa27c093",
+            Convert.ToHexStringLower(SHA256.HashData(render.Value.Rgba)));
+
+        // Every level composites a colour surface.
+        Assert.All(levels, l => Assert.NotNull(GbaLevelImages.RenderColourSurface(rom, l)));
+    }
+
+    [Fact]
     public void RendersLevel0IsoHeightfield_AccurateGeometry()
     {
         var rom = LoadThps2();

@@ -46,12 +46,21 @@ public static class GbaLevelImages
 
     // The record is located by content-scanning for the {objectList, elementLibrary}
     // pointer pair (at scan-relative +4/+8). The engine's loader addresses the same
-    // record 0x144 bytes earlier — its true base is 0x087533FC, stride 0x15C, with
-    // palette@+0x3C, dims@+0x13C/+0x13E, colourMap@+0x140, cellRecs@+0x144,
-    // objectList@+0x148, elementLibrary@+0x14C. So from the scanned base the
-    // per-level BG palette pointer sits at -0x108 (= true +0x3C).
+    // record 0x144 bytes earlier — its true base is 0x087533FC, stride 0x15C. Fields,
+    // as deltas from the scanned base (= true base + 0x144):
+    //   true +0x24/+0x26 colour-plane dims (2× tile width/height)   -> -0x120/-0x11E
+    //   true +0x2C tile pool (raw 8bpp 64-byte tiles, index 0 transparent) -> -0x118
+    //   true +0x34 plane 0 tilemap (floor/wall, behind)             -> -0x110
+    //   true +0x38 plane 1 tilemap (ramps/detail, front)            -> -0x10C
+    //   true +0x3C BG palette (LZ77 -> 256 BGR555)                  -> -0x108
+    //   true +0x13C/+0x140/+0x144 collision heightfield (see RenderIsoHeightfield)
     private const int PaletteFieldDelta = -0x108;
+    private const int ColourDimsDelta = -0x120;
+    private const int TilePoolPtrDelta = -0x118;
+    private const int Plane0PtrDelta = -0x110;
+    private const int Plane1PtrDelta = -0x10C;
     private const int PaletteColors = 256;
+    private const int TileBytes = 64; // 8×8 8bpp
 
     public readonly record struct GbaLevel(
         uint RecordAddress, uint ObjectListAddress, uint ElementLibraryAddress, int ElementCount);
@@ -335,6 +344,101 @@ public static class GbaLevelImages
                     rgba[o + 2] = b;
                     rgba[o + 3] = 0xFF;
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Renders the level's <b>true full-colour isometric surface</b> — the actual
+    ///     game appearance. The engine draws the level as GBA Mode-2 affine backgrounds
+    ///     whose art is pre-baked isometric 8-bit tile graphics in ROM (there is no
+    ///     software rasterizer and no CPU framebuffer write — the tiles are DMA'd and
+    ///     hardware-affine-transformed). This composites that art directly from media:
+    ///     two tilemaps (record <c>+0x34</c> floor/wall behind, <c>+0x38</c> ramps in
+    ///     front) index an 8bpp tile pool (<c>+0x2C</c>, 64-byte tiles, index 0
+    ///     transparent) coloured through the palette (<c>+0x3C</c>); the tile
+    ///     width/height are stored at <c>+0x24/+0x26</c> as twice the tile count.
+    ///     Validated against the emulator: every tile is byte-exact and the frame
+    ///     quantises to this palette at 1.03/255.
+    /// </summary>
+    public static GbaLevelRender? RenderColourSurface(ReadOnlySpan<byte> rom, GbaLevel level)
+    {
+        var palette = TryGetPalette(rom, level);
+        if (palette is null)
+            return null;
+
+        var rec = (int)(level.RecordAddress - RomBase);
+        if (rec + ColourDimsDelta < 0 || rec + PaletteFieldDelta + 4 > rom.Length)
+            return null;
+
+        var width2 = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + ColourDimsDelta, 2));
+        var height2 = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + ColourDimsDelta + 2, 2));
+        if (width2 == 0 || height2 == 0 || width2 % 2 != 0 || height2 % 2 != 0)
+            return null;
+        var tilesWide = width2 / 2;
+        var tilesHigh = height2 / 2;
+        var imageW = tilesWide * 8;
+        var imageH = tilesHigh * 8;
+        if (imageW is <= 0 or > MaxImageDimension || imageH is <= 0 or > MaxImageDimension)
+            return null;
+
+        var poolAddress = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(rec + TilePoolPtrDelta, 4));
+        if (!IsRomPointer(poolAddress))
+            return null;
+        var poolOffset = (int)(poolAddress - RomBase);
+
+        var rgba = new byte[imageW * imageH * 4];
+        for (var i = 0; i < imageW * imageH; i++)
+        {
+            rgba[i * 4] = 0x12;
+            rgba[i * 4 + 1] = 0x12;
+            rgba[i * 4 + 2] = 0x16;
+            rgba[i * 4 + 3] = 0xFF;
+        }
+
+        // Draw the detail plane (+0x38) first, then the main surface plane (+0x34)
+        // in front — the main surface (floor / corrugated wall) occludes the detail
+        // plane except through its own transparent cells, matching the hardware BG order.
+        foreach (var planeDelta in (ReadOnlySpan<int>)[Plane1PtrDelta, Plane0PtrDelta])
+        {
+            var planeAddress = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(rec + planeDelta, 4));
+            if (!IsRomPointer(planeAddress))
+                continue;
+            if (!GbaBiosLz77.TryDecompress(rom, (int)(planeAddress - RomBase), out var map, out _))
+                continue;
+            if (map.Length != tilesWide * tilesHigh * 2)
+                continue;
+
+            for (var cell = 0; cell < tilesWide * tilesHigh; cell++)
+            {
+                var tileIndex = BinaryPrimitives.ReadUInt16LittleEndian(map.AsSpan(cell * 2, 2));
+                if (tileIndex == 0) // whole-tile transparent
+                    continue;
+                var tileOffset = poolOffset + tileIndex * TileBytes;
+                if (tileOffset < 0 || tileOffset + TileBytes > rom.Length)
+                    continue;
+                BlitTile(rgba, imageW, rom, tileOffset, palette, (cell % tilesWide) * 8, (cell / tilesWide) * 8);
+            }
+        }
+
+        return new GbaLevelRender(imageW, imageH, rgba);
+    }
+
+    private static void BlitTile(
+        byte[] rgba, int imageW, ReadOnlySpan<byte> rom, int tileOffset, byte[] palette, int px, int py)
+    {
+        for (var r = 0; r < 8; r++)
+        {
+            for (var c = 0; c < 8; c++)
+            {
+                var index = rom[tileOffset + r * 8 + c];
+                if (index == 0) // palette index 0 is the transparent key
+                    continue;
+                var o = ((py + r) * imageW + px + c) * 4;
+                rgba[o] = palette[index * 4];
+                rgba[o + 1] = palette[index * 4 + 1];
+                rgba[o + 2] = palette[index * 4 + 2];
+                rgba[o + 3] = 0xFF;
             }
         }
     }
