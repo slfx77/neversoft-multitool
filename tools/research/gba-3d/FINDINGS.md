@@ -1,10 +1,23 @@
-# Vicarious Visions GBA 3D engine — open investigation
+# Vicarious Visions GBA engine — investigation record
 
-Status: **research in progress** (not a proven format — kept here, not in
-`docs/formats/`, until the loader is disassembled and a level decodes end to
-end). Reusable tool: `tools/reverse-engineering/gba/gba_disasm.py` (ARM/THUMB).
-Throwaway probes and captured RAM dumps live under `TestOutput/gba-probe/`
-(gitignored) and are regenerable from the scripts named below.
+Status: **the headline questions are answered and shipped.** There are no 3D
+meshes (the render path is 2D isometric tile art); THPS2's full-screen images
+(`gba-image`), GAX music (`gba-music`), and levels — geometry *and* true colour —
+(`gba-level`) all extract from media, pinned by `GbaRomImagesTests`,
+`GbaGaxMusicTests`, and `GbaLevelImagesTests`. What remains open is listed under
+"Next steps".
+
+Reusable tools: `tools/reverse-engineering/gba/gba_disasm.py` (ARM/THUMB Capstone)
+and the vendored emulator at `tools/vendor/bizhawk/` (dynamic analysis; see its
+README for the Lua patterns).
+
+**The throwaway probes are retired.** They lived in `TestOutput/gba-probe/`
+(gitignored) and were deleted once their conclusions were implemented and pinned
+by C# tests, per `tools/README.md`. Probe scripts named below are therefore
+*historical* — they record how each conclusion was reached, not files on disk.
+Everything load-bearing is preserved in this document, in `Core/Formats/Gba/`,
+and in the tests; the emulator captures are re-creatable with the vendored
+BizHawk and the Lua recipes described here.
 
 The seven Tony Hawk GBA carts (THPS2 → Downhill Jam, Activision game codes
 ATHE52…BXSE52) run one evolving Vicarious Visions software-3D engine. Audio is
@@ -12,8 +25,8 @@ Shin'en's GAX Sound Engine (THPS2 v1.99d … Sk8land 3.05A) — out of scope.
 
 ## Method
 
-- `TestOutput/gba-probe/lz77_sweep.py` — census of valid GBA BIOS LZ77 (SWI
-  0x11) streams per ROM.
+- `lz77_sweep.py` — census of valid GBA BIOS LZ77 (SWI 0x11) streams per ROM.
+  (Its decoder is now shipped as `Core/Formats/Gba/GbaBiosLz77.cs`.)
 - `ptr_scan.py` / `stream_census.py` / `neighborhood.py` / `inspect_streams.py`
   — pointer-table and decompressed-payload triage.
 - `attract_dump.lua` (BizHawk 2.6.3 mGBA core) — runs THPS2 to its attract
@@ -54,8 +67,9 @@ Evidence, from the attract-demo RAM trace:
 
 ## Renderer RE (2026-08-20) — it is a GRID/SECTOR-based software 3D engine
 
-Ghidra (12.0, headless, ARM:LE:32:v4t @0x08000000, `TestOutput/gba-ghidra/`)
-plus a BizHawk memory-read watchpoint pinned the geometry code. The watchpoint
+Ghidra (12.0, headless, ARM:LE:32:v4t @0x08000000 — the scratch project has since
+been discarded; re-import the ROM to reproduce) plus a BizHawk memory-read
+watchpoint pinned the geometry code. The watchpoint
 on the descriptor addresses fired once per frame from **IWRAM 0x030005A8** — the
 VV engine copies its hot routines into IWRAM at load (confirmed: that IWRAM code
 matches ROM **0x087FE178**, in the 0x87Fxxxx IWRAM-overlay region the GAX
@@ -264,7 +278,7 @@ blits element V at `(minX+col*24, minY+row*24)`.
 (rails, helicopter with rotor, halfpipe), level 2 a quarterpipe skatepark. **Faithful
 in shape/layout; rendered 2-tone (ink coverage).**
 
-### Colour (2026-08-21): palette SOLVED, surface shading PROCEDURAL
+### Colour: palette SOLVED (2026-08-21), surface colour SOLVED (2026-08-23)
 
 **Correction to the record layout** (from the loader `FUN_08010CC8`): the true level
 table is base **0x087533FC**, stride 0x15C, record `{ … palette@+0x3C, dims W/H@+0x13C/
@@ -344,20 +358,9 @@ total (DHJ just 3) — the later carts moved most art off BIOS LZ77 to a differe
 packaging. The scanner returns empty for them (pinned), and cracking the later
 carts' art container is its own research arc.
 
-## Next steps (in order)
+## SHIPPED (2026-08-21): GAX sequenced music (`gba-music`)
 
-1. **GBA tile-sheets / sprites (backlog):** THPS2's 221 32-aligned LZ77 tile
-   sheets (2048-byte ×126 = 64-tile 4bpp sheets, sprite/anim frames, fonts) are
-   located but their palette + arrangement binding is runtime state — needs a
-   palette-pairing heuristic or a loader trace before a faithful render. Lower
-   value than the full-screen screens already shipped.
-2. **Later-cart art container:** RE THPS3's 884-byte streams and the THPS4→DHJ
-   packaging (they abandoned BIOS LZ77) to extend image extraction across the line.
-3. **Level tile-art reconstruction (hard):** compose the isometric level image by
-   walking each object's tile grid (ROM 0x08754E60) and blitting `param_1`'s 1-bpp
-   tile bitmaps — requires simulating the bespoke rasterizer at 0x087FE068 (per-row
-   alignment shift + RLE early-out) and pinning the blit-value/colour table.
-4. **Audio — sequenced music: SHIPPED (`gba-music`, 2026-08-21).** The THPS2 GAX
+**Audio — sequenced music.** The THPS2 GAX
    v1.99 song structure is fully decoded and rendered to WAV. Song headers (20
    bytes: `{u16 channels, rows, orderLength, loopPoint, u32 notesAddr, instrAddr,
    sampleAddr}`) are found by scanning for `sampleAddr == waveSetBase` (the null
@@ -377,5 +380,27 @@ carts' art container is its own research arc.
    the audio-rate sample-binding DMA mixer is not yet RE'd). **THPS2-only:** later
    carts use GAX 2.11/3.x header layouts (v2/v3, per gaxtapper) — cross-cart music
    and PCM-timbre rendering are the remaining backlog.
-5. Later titles (THPS3+, the "real 3D editor" the dev interview mentions) may store
+
+## Next steps (in order)
+
+1. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
+   faithfully, but a minority of `+0x38` tiles still show noise: off-screen level
+   areas the captured frames could not validate, plus ~24 tiles that are not in the
+   pool at all (likely sprite/overlay art from another source). Bounded follow-up —
+   re-capture frames covering more of a level, or find the second pool.
+2. **Are there meshes? (`+0x30` and the skater).** Two places 3D render data could
+   still hide, both unresolved: the level record's **`+0x30`** field, which decodes
+   as a face/quad list (stride-18 quads `v, v+1, v+18, v+19`) and whose consumer is
+   unidentified; and the **skater**, traced only as far as an OAM affine sprite
+   (64×64, hardware-rotated) — its underlying data representation was never examined.
+   Note the *collision* terrain IS genuinely 3D (the heightfield), matching the VV
+   dev interview; this item is specifically about **render** meshes.
+3. **GBA tile-sheets / sprites.** THPS2's 221 32-aligned LZ77 tile sheets
+   (2048-byte ×126 = 64-tile 4bpp sheets, sprite/anim frames, fonts) are located but
+   their palette + arrangement binding is runtime state — needs a palette-pairing
+   heuristic or a loader trace before a faithful render.
+4. **Later-cart art container:** RE THPS3's 884-byte streams and the THPS4→DHJ
+   packaging (they abandoned BIOS LZ77) to extend image extraction across the line.
+5. **GAX PCM timbre + cross-cart music** (see the music section above).
+6. Later titles (THPS3+, the "real 3D editor" the dev interview mentions) may store
    scene data differently — recheck once a later-cart container is cracked.

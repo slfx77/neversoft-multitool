@@ -21,8 +21,8 @@ Run a Lua script against a ROM (loads the ROM, runs the script):
 tools/vendor/bizhawk/EmuHawk.exe "<rom>.gba" --lua="<script>.lua"
 ```
 
-Lua patterns that work in this build (see the throwaway probes under
-`TestOutput/gba-probe/`, e.g. `capture_builder.lua`):
+Lua patterns that work in this build (proven during the GBA level/colour RE; the
+probe scripts themselves were throwaway and have been retired):
 
 - `event.onmemoryexecute(fn, addr)` — execute breakpoint at a ROM address.
 - `event.onmemorywrite(fn, addr)` — write watchpoint. **Do not watch a high-churn
