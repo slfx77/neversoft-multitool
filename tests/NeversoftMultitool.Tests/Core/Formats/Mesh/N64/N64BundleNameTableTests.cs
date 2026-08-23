@@ -144,7 +144,7 @@ public sealed class N64BundleNameTableTests(TestPaths paths)
     [CorpusTheory]
     [InlineData(Thps1Build, Thps1Rom, 9, 0)]
     [InlineData(Thps2Build, Thps2Rom, 12, 0)]
-    [InlineData(Thps3Build, Thps3Rom, 9, 4)]
+    [InlineData(Thps3Build, Thps3Rom, 9, 0)]
     [InlineData(SpiderBuild, SpiderRom, 4, 0)]
     public void StatedNames_OnlyRefineOrCorrectAnInferredName(
         string buildName, string romName, int expectedRefinements, int expectedCorrections)
@@ -193,42 +193,73 @@ public sealed class N64BundleNameTableTests(TestPaths paths)
     }
 
     /// <summary>
-    ///     The four THPS3 corrections above are one pre-existing defect the
-    ///     table exposed: the TRG family alignment mis-places the port's
-    ///     two-player object banks (<c>aa&lt;stem&gt;2o</c>), putting
-    ///     <c>aadnhl_o</c> — really slot 166 — onto three slots belonging to
-    ///     entirely different levels. Pinned by name so the defect is recorded
-    ///     rather than merely absorbed, and so a fix to the alignment shows up
-    ///     here as this test going quiet.
+    ///     The two remaining THPS3 corrections, attributed to the source that
+    ///     actually produces them.
+    ///     <para>
+    ///         This test previously blamed all FOUR of them on the TRG family
+    ///         alignment. Three were the CONTENT fallback: <c>aadnhl_o</c> is a
+    ///         one-mesh bank, <c>aaburb2o</c> and <c>aala2o</c> carry that same
+    ///         single mesh-name hash, and the dictionary — harvested before
+    ///         those banks had names — knew only the first, so it stamped it on
+    ///         all three. The alignment could not have done that: it places each
+    ///         family name at most once per trigger, and THPS3 ships exactly one
+    ///         <c>aadnhl_t.trg</c>. Fixed at the data level (2026-08-23); the key
+    ///         is now ambiguous and declines.
+    ///     </para>
+    ///     <para>
+    ///         What survives IS the alignment, and it is a one-slot shift rather
+    ///         than a duplicated name. THPS3 spells its two-player files
+    ///         <c>aa&lt;stem&gt;2l</c>/<c>2o</c>, which sort BEFORE <c>_</c> and so
+    ///         land INSIDE the one-player family's slot run — making the
+    ///         trigger's file set a non-contiguous subsequence of it, while
+    ///         <c>TryPlace</c> lays names on consecutive slots. The
+    ///         texture-library stub guard does not catch it here because the
+    ///         slot it lands on, <c>aaair_2l</c>, is a stub too.
+    ///     </para>
     /// </summary>
     [CorpusFact]
-    public void Thps3TwoPlayerObjectBanks_AreMisalignedByTheTriggerRouteAndCorrected()
+    public void Thps3TwoPlayerBanksNoLongerCollapseOrShift()
     {
         var (bundles, triggers, boot) = SplitForResolver(Carve(Thps3Build, Thps3Rom));
         var inferred = N64BundleNameResolver.Resolve(bundles, triggers);
         var stated = N64BundleNameResolver.Resolve(bundles, triggers, boot);
 
-        foreach (var (slot, wrong, right) in new[]
+        // The content collapse: three unrelated slots used to infer aadnhl_o.
+        foreach (var (slot, name) in new[]
                  {
-                     ("143", "aaair_o", "aaair2o"),
-                     ("153", "aadnhl_o", "aaburb2o"),
-                     ("177", "aadnhl_o", "aajap2o"),
-                     ("182", "aadnhl_o", "aala2o")
+                     ("153", "aaburb2o"), ("177", "aajap2o"), ("182", "aala2o")
                  })
         {
-            Assert.Equal(wrong, inferred[slot]);
-            Assert.Equal(right, stated[slot]);
+            Assert.Equal(name, stated[slot], StringComparer.OrdinalIgnoreCase);
+            Assert.False(
+                inferred.TryGetValue(slot, out var stale)
+                && stale.Equals("aadnhl_o", StringComparison.OrdinalIgnoreCase),
+                $"slot {slot} still infers the collapsed name");
         }
 
-        // The name the alignment over-used really belongs to exactly one slot.
-        Assert.Equal("aadnhl_o", stated["166"]);
-        Assert.Single(stated.Where(static kv => kv.Value == "aadnhl_o"));
+        Assert.Equal("aadnhl_o", stated["166"], StringComparer.OrdinalIgnoreCase);
+        Assert.Single(stated.Where(static kv =>
+            kv.Value.Equals("aadnhl_o", StringComparison.OrdinalIgnoreCase)));
+
+        // The alignment shift: the aaair run used to place _L and _O one slot
+        // early. Inference now declines those slots rather than guessing, and
+        // must never hand out the shifted answers again.
+        foreach (var (slot, shifted) in new[] { ("145", "aaair_l"), ("146", "aaair_o") })
+        {
+            Assert.False(
+                inferred.TryGetValue(slot, out var wrong)
+                && wrong.Equals(shifted, StringComparison.OrdinalIgnoreCase),
+                $"slot {slot} still infers the shifted name {shifted}");
+        }
+
+        Assert.Equal("aaair_2l", stated["145"], StringComparer.OrdinalIgnoreCase);
+        Assert.Equal("aaair_l", stated["146"], StringComparer.OrdinalIgnoreCase);
     }
 
     [CorpusTheory]
     [InlineData(Thps1Build, Thps1Rom, 73, 80)]
     [InlineData(Thps2Build, Thps2Rom, 98, 134)]
-    [InlineData(Thps3Build, Thps3Rom, 66, 109)]
+    [InlineData(Thps3Build, Thps3Rom, 80, 109)]
     [InlineData(SpiderBuild, SpiderRom, 179, 259)]
     public void AdoptingTheTableRaisesNamedSlotCoverage(
         string buildName, string romName, int expectedBefore, int expectedAfter)

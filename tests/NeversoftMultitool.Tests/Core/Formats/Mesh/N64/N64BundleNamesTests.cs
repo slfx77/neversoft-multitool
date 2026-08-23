@@ -175,9 +175,15 @@ public sealed class N64BundleNamesTests(TestPaths paths)
         // Measured 2026-08-07. "Resolved" counts only names that are TRUE of the
         // content — 433 of 450 bundles match some PS1 file, but 104 of those
         // matches are shared-rig characters no content key can separate.
+        // THPS3 re-measured 2026-08-23 at 59 (was 63): adding the port's
+        // two-player banks to the dictionary made two keys AMBIGUOUS, so they
+        // now decline. That is the point of the amendment — the four names
+        // those keys used to hand out were wrong, and the boot table states
+        // them correctly instead. A lower content floor here is the fix, not a
+        // regression.
         { "Tony Hawk's Pro Skater (2000-2-29, N64 - Final)", "Tony Hawk's Pro Skater (USA).z64", 59, 65 },
         { "Tony Hawk's Pro Skater 2 (2001-8-21, N64 - Final)", "Tony Hawk's Pro Skater 2 (USA).z64", 78, 116 },
-        { "Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)", "Tony Hawk's Pro Skater 3 (USA).z64", 63, 87 },
+        { "Tony Hawk's Pro Skater 3 (2002-8-20, N64 - Final)", "Tony Hawk's Pro Skater 3 (USA).z64", 59, 87 },
         { "Spider-Man (2000-11-21, N64 - Final)", "Spider-Man (USA).z64", 129, 182 }
     };
 

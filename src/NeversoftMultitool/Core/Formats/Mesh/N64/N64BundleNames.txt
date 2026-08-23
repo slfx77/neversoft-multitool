@@ -6,6 +6,19 @@
 # dictionary and its coverage metric.
 #
 # KEY(16 hex)=stem[|stem...]   multiple stems = PS1 files with identical content.
+#
+# Amended 2026-08-23: the original harvest enumerated PS1 files BY NAME, so the
+# six THPS3 two-player object banks were invisible to it — they extract as
+# CRC-named .dat, and only HedDictionaryPart5 later gave them names. Their
+# absence is what made three different N64 slots all read "aadnhl_o": that is a
+# ONE-MESH bank, and aaburb2o and aala2o carry the same single mesh-name hash,
+# so all three share content key 80A66122E1C3C47A and the dictionary knew only
+# one of them. With all three listed the key now declines, which is correct —
+# content genuinely cannot separate them — and the boot name table names those
+# slots instead. Corpus-wide this is the complete fix: of every .dat in every
+# build, exactly these six resolve to a name. aadnhl2o is a 36-byte stub and
+# has no content key. Keys recomputed with N64BundleNames.ComputeKey and pinned
+# by N64BundleNamesTests.
 001A135A20CCF311=skss_o|skss_o2
 0037E6EEBEF558AF=l5a7_g
 006180C0ED5A4975=skss
@@ -213,6 +226,7 @@
 3B2F6BA4C196210A=mgun
 3B5BDEF2B4D4BDC0=sked5_w5
 3B5DA6A507265887=gelectro
+3B99CA9FAD457949=aafoun2o
 3BDE78203A9ABEC9=l5a7_g
 3C2B26077446DFD0=costume|iceweb|tdart|tzrweb
 3C3D87ACAF92D5CA=rocket
@@ -405,6 +419,7 @@
 70C1828BEAF9BD33=skschl
 70E296B10A45C0C6=sksf
 715DE919F9F5A2A9=l7a1_o
+71787583688EA581=aaskil2o
 718E3FE85546BB8F=sksl2_o2
 728D4855DD104135=skfway_o
 72C4A2C1C1820751=l1a2_g
@@ -469,7 +484,7 @@
 804E0A1D259ACF3F=muska2
 8073BD1B7EF766C8=rlldrn2|rlldrone
 8098975C2229CE6D=c_police
-80A66122E1C3C47A=aadnhl_o
+80A66122E1C3C47A=aaburb2o|aadnhl_o|aala2o
 80C04DBA2B1D13FF=steam2|steam2b|steamr|steamr_f
 81A3A1CB94281C18=a8lon_g
 81A5F44E99BF02E4=l7a5_o
@@ -597,7 +612,7 @@
 9EE5B8B81EF1CE15=dem3_g
 9F070B5CE76731AD=e1m4_g
 9F1E3007B1007779=torch
-9F4CC1FDD002532A=aaair_o
+9F4CC1FDD002532A=aaair2o|aaair_o
 9F5E164AD9739564=l5a3_g
 9FC2486C9EC0A1E3=a8lon_o
 A0034249B6BF611E=l5a1_o

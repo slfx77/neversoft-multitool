@@ -28,10 +28,17 @@ internal static class N64TrgFileReferences
 
     /// <summary>
     ///     Bank suffixes, longest first so <c>_o2</c> is not read as <c>_o</c>
-    ///     followed by a stray digit. Both spellings ship: THPS1 has
-    ///     <c>skjamo2</c> and <c>sksf_o2</c> in the same game.
+    ///     followed by a stray digit. THREE spellings ship: THPS1 has
+    ///     <c>skjamo2</c> and <c>sksf_o2</c> in the same game, and the late
+    ///     Shaba THPS3 port uses a third, <c>aa&lt;stem&gt;2o</c>.
+    ///     <para>
+    ///         <c>2o</c> is not cosmetic. Without it <c>LevelStem("aaburb2o")</c>
+    ///         returns the whole name, so the family collapses to the single
+    ///         file starting with it and a one-element family aligns trivially
+    ///         onto any content-anchored slot.
+    ///     </para>
     /// </summary>
-    private static readonly string[] BankSuffixes = ["_o2", "o2", "_o"];
+    private static readonly string[] BankSuffixes = ["_o2", "2o", "o2", "_o"];
 
     /// <summary>
     ///     Orders names the way the slot run does: LOWERCASE, then ordinal.

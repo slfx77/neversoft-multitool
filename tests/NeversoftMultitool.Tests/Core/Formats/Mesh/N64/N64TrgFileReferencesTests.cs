@@ -109,10 +109,15 @@ public sealed class N64TrgFileReferencesTests
     [Theory]
     [InlineData("l1a1_o", "l1a1")]
     [InlineData("SkVans_O", "SkVans")]
-    [InlineData("skjamo2", "skjam")]      // both spellings ship in one game
+    [InlineData("skjamo2", "skjam")]      // all three spellings ship
     [InlineData("sksf_o2", "sksf")]
+    // The late Shaba THPS3 port's spelling. Missing it left the whole name
+    // unstripped, collapsing the family to one element that aligned trivially
+    // onto any content-anchored slot.
+    [InlineData("aaburb2o", "aaburb")]
+    [InlineData("AAAir2o", "AAAir")]
     [InlineData("noSuffix", "noSuffix")]
-    public void LevelStem_StripsEitherBankSpelling(string bank, string expected)
+    public void LevelStem_StripsEveryBankSpelling(string bank, string expected)
     {
         Assert.Equal(expected, N64TrgFileReferences.LevelStem(bank));
     }

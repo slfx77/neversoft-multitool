@@ -269,6 +269,22 @@ internal static class N64BundleNameResolver
                 return null;
             }
 
+            // The converse, and it catches a shift the rule above cannot: a
+            // one-player object bank holds geometry, so landing it on a stub
+            // proves the run is shifted too. Needed because THPS3 spells its
+            // two-player files aa<stem>2l/2o, which sort before '_' and so sit
+            // INSIDE the one-player run — making the trigger's file set a
+            // non-contiguous subsequence of it. The _L rule alone misses that,
+            // because the slot the shifted _O lands on is a library, i.e. a
+            // stub as well. Restricted to the exact "_o" spelling: a reduced
+            // two-player bank legitimately CAN be an authored-empty stub
+            // (THPS3's aadnhl2o is 36 bytes).
+            if (family[offset].EndsWith("_o", StringComparison.OrdinalIgnoreCase)
+                && IsStub(bundles[index].Shell))
+            {
+                return null;
+            }
+
             placement.Add((bundles[index].Slot, family[offset]));
         }
 
