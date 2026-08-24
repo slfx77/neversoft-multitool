@@ -53,7 +53,9 @@ public static class Program
         GbaGaxCommand.Create,
         GbaImageCommand.Create,
         GbaMusicCommand.Create,
-        GbaLevelCommand.Create
+        GbaLevelCommand.Create,
+        NdsTextureCommand.Create,
+        NdsMeshCommand.Create
     ];
 
     private static readonly Lazy<HashSet<string>> CliCommandNames = new(

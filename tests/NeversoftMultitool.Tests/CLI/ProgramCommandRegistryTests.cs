@@ -48,7 +48,9 @@ public sealed class ProgramCommandRegistryTests
         "gba-audio",
         "gba-image",
         "gba-music",
-        "gba-level"
+        "gba-level",
+        "nds-texture",
+        "nds-mesh"
     ];
 
     [Fact]
@@ -59,7 +61,7 @@ public sealed class ProgramCommandRegistryTests
             .Select(static command => command.Name)
             .ToArray();
 
-        Assert.Equal(45, actualNames.Length);
+        Assert.Equal(47, actualNames.Length);
         Assert.Equal(ExpectedCommandNames, actualNames);
         Assert.Equal(
             actualNames.Length,

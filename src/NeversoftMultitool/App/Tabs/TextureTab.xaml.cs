@@ -10,7 +10,10 @@ namespace NeversoftMultitool;
 
 public sealed partial class TextureTab : UserControl, IDisposable
 {
-    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr", ".z64"];
+    // .nds/.gob: the DS carts keep essentially all content in the GOB container,
+    // which opens in place inside a cart or beside its .gfc once extracted.
+    private static readonly string[] ArchiveExtensions =
+        [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr", ".z64", ".nds", ".gob"];
 
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<PsxFileEntry> _parentFiles = [];
