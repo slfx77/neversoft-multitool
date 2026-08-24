@@ -95,17 +95,51 @@ public sealed class GbaLevelImagesTests(TestPaths paths)
         var trueRecord = (int)(levels[0].RecordAddress - 0x08000000) - 0x144;
         var render = GbaCollisionRenderer.Render(rom, trueRecord);
         Assert.NotNull(render);
+        // Height scale matches the ENGINE's proportions (1 world unit of height =
+        // 1/3 of a cell's horizontal span, per its art transform) — the first cut
+        // doubled it, rendering every ramp twice as tall as the game draws it.
         Assert.Equal(1955, render.Value.Width);
-        Assert.Equal(1074, render.Value.Height);
+        Assert.Equal(1019, render.Value.Height);
         Assert.Equal(182, render.Value.OmittedCells);
         Assert.Equal(render.Value.Width * render.Value.Height * 4, render.Value.Rgba.Length);
         Assert.Equal(
-            "48c050b025483b57e9918e213c4e2ab87cbb84b2b62aa54db5675eed88a2d186",
+            "61131d272c04a953af06fa49c0a4b4211c26145bc19fc09cc08052a41b43fd00",
             Convert.ToHexStringLower(SHA256.HashData(render.Value.Rgba)));
 
         // Every level renders (accurate surface geometry across the corpus).
         Assert.All(levels, l => Assert.NotNull(
             GbaCollisionRenderer.Render(rom, (int)(l.RecordAddress - 0x08000000) - 0x144)));
+    }
+
+    [Fact]
+    public void RendersLevel0CollisionOverArt_WithTheEngineArtTransform()
+    {
+        var rom = LoadThps2();
+        Assert.SkipWhen(rom == null, "THPS2 GBA ROM sample not available");
+        var levels = GbaLevelImages.FindLevels(rom);
+
+        // The collision grid drawn over the level's own art. The projection is the
+        // engine's art transform — artX = X0 + 16(wy−wx), artY = Y0 + 8(wx+wy) − 16z —
+        // whose per-level origin is a stored ROM field (record +0x64/+0x68, 24.8
+        // fixed; all 9 levels decode to whole pixels). Fitted dynamically against
+        // skater/shadow anchors at ~1px median residual on three demo levels.
+        var colour = GbaLevelImages.RenderColourSurface(rom, levels[0]);
+        Assert.NotNull(colour);
+        var trueRecord = (int)(levels[0].RecordAddress - 0x08000000) - 0x144;
+        var overlay = GbaCollisionRenderer.RenderArtOverlay(
+            rom, trueRecord, colour.Value.Width, colour.Value.Height, colour.Value.Rgba);
+        Assert.NotNull(overlay);
+        Assert.Equal(colour.Value.Width, overlay.Value.Width);
+        Assert.Equal(colour.Value.Height, overlay.Value.Height);
+        Assert.Equal(182, overlay.Value.OmittedCells); // the kill-wall ring stays untinted
+        Assert.Equal(
+            "0fff000d91bb3a2b1b26c44eb5ef41d3d7972ab2f31b23e5d95bf3835456dec1",
+            Convert.ToHexStringLower(SHA256.HashData(overlay.Value.Rgba)));
+
+        // The overlay must differ from the plain art (the grid was actually drawn)…
+        Assert.NotEqual(
+            Convert.ToHexStringLower(SHA256.HashData(colour.Value.Rgba)),
+            Convert.ToHexStringLower(SHA256.HashData(overlay.Value.Rgba)));
     }
 
     [Fact]

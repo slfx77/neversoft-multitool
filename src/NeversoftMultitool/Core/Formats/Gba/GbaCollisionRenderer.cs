@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Gba;
@@ -30,9 +31,14 @@ public static class GbaCollisionRenderer
     /// <summary>Cells whose base height exceeds this are the out-of-bounds kill wall.</summary>
     public const double OutOfBoundsHeight = 30.0;
 
-    private const double TileWidth = 18.0 * 5.0;  // matches the iso basis, zoomed
+    // Iso basis, zoomed. Note Project() halves the horizontal/depth terms (TW/2, TH/2)
+    // but not the height term, so matching the ENGINE's proportions (its art transform
+    // is 16 px height per world unit against 48 px per cell horizontally, i.e. 1:3)
+    // requires HeightScale = (TileWidth/2)/3. The previous value doubled it — the
+    // render was vertically amplified 2× relative to the game's own art.
+    private const double TileWidth = 18.0 * 5.0;
     private const double TileHeight = 9.0 * 5.0;
-    private const double HeightScale = 6.0 * 5.0;
+    private const double HeightScale = TileWidth / 2.0 / 3.0;
     private const int MaxDimension = 8192;
     private const double Fixed = 4096.0;
 
@@ -246,6 +252,154 @@ public static class GbaCollisionRenderer
                 raster.Triangle(a, c, d, color);
             }
         }
+    }
+
+    /// <summary>
+    ///     Draws the collision grid <b>over the level's own art</b> — the direct answer
+    ///     to "which art corresponds to which collision type". Each live cell's surface
+    ///     is sampled (so lattice lines bend up quarter-pipe transitions exactly as the
+    ///     art curves) and projected with the <b>engine's own art transform</b>:
+    ///     <code>
+    ///     artX = X0 + 16·(wy − wx)
+    ///     artY = Y0 +  8·(wx + wy) − 16·z      (world units; cell = 3 units)
+    ///     </code>
+    ///     The 16/8/−16 px-per-world-unit constants are engine-wide; the origin
+    ///     (X0, Y0) is <b>stored per level</b> in the record at <c>+0x64/+0x68</c> as
+    ///     signed 24.8 fixed (every level decodes to whole pixels). Established
+    ///     dynamically — skater world coordinates captured at the engine's collision
+    ///     query (0x08023168) chained to the shadow sprite's OAM screen position across
+    ///     three attract-demo levels, median residual ~1px — then the origin was found
+    ///     as a ROM field, making the whole transform media-derived.
+    /// </summary>
+    public static GbaCollisionRender? RenderArtOverlay(
+        ReadOnlySpan<byte> rom, int trueRecordOffset, int artWidth, int artHeight, byte[] artRgba)
+    {
+        var grid = GbaCollisionSurface.TryLoad(rom, trueRecordOffset);
+        if (grid is null)
+            return null;
+        if (trueRecordOffset + 0x6C > rom.Length)
+            return null;
+
+        var x0Raw = BinaryPrimitives.ReadInt32LittleEndian(rom.Slice(trueRecordOffset + 0x64, 4));
+        var y0Raw = BinaryPrimitives.ReadInt32LittleEndian(rom.Slice(trueRecordOffset + 0x68, 4));
+        var originX = x0Raw / 256.0;
+        var originY = y0Raw / 256.0;
+
+        var rgba = (byte[])artRgba.Clone();
+        const int n = SubDivisions;
+        var step = n + 1;
+        var omitted = 0;
+
+        for (var gy = 0; gy < grid.Height; gy++)
+        for (var gx = 0; gx < grid.Width; gx++)
+        {
+            var cell = grid.CellAt(gx, gy);
+            if (cell.BaseHeight / Fixed > OutOfBoundsHeight)
+            {
+                omitted++;
+                continue;
+            }
+
+            var samples = grid.SampleCell(rom, gx, gy, step);
+            var tint = MaterialColor(cell.Material);
+
+            (double X, double Y) At(int i, int j)
+            {
+                var wx = (gx + (double)i / n) * 3.0;
+                var wy = (gy + (double)j / n) * 3.0;
+                var z = samples[j * step + i] / Fixed;
+                return (originX + 16.0 * (wy - wx), originY + 8.0 * (wx + wy) - 16.0 * z);
+            }
+
+            // Tint the cell's curved footprint.
+            for (var j = 0; j < n; j++)
+            for (var i = 0; i < n; i++)
+                BlendQuad(rgba, artWidth, artHeight, [At(i, j), At(i + 1, j), At(i + 1, j + 1), At(i, j + 1)],
+                    tint, 0.30);
+
+            // Lattice: the two near edges of every cell (shared edges are then drawn
+            // exactly once), plus the far edges along the grid boundary.
+            for (var t = 0; t < n; t++)
+            {
+                BlendLine(rgba, artWidth, artHeight, At(t, 0), At(t + 1, 0), 0.45);
+                BlendLine(rgba, artWidth, artHeight, At(0, t), At(0, t + 1), 0.45);
+                if (gy == grid.Height - 1)
+                    BlendLine(rgba, artWidth, artHeight, At(t, n), At(t + 1, n), 0.45);
+                if (gx == grid.Width - 1)
+                    BlendLine(rgba, artWidth, artHeight, At(n, t), At(n, t + 1), 0.45);
+            }
+        }
+
+        return new GbaCollisionRender(artWidth, artHeight, rgba, omitted);
+    }
+
+    // Alpha-blend a convex quad's interior into the RGBA buffer.
+    private static void BlendQuad(
+        byte[] rgba, int width, int height, ReadOnlySpan<(double X, double Y)> pts, Vector3 tint, double alpha)
+    {
+        double yMin = double.MaxValue, yMax = double.MinValue;
+        foreach (var p in pts)
+        {
+            yMin = Math.Min(yMin, p.Y);
+            yMax = Math.Max(yMax, p.Y);
+        }
+
+        var y0 = Math.Max(0, (int)Math.Ceiling(yMin));
+        var y1 = Math.Min(height - 1, (int)Math.Floor(yMax));
+        Span<double> xs = stackalloc double[8];
+        for (var y = y0; y <= y1; y++)
+        {
+            var scanY = y + 0.5;
+            var count = 0;
+            for (var e = 0; e < pts.Length; e++)
+            {
+                var a = pts[e];
+                var b = pts[(e + 1) % pts.Length];
+                if (a.Y <= scanY && b.Y > scanY || b.Y <= scanY && a.Y > scanY)
+                    xs[count++] = a.X + (scanY - a.Y) / (b.Y - a.Y) * (b.X - a.X);
+            }
+
+            if (count < 2)
+                continue;
+            xs[..count].Sort();
+            for (var i = 0; i + 1 < count; i += 2)
+            {
+                var xStart = Math.Max(0, (int)Math.Ceiling(xs[i] - 0.5));
+                var xEnd = Math.Min(width - 1, (int)Math.Floor(xs[i + 1] - 0.5));
+                for (var x = xStart; x <= xEnd; x++)
+                    BlendPixel(rgba, (y * width + x) * 4, tint, alpha);
+            }
+        }
+    }
+
+    // Alpha-blend a 1px line (DDA) into the RGBA buffer, dark ink.
+    private static void BlendLine(
+        byte[] rgba, int width, int height, (double X, double Y) a, (double X, double Y) b, double alpha)
+    {
+        var steps = Math.Max(1, (int)Math.Ceiling(Math.Max(Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y))));
+        var ink = new Vector3(16, 16, 20);
+        var lastX = int.MinValue;
+        var lastY = int.MinValue;
+        for (var s = 0; s <= steps; s++)
+        {
+            var t = (double)s / steps;
+            var x = (int)Math.Round(a.X + (b.X - a.X) * t);
+            var y = (int)Math.Round(a.Y + (b.Y - a.Y) * t);
+            if (x == lastX && y == lastY)
+                continue;
+            lastX = x;
+            lastY = y;
+            if (x < 0 || x >= width || y < 0 || y >= height)
+                continue;
+            BlendPixel(rgba, (y * width + x) * 4, ink, alpha);
+        }
+    }
+
+    private static void BlendPixel(byte[] rgba, int offset, Vector3 tint, double alpha)
+    {
+        rgba[offset] = (byte)Math.Clamp(rgba[offset] * (1 - alpha) + tint.X * alpha, 0, 255);
+        rgba[offset + 1] = (byte)Math.Clamp(rgba[offset + 1] * (1 - alpha) + tint.Y * alpha, 0, 255);
+        rgba[offset + 2] = (byte)Math.Clamp(rgba[offset + 2] * (1 - alpha) + tint.Z * alpha, 0, 255);
     }
 
     // Isometric projection; depth is the exact orthographic depth for this basis

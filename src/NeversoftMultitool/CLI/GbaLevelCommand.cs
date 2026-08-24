@@ -117,6 +117,17 @@ public static class GbaLevelCommand
                 Path.Combine(dir, $"level_{index:D2}_iso.png"),
                 iso.Value.Width, iso.Value.Height, iso.Value.Rgba);
 
+        // The collision grid drawn over the level's own art (which art is which
+        // collision type), via the engine's stored per-level art origin.
+        var overlay = colour != null
+            ? GbaCollisionRenderer.RenderArtOverlay(
+                rom, trueRecord, colour.Value.Width, colour.Value.Height, colour.Value.Rgba)
+            : null;
+        if (overlay != null)
+            ImageWriter.WritePng(
+                Path.Combine(dir, $"level_{index:D2}_overlay.png"),
+                overlay.Value.Width, overlay.Value.Height, overlay.Value.Rgba);
+
         // Emit the level's real background palette (its true colour source).
         var palette = GbaLevelImages.TryGetPalette(rom, level);
         if (palette != null)
@@ -128,7 +139,7 @@ public static class GbaLevelCommand
                 + $"elem 0x{level.ElementLibraryAddress:X8} ({level.ElementCount} tiles)  "
                 + $"{bitmap.Value.Width}x{bitmap.Value.Height}"
                 + $"{(colour != null ? "  +colour" : "")}{(iso != null ? "  +iso" : "")}"
-                + $"{(palette != null ? "  +palette" : "")}");
+                + $"{(overlay != null ? "  +overlay" : "")}{(palette != null ? "  +palette" : "")}");
         return true;
     }
 

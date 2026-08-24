@@ -459,11 +459,46 @@ exactly but only classified numerically (4.3% of cells — a documentation gap, 
 rendering gap); the divide routine is modelled as truncate-toward-zero (differs from
 floor only for negative operands, by 1/4096 unit); not validated against a live skater.
 
-**The collision↔art overlay (the user's alignment idea) remains OPEN**: FFT edge
-correlation gave a flat score surface, and the art bitmap does not tightly bound the
-floor diamond (artWidth/(3(W+H)) ranges 12.1–15.5 across levels), so there is no
-constant to read off. The concrete next step is reading BG2PA-PD/BG2X/BG2Y live in
-BizHawk during gameplay — that IS the world→art transform.
+### Collision↔art alignment — SOLVED (2026-08-24), overlay SHIPPED
+
+The engine's world→art transform, closed dynamically and then found to be ROM-stored:
+
+```
+artX = X0 + 16·(wy − wx)          (world units; collision cell = 3 units)
+artY = Y0 +  8·(wx + wy) − 16·z
+```
+
+The 16/8/−16 px-per-world-unit constants are engine-wide; **the per-level origin
+(X0, Y0) is a stored ROM field at the true record's +0x64/+0x68** (signed 24.8 fixed —
+all 9 levels decode to whole pixels; verified 84–100% of interior playfield cells land
+in-canvas per level, with the shortfall being the known asymmetric canvas crops). In
+raw fixed-point the transform is pure shift arithmetic (`artX_24.8 = rec[+0x64] +
+(wyRaw − wxRaw)`), corroborating the quantization.
+
+**How it was closed** (BizHawk, attract demo — Hangar/School II/Marseille): an
+execute-hook at the engine's own collision query 0x08023168 captured true world
+coordinates; the absolute screen→art anchor came from NCC-matching screenshots into
+the shipped colour render (median 0.96, proving the display is a 1:1 window of the
+baked art); and the height anchor was the skater's **shadow** sprite (the skater
+itself is airborne too often — an ill-conditioned RANSAC found three different wrong
+consensus sets before the shadow fixed it). Joint fit: a=(−16.01,+15.99), b=(+7.98,
++8.01), c=−16.10 → exact (−16,+16,+8,+8,−16); median residual ~1.0–1.4 px over 417
+anchors after resolving one frame of OAM pipeline lag. BG2X/BG2Y could not be read
+(write-only, and this BizHawk's onmemorywrite passes no addr) — the NCC window match
+replaced them. One instructive negative: the painted floor-tile seams sit ~(+4.5,−8.9)
+px off the collision grid — same pitch, authored phase offset — which is why blind
+FFT texture correlation was flat. Match geometry, never texture phase.
+
+**Shipped**: `GbaCollisionRenderer.RenderArtOverlay` — the collision lattice + per-
+material tint drawn over the level's own art via this transform (`gba-level` emits
+`level_NN_overlay.png`; lattice lines bend up the quarter-pipe transitions exactly
+where the art curves). Also corrected from user review: the standalone `_iso` render
+was **vertically amplified 2×** (its projection halves the horizontal terms but didn't
+halve the height term); HeightScale now matches the engine's 1:3 height-per-unit to
+horizontal-per-cell proportion. Caveats: c=−16 was measured over ground z 0–10.5
+(kill walls extrapolate); six levels' origins are ROM-read but not demo-visited; the
++0x64/+0x68 identification is numeric (three independently fitted origins matched the
+fields), not traced through the loader's ldr instructions.
 
 ## Next steps (in order)
 
