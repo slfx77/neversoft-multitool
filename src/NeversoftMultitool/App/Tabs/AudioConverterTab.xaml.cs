@@ -13,7 +13,10 @@ namespace NeversoftMultitool;
 
 public sealed partial class AudioConverterTab : UserControl, IDisposable
 {
-    private static readonly string[] ArchiveExtensions = [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr"];
+    // .nds/.gob: the DS carts' sound effects ship as Nitro .swav waves inside the
+    // GOB container, which is reachable only through the cart or its .gfc pair.
+    private static readonly string[] ArchiveExtensions =
+        [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr", ".nds", ".gob"];
 
     private readonly AudioConverterTabConversionController _conversionController = new();
     private readonly ObservableCollection<IListEntry> _items = [];

@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.DiscImage;
+using Gob = NeversoftMultitool.Core.Formats.Gob;
 using N64 = NeversoftMultitool.Core.Formats.N64;
 using Nds = NeversoftMultitool.Core.Formats.Nds;
 
@@ -18,7 +19,7 @@ public static class ArchiveTypeDetector
     public static readonly string[] ArchiveExtensions =
     [
         ".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip", ".cut",
-        ".iso", ".cue", ".gdi", ".img", ".z64", ".nds"
+        ".iso", ".cue", ".gdi", ".img", ".z64", ".nds", ".gob", ".sdat"
     ];
 
     /// <summary>
@@ -29,7 +30,7 @@ public static class ArchiveTypeDetector
     /// </summary>
     private static readonly string[] NestedArchiveExtensions =
     [
-        ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".pak", ".apk"
+        ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".pak", ".apk", ".gob"
     ];
 
     /// <summary>
@@ -87,6 +88,8 @@ public static class ArchiveTypeDetector
                 DiscImageArchive.IsDiscImage(filePath) ? "DISC" : "DISC (raw)",
             ".z64" => N64.N64RomArchive.ClassifyRom(filePath) ?? "N64 ROM (raw)",
             ".nds" => Nds.NdsRomArchive.ClassifyRom(filePath) ?? "NDS ROM (raw)",
+            ".gob" => Gob.GobArchive.ClassifyArchive(filePath) ?? "GOB (raw)",
+            ".sdat" => Nds.SdatArchive.ClassifyArchive(filePath) ?? "SDAT (raw)",
             _ => "?"
         };
     }
@@ -116,6 +119,9 @@ public static class ArchiveTypeDetector
             ".cut" => CutArchive.IsCut(path) ? ArchiveAssetType.Cut : null,
             ".z64" => N64.N64RomArchive.IsN64Rom(path) ? ArchiveAssetType.N64 : null,
             ".nds" => Nds.NdsRomArchive.IsNdsRom(path) ? ArchiveAssetType.Nds : null,
+            // GOB needs its sibling .gfc index — without it the blob is unreadable.
+            ".gob" => Gob.GobArchive.IsGobArchive(path) ? ArchiveAssetType.Gob : null,
+            ".sdat" => Nds.SdatArchive.IsSdat(path) ? ArchiveAssetType.Sdat : null,
             _ => null
         };
     }
@@ -141,6 +147,9 @@ public static class ArchiveTypeDetector
                 : ArchiveAssetType.Pre,
             ".pkr" => ArchiveAssetType.Pkr,
             ".pak" or ".apk" => PakArchive.IsPakArchive(data) ? ArchiveAssetType.Pak : null,
+            // The .gob blob carries no header of its own; whether it is really a GOB
+            // is settled against the companion .gfc in ArchiveFileSystem.TryOpenNested.
+            ".gob" => ArchiveAssetType.Gob,
             _ => null
         };
     }

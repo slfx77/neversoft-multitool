@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
+using NeversoftMultitool.Core.Formats.Gob;
 using NeversoftMultitool.Core.Formats.N64;
 using NeversoftMultitool.Core.Formats.Nds;
 using WinRT.Interop;
@@ -122,6 +123,14 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                 case ".nds":
                     MainWindow.Instance?.SetStatus(
                         "Not a Nintendo DS ROM (header/logo CRC or FNT/FAT check failed)");
+                    return;
+                case ".gob" when GobArchive.IsGobArchive(_archivePath):
+                    _archiveType = "GOB";
+                    entries = GobArchive.GetFileList(_archivePath);
+                    break;
+                case ".gob":
+                    MainWindow.Instance?.SetStatus(
+                        "Not a GOB container (no companion .gfc index, or it does not describe this file)");
                     return;
                 default:
                     var probe = FormatProbe.ProbeArchive(_archivePath);
@@ -285,6 +294,9 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                         break;
                     case "NDS":
                         NdsRomArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "GOB":
+                        GobArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
                         break;
                 }
             }, token);

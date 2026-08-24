@@ -1,5 +1,6 @@
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
+using NeversoftMultitool.Core.Formats.Gob;
 using NeversoftMultitool.Core.Formats.N64;
 using NeversoftMultitool.Core.Formats.Nds;
 
@@ -74,7 +75,7 @@ public static class RecursiveUnpacker
         // outputDir (no stem subdir), so wrap them in a stem subdirectory
         // for consistency.
         string outputDir;
-        if (ext is ".pkr" or ".iso" or ".cue" or ".gdi" or ".img" or ".z64" or ".nds")
+        if (ext is ".pkr" or ".iso" or ".cue" or ".gdi" or ".img" or ".z64" or ".nds" or ".gob" or ".sdat")
         {
             var stem = ArchiveNaming.GetExtractionStem(archivePath);
             outputDir = Path.Combine(parentDir, stem);
@@ -120,6 +121,12 @@ public static class RecursiveUnpacker
                 break;
             case ".nds" when NdsRomArchive.IsNdsRom(archivePath):
                 NdsRomArchive.ExtractFiles(archivePath, outputDir, null, ct);
+                break;
+            case ".gob" when GobArchive.IsGobArchive(archivePath):
+                GobArchive.ExtractFiles(archivePath, outputDir, null, ct);
+                break;
+            case ".sdat" when SdatArchive.IsSdat(archivePath):
+                SdatArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
             default:
                 throw new InvalidDataException($"Unsupported or invalid archive: {archivePath}");

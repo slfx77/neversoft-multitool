@@ -43,7 +43,7 @@ public interface IArchiveFileSystem : IDisposable
     IReadOnlyList<ArchiveEntry> FindAllByName(string basename);
 
     /// <summary>
-    ///     Opens a nested archive entry (.pre/.prx/.prd/.prf/.prg/.pkr/.pak/.apk)
+    ///     Opens a nested archive entry (.pre/.prx/.prd/.prf/.prg/.pkr/.pak/.apk/.gob)
     ///     as a child filesystem. Null for non-archives, raw-data paks, parse
     ///     failures, or when the nesting depth cap is reached. The child holds a
     ///     reference to this parent; dispose the root last.

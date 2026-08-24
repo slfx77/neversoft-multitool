@@ -80,6 +80,12 @@
          Core\QbKey. Materialized from the 2026-08-07 PS1/N64 corpus match. -->
     <EmbeddedResource Include="Core\Formats\Mesh\N64\N64BundleNames.txt" LogicalName="N64BundleNames.txt" />
 
+    <!-- DS GOB container names: STANDARD CRC-32 of the lowercased name, not the
+         Neversoft CRC, so likewise kept out of Core\QbKey — these pairs would not
+         re-hash there. Harvested from the three DS carts' own ARM9/overlay/content
+         strings and accepted only on a re-hash match. -->
+    <EmbeddedResource Include="Core\Formats\Gob\GobNames.txt" LogicalName="GobNames.txt" />
+
   </ItemGroup>
 
 

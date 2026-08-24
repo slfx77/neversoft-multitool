@@ -15,6 +15,7 @@ internal static class FormatProbeAudio
         {
             ".adx" => ProbeAdxFile(filePath),
             ".pcm" => ProbePcmFile(filePath),
+            ".swav" or ".strm" => ProbeNitroWave(filePath),
             ".snd" => ProbeSndFile(filePath),
             ".xa" => ProbeExtensionOnlyFile(filePath, "XA Audio"),
             ".vab" => ProbeExtensionOnlyFile(filePath, "VAB Sound Bank"),
@@ -62,6 +63,26 @@ internal static class FormatProbeAudio
             FormatProbe.FormatSupport.Unsupported,
             "Unknown",
             "Not a valid ADX file (missing 0x8000 magic)");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeNitroWave(string filePath)
+    {
+        try
+        {
+            var probe = NdsAudioDecoder.Probe(File.ReadAllBytes(filePath));
+            return probe != null
+                ? new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Supported, $"Nitro {probe.Format}")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "Nitro wave",
+                    "Not a Nitro SWAV or STRM wave");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported, "Nitro wave", ex.Message);
+        }
     }
 
     private static FormatProbe.FormatProbeResult ProbePcmFile(string filePath)

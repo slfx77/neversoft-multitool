@@ -18,7 +18,8 @@ public sealed class ArchiveAssetBackend
     private static readonly ArchiveAssetType[] LegacyEnumerableTypes =
     [
         ArchiveAssetType.Wad, ArchiveAssetType.Pre, ArchiveAssetType.CompressedPre,
-        ArchiveAssetType.Pkr, ArchiveAssetType.Pak, ArchiveAssetType.N64, ArchiveAssetType.Nds
+        ArchiveAssetType.Pkr, ArchiveAssetType.Pak, ArchiveAssetType.N64, ArchiveAssetType.Nds,
+        ArchiveAssetType.Gob, ArchiveAssetType.Sdat
     ];
 
     private ArchiveAssetBackend(IArchiveFileSystem fileSystem)

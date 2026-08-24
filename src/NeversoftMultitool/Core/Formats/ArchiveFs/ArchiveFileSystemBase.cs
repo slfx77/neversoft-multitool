@@ -68,7 +68,7 @@ public abstract class ArchiveFileSystemBase : IArchiveFileSystem
             return null;
 
         var ext = ArchiveTypeDetector.GetArchiveExtension(entry.Name);
-        if (ext is not (".pre" or ".prx" or ".prd" or ".prf" or ".prg" or ".pkr" or ".pak" or ".apk"))
+        if (ext is not (".pre" or ".prx" or ".prd" or ".prf" or ".prg" or ".pkr" or ".pak" or ".apk" or ".gob"))
             return null;
 
         byte[] data;
@@ -83,19 +83,28 @@ public abstract class ArchiveFileSystemBase : IArchiveFileSystem
         }
 
         // Nested PAKs may ship their companion data as a sibling entry in the
-        // SAME parent (THAW DATAP.WAD holds anims.pak.ps2 + anims.pab.ps2).
+        // SAME parent (THAW DATAP.WAD holds anims.pak.ps2 + anims.pab.ps2), and a
+        // nested GOB always does — the DS carts' Nitro tree holds main.gob beside
+        // main.gfc, and the blob is unreadable without that index.
         byte[]? companion = null;
         Func<byte[]>? reloadCompanion = null;
-        if (ext is ".pak" or ".apk")
+        var companionName = ext switch
         {
-            var pabName = Path.GetFileName(PakArchive.GetPabPath(entry.Name));
-            var pabEntry = FindByPath(string.IsNullOrEmpty(entry.Directory) ? pabName : $"{entry.Directory}/{pabName}");
-            if (pabEntry is { Size: > 32 })
+            ".pak" or ".apk" => Path.GetFileName(PakArchive.GetPabPath(entry.Name)),
+            ".gob" => Path.GetFileName(Gob.GobArchive.GetIndexPath(entry.Name)),
+            _ => null
+        };
+
+        if (companionName != null)
+        {
+            var companionEntry = FindByPath(
+                string.IsNullOrEmpty(entry.Directory) ? companionName : $"{entry.Directory}/{companionName}");
+            if (companionEntry is { Size: > 32 })
             {
                 try
                 {
-                    companion = ReadEntry(pabEntry);
-                    reloadCompanion = () => ReadEntry(pabEntry);
+                    companion = ReadEntry(companionEntry);
+                    reloadCompanion = () => ReadEntry(companionEntry);
                 }
                 catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException
                                            or ArgumentException or OverflowException)

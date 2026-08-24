@@ -33,6 +33,18 @@ internal static class FormatProbeArchive
                     FormatProbe.FormatSupport.Unsupported,
                     "CUT",
                     "Not a cutscene file library (bad header or non-contiguous blobs)"),
+            ".sdat" => Formats.Nds.SdatArchive.IsSdat(filePath)
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "SDAT Sound Archive")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "SDAT",
+                    "Not a Nitro SDAT sound archive (bad header or block table)"),
+            ".gob" => Formats.Gob.GobArchive.IsGobArchive(filePath)
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "GOB Container")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "GOB",
+                    "No companion .gfc index, or it does not describe this file"),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",

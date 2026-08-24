@@ -3,6 +3,7 @@ using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
+using NeversoftMultitool.Core.Formats.Gob;
 using NeversoftMultitool.Core.Formats.N64;
 using NeversoftMultitool.Core.Formats.Nds;
 using Spectre.Console;
@@ -267,6 +268,27 @@ public static class ArchiveCommand
 
                     case ".nds":
                         AnsiConsole.MarkupLine("[red]Not a Nintendo DS ROM[/] (header/logo CRC or FNT/FAT check failed)");
+                        return Task.FromResult(1);
+
+                    case ".gob" when GobArchive.IsGobArchive(input):
+                        AnsiConsole.MarkupLine("[blue]GOB container[/] detected (Vicarious Visions DS)");
+                        var gobEntries = GobArchive.GetFileList(input);
+                        var namedGob = gobEntries.Count(e => GobNames.TryResolve(e.Crc) != null);
+                        AnsiConsole.MarkupLine(
+                            $"Found [green]{gobEntries.Count}[/] files " +
+                            $"([green]{namedGob}[/] named, [yellow]{gobEntries.Count - namedGob}[/] keyed by hash)");
+                        GobArchive.ExtractFiles(input, output, (current, total) =>
+                        {
+                            filesExtracted = current;
+                            if (verbose)
+                                AnsiConsole.MarkupLine(
+                                    $"  [[{current}/{total}]] {Markup.Escape(gobEntries[current - 1].FullName)}");
+                        }, cancellationToken);
+                        break;
+
+                    case ".gob":
+                        AnsiConsole.MarkupLine(
+                            "[red]Not a GOB container[/] (no companion .gfc index, or it does not describe this file)");
                         return Task.FromResult(1);
 
                     default:

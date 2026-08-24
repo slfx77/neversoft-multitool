@@ -9,14 +9,14 @@ namespace NeversoftMultitool.CLI;
 public static class AudioCommand
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".kat", ".sfx", ".seq", ".vag", ".pcm", ".snd", ".pss", ".vid"];
+        [".adx", ".xa", ".vab", ".kat", ".sfx", ".seq", ".vag", ".pcm", ".snd", ".pss", ".vid", ".swav", ".strm"];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
             Description =
-                "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .sfx, .pcm, .snd, .pss, .vid)"
+                "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .sfx, .pcm, .snd, .pss, .vid, .swav, .strm)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -182,6 +182,9 @@ public static class AudioCommand
                     sampleRate > 0 ? sampleRate : VabExtractor.DefaultSampleRate),
                 ".vag" => VagDecoder.ConvertToWav(file, outputDirectory, sampleRate),
                 ".pcm" => XboxPcmDecoder.ConvertToWav(file, outputDirectory),
+                // Nintendo Nitro waves: SWAV effects out of the DS GOB container,
+                // STRM music out of a cart's SDAT sound archive.
+                ".swav" or ".strm" => NdsAudioDecoder.ConvertToWav(file, outputDirectory),
                 ".snd" => Thug2PcSndDecoder.ConvertToWav(file, outputDirectory),
                 ".pss" => PssAudioExtractor.ConvertToWav(file, outputDirectory),
                 ".vid" => Vid1AudioExtractor.ConvertToWav(file, outputDirectory),
@@ -215,6 +218,7 @@ public static class AudioCommand
                     sampleRate > 0 ? sampleRate : VabExtractor.DefaultSampleRate),
                 ".vag" => VagDecoder.ConvertToWav(data, outputStem, outputDirectory, sampleRate),
                 ".pcm" => XboxPcmDecoder.ConvertToWav(data, outputStem, outputDirectory),
+                ".swav" or ".strm" => NdsAudioDecoder.ConvertToWav(data, outputStem, outputDirectory),
                 ".snd" => Thug2PcSndDecoder.ConvertToWav(data, outputStem, outputDirectory),
                 ".pss" => PssAudioExtractor.ConvertToWav(data, outputStem, outputDirectory),
                 ".vid" => Vid1AudioExtractor.ConvertToWav(data, outputStem, outputDirectory),

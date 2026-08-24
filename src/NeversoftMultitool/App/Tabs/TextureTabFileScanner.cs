@@ -15,7 +15,7 @@ namespace NeversoftMultitool;
 internal static class TextureTabFileScanner
 {
     private static readonly string[] NestedArchiveSuffixes =
-        [".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".pak", ".apk"];
+        [".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".pak", ".apk", ".gob"];
 
     public static ScanResult ScanDirectory(string inputDir, IProgress<int>? progress, CancellationToken ct)
     {

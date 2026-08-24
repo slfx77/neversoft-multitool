@@ -29,5 +29,19 @@ public enum ArchiveAssetType
     ///     contiguous byte ranges (FAT start/end), so the disk-backed backend
     ///     serves them with no carve/decompress step.
     /// </summary>
-    Nds
+    Nds,
+
+    /// <summary>
+    ///     Vicarious Visions DS GOB container: a .gob data blob plus its companion
+    ///     .gfc index. An entry is a CHAIN of separately-compressed chunks rather
+    ///     than one byte range, so Offset is the index's file number, not a byte
+    ///     offset, and decoding happens inside GobArchiveFileSystem.
+    /// </summary>
+    Gob,
+
+    /// <summary>
+    ///     Nintendo Nitro SDK SDAT sound archive. Entries are plain byte ranges of
+    ///     the FILE block, named from the archive's own SYMB table.
+    /// </summary>
+    Sdat
 }

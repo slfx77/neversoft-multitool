@@ -33,6 +33,11 @@ public static class ArchiveFileSystem
         if (type == ArchiveAssetType.N64)
             return TryOpenN64Rom(path);
 
+        // GOB entries are chunk CHAINS, not byte ranges — its own filesystem owns
+        // both the .gob handle and the companion .gfc index.
+        if (type == ArchiveAssetType.Gob)
+            return TryOpenGob(path);
+
         List<ArchiveEntry> entries;
         try
         {
@@ -50,6 +55,8 @@ public static class ArchiveFileSystem
                 // NDS Nitro FS entries are plain contiguous byte ranges, so the
                 // disk-backed backend serves them like any other range archive.
                 ArchiveAssetType.Nds => NdsRomArchive.GetFileList(path),
+                // SDAT members are plain byte ranges of the FILE block.
+                ArchiveAssetType.Sdat => SdatArchive.GetFileList(path),
                 _ => throw new InvalidOperationException()
             };
         }
@@ -87,6 +94,23 @@ public static class ArchiveFileSystem
         if (type == null)
             return null;
 
+        // A nested GOB is the .gob blob plus the sibling .gfc the parent supplied as
+        // its companion; with no index there is nothing to enumerate.
+        if (type == ArchiveAssetType.Gob)
+        {
+            if (companionData == null)
+                return null;
+            try
+            {
+                return GobArchiveFileSystem.Open(
+                    data, companionData, displayPath, containerPath, nestingDepth, parent);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException)
+            {
+                return null;
+            }
+        }
+
         List<ArchiveEntry> entries;
         try
         {
@@ -111,6 +135,23 @@ public static class ArchiveFileSystem
         return new BufferArchiveFileSystem(
             data, displayPath, containerPath, type.Value, nestingDepth, entries, parent,
             reload, companionData, reloadCompanion);
+    }
+
+    /// <summary>
+    ///     .gob open: parse the companion .gfc index and keep a handle on the data
+    ///     blob. Nothing is buffered — chunks are pulled per read.
+    /// </summary>
+    private static GobArchiveFileSystem? TryOpenGob(string path)
+    {
+        try
+        {
+            return GobArchiveFileSystem.Open(path);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException
+                                   or ArgumentException or OverflowException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
