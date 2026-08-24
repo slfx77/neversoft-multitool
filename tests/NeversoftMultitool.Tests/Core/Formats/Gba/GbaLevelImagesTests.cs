@@ -81,26 +81,31 @@ public sealed class GbaLevelImagesTests(TestPaths paths)
     }
 
     [Fact]
-    public void RendersLevel0IsoHeightfield_AccurateGeometry()
+    public void RendersLevel0CollisionSurface_WithRealCellShapes()
     {
         var rom = LoadThps2();
         Assert.SkipWhen(rom == null, "THPS2 GBA ROM sample not available");
         var levels = GbaLevelImages.FindLevels(rom);
 
-        var render = GbaLevelImages.RenderIsoHeightfield(rom, levels[0]);
+        // The shape-aware surface render: ramps slope and quarter-pipes curve because
+        // each cell's real height function is executed (GbaCollisionSurface), instead
+        // of the flat-box reading that turned transitions into walls and staircases.
+        // The Hangar's one-cell out-of-bounds kill wall ring (182 cells at 34.375
+        // world units) is omitted so the playfield is visible.
+        var trueRecord = (int)(levels[0].RecordAddress - 0x08000000) - 0x144;
+        var render = GbaCollisionRenderer.Render(rom, trueRecord);
         Assert.NotNull(render);
-        Assert.Equal(458, render.Value.Width);
-        Assert.Equal(282, render.Value.Height);
+        Assert.Equal(1955, render.Value.Width);
+        Assert.Equal(1074, render.Value.Height);
+        Assert.Equal(182, render.Value.OmittedCells);
         Assert.Equal(render.Value.Width * render.Value.Height * 4, render.Value.Rgba.Length);
-        // Mirrored horizontal term (gy - gx) so the projection agrees with the game's
-        // own art: the levels' tall structures form a grid row, which must draw
-        // right-and-up (as the Hangar's vert ramp does), not right-and-down.
         Assert.Equal(
-            "ba6d668ad3c3ead806f6102964d6ae4b1cbf87fb5cc075ae30e65946e5af1bc5",
+            "48c050b025483b57e9918e213c4e2ab87cbb84b2b62aa54db5675eed88a2d186",
             Convert.ToHexStringLower(SHA256.HashData(render.Value.Rgba)));
 
-        // Every level renders an iso heightfield (accurate geometry across the corpus).
-        Assert.All(levels, l => Assert.NotNull(GbaLevelImages.RenderIsoHeightfield(rom, l)));
+        // Every level renders (accurate surface geometry across the corpus).
+        Assert.All(levels, l => Assert.NotNull(
+            GbaCollisionRenderer.Render(rom, (int)(l.RecordAddress - 0x08000000) - 0x144)));
     }
 
     [Fact]

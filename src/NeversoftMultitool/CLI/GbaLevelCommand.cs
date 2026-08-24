@@ -107,9 +107,11 @@ public static class GbaLevelCommand
                 Path.Combine(dir, $"level_{index:D2}_colour.png"),
                 colour.Value.Width, colour.Value.Height, colour.Value.Rgba);
 
-        // The accurate 3D structure as an isometric heightfield render — real
-        // geometry, per-material visualization colours, not the engine's exact shading.
-        var iso = GbaLevelImages.RenderIsoHeightfield(rom, level);
+        // The 3D collision surface with each cell's REAL shape — ramps slope and
+        // quarter-pipes curve, because the material height functions are executed
+        // out of the ROM rather than treated as flat tops.
+        var trueRecord = (int)(level.RecordAddress - 0x08000000) - 0x144;
+        var iso = GbaCollisionRenderer.Render(rom, trueRecord);
         if (iso != null)
             ImageWriter.WritePng(
                 Path.Combine(dir, $"level_{index:D2}_iso.png"),

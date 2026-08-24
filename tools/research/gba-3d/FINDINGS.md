@@ -415,6 +415,56 @@ because the *cause* of each was not what the evidence first suggested.
    filled diamond — and global edge correlation alone put a different winner on each
    level. Only the asymmetric structural feature settled it.
 
+## SHIPPED (2026-08-24): shape-aware collision surface (`gba-level` `_iso` render)
+
+User review caught that the old iso render turned quarter-pipes into walls and slopes
+into staircases. Root cause: it sampled only the cell's base height (`cellRec[+8]`)
+and ignored the shape byte — but the surface within a cell is a FUNCTION, not a value.
+
+**The engine's height query** (ROM 0x08023168, transcribed): `gx = worldX/0x3000`,
+`rec = cellRecs[cellIndex[gy*W+gx]]`, `(a,b) = shape[rec[0]](u,v)` where `(u,v)` is
+the sub-cell offset and the 8 shapes are the **D4 square symmetries** with span
+constant 0x2FFF (jump table 0x080231D4); then `h = materialVtable[rec[2]].slot0(a,b,rec)`
+— the material vtable at 0x08745028 (37 × 20 bytes, five THUMB method pointers) has
+**27 distinct slot-0 height accessors**. 74.7% of cells use `return rec[+8]` (flat);
+the other quarter are real surfaces: 1-D cubic-Hermite quarter-pipe transitions,
+piecewise-linear ramps, raised-region steps, thin rails, radial Hermites, bilinear
+patches, diagonal splits.
+
+**Implementation executes the ROM, not a transcription**: `Core/Formats/Gba/GbaThumbCpu.cs`
+is a minimal ARMv4T THUMB interpreter (the accessors use only 44 instruction forms /
+30 mnemonics, measured over all 8,520 cells × 9 levels; anything outside that set
+throws rather than silently mis-computing — same approach as the N64 ERZ/MIPS work).
+Three hooks: divide-by-cell (a runtime fn pointer at 0x03001E9C the code branches
+through), signed divide (0x08001F6C), BIOS sqrt (SWI 8). `GbaCollisionSurface` owns the
+grid/records/shape transform; `GbaCollisionRenderer` renders sub-sampled cell patches
+through a z-buffer with true-normal shading and neighbour skirts. The one-cell
+out-of-bounds kill-wall ring (base > 30 world units; Hangar 182 cells at 34.375) is
+omitted so the playfield is visible — and note the base height at `+8` is a **signed
+32-bit** value (the kill walls exceed 16 bits; a u16 read let them leak into the render
+as a giant box around the level).
+
+**Validation**: the C# heights match the research reference bit-for-bit — 213,000
+samples (8,520 cells × 5×5) across all 9 levels, aggregate SHA pinned in
+`GbaCollisionSurfaceTests` (plus per-level SHAs). The reference itself was validated
+by a cross-cell edge-continuity test: the transcribed D4 table matches 78.5% of 52,110
+border samples within 8/4096 world units (median 0), while all 11 controls (ignoring
+the shape byte, the 7 wrong D4 relabellings, 3 random permutations) score 21–62% with
+p75 residuals **1,400× worse**. Renders: the pool level is an actual bowl with curved
+transitions and coping; the Hangar's vert ramp and quarter-pipe walls curve.
+
+Known residuals (documented, not blocking): thin rails alias at 4 sub-samples per cell
+(the raised band is narrower than a sub-sample); 18 of 27 accessors are executed
+exactly but only classified numerically (4.3% of cells — a documentation gap, not a
+rendering gap); the divide routine is modelled as truncate-toward-zero (differs from
+floor only for negative operands, by 1/4096 unit); not validated against a live skater.
+
+**The collision↔art overlay (the user's alignment idea) remains OPEN**: FFT edge
+correlation gave a flat score surface, and the art bitmap does not tightly bound the
+floor diamond (artWidth/(3(W+H)) ranges 12.1–15.5 across levels), so there is no
+constant to read off. The concrete next step is reading BG2PA-PD/BG2X/BG2Y live in
+BizHawk during gameplay — that IS the world→art transform.
+
 ## Next steps (in order)
 
 1. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
