@@ -552,15 +552,27 @@ In-level OBJ palette = record +0x40 entries 0–99 (the tail is a default-skater
 bake the character stream overwrites). Unpinned (kept greyscale): grind sparks
 (likely code-generated), SWITCH/NOLLIE/FAKIE badges, three dither sheets.
 
+## SHIPPED (2026-08-25): both research ports
+
+- **GAX timbre** → `GaxSynth` (instruction-faithful frame machine; byte-exact
+  against the validated reference on songs 0/1/5; `gba-music` now renders real
+  instruments/envelopes/tempo at the true hardware rates, mono). The two
+  shipped-claim corrections (mix-time order transpose; 133-record wave table)
+  are folded in.
+- **Sprite art** → `GbaSpriteArt` + `gba-image`: 123 decks (each with its own
+  trailing palette — the aligned-end rule), 15 portraits (record 13 =
+  Spider-Man), 14 venue photos; all tables located by content, select palette
+  found by its 200-byte prefix pairing. Fonts/HUD glyphs/badges remain
+  research-only (address-pinned tables, some palette banks unproven).
+
 ## Next steps (in order)
 
-0. **Port the two completed researches to C#**: GAX timbre into `GaxRenderer`
-   (with the two shipped-claim corrections above), and the sprite families into
-   an extractor (decks/portraits/venues/fonts with their proven palettes).
-1. **The skater's 3D model format** — the newly-found realtime character
-   renderer implies a stored model (vertices/topology + the colour-stream
-   shading ramps). Locating it is the real "character mesh" arc.
-2. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
+1. **The skater's 3D model format** — the realtime character renderer implies a
+   stored model (vertices/topology + the colour-stream shading ramps). Locating
+   it is the real "character mesh" arc.
+2. **Fonts/HUD glyphs/badges extraction** (research complete in §sprites; needs
+   either content-anchors for the pointer arrays or accepting fixed addresses).
+3. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
    faithfully, but a minority of `+0x38` tiles still show noise: off-screen level
    areas the captured frames could not validate, plus ~24 tiles that are not in the
    pool at all (likely sprite/overlay art from another source). Bounded follow-up —

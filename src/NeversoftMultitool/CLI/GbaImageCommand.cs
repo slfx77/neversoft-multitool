@@ -62,9 +62,12 @@ public static class GbaImageCommand
         }
 
         var images = GbaRomImages.ScanFullScreenImages(rom);
-        if (images.Count == 0)
+        var decks = GbaSpriteArt.ExtractDecks(rom);
+        var portraits = GbaSpriteArt.ExtractPortraits(rom);
+        var venues = GbaSpriteArt.ExtractVenuePhotos(rom);
+        if (images.Count == 0 && decks.Count == 0 && portraits.Count == 0 && venues.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]No full-screen BIOS-LZ77 images found[/] in this ROM");
+            AnsiConsole.MarkupLine("[yellow]No extractable image art found[/] in this ROM");
             return 0;
         }
 
@@ -81,7 +84,40 @@ public static class GbaImageCommand
                     + $"pal 0x{image.PaletteOffset:X8} ({image.PaletteColors} colours)");
         }
 
-        AnsiConsole.MarkupLine($"Extracted [green]{images.Count}[/] PNG images to [green]{Markup.Escape(dir)}[/]");
+        if (decks.Count > 0)
+            Directory.CreateDirectory(Path.Combine(dir, "decks"));
+        foreach (var deck in decks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ImageWriter.WritePng(
+                Path.Combine(dir, "decks", $"deck_{deck.Index:D3}.png"),
+                GbaSpriteArt.GbaDeck.Width, GbaSpriteArt.GbaDeck.Height, deck.Rgba);
+        }
+
+        if (portraits.Count > 0)
+            Directory.CreateDirectory(Path.Combine(dir, "portraits"));
+        foreach (var portrait in portraits)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ImageWriter.WritePng(
+                Path.Combine(dir, "portraits", $"portrait_{portrait.Index:D2}.png"),
+                GbaSpriteArt.GbaPortrait.Size, GbaSpriteArt.GbaPortrait.Size, portrait.Rgba);
+        }
+
+        if (venues.Count > 0)
+            Directory.CreateDirectory(Path.Combine(dir, "venues"));
+        foreach (var venue in venues)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ImageWriter.WritePng(
+                Path.Combine(dir, "venues", $"venue_{venue.LevelIndex}_{venue.Slot}.png"),
+                GbaSpriteArt.GbaVenuePhoto.Size, GbaSpriteArt.GbaVenuePhoto.Size, venue.Rgba);
+        }
+
+        AnsiConsole.MarkupLine(
+            $"Extracted [green]{images.Count}[/] screens, [green]{decks.Count}[/] decks, "
+            + $"[green]{portraits.Count}[/] portraits, [green]{venues.Count}[/] venue photos "
+            + $"to [green]{Markup.Escape(dir)}[/]");
         return 0;
     }
 }
