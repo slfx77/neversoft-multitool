@@ -19,7 +19,7 @@ public sealed class ArchiveAssetBackend
     [
         ArchiveAssetType.Wad, ArchiveAssetType.Pre, ArchiveAssetType.CompressedPre,
         ArchiveAssetType.Pkr, ArchiveAssetType.Pak, ArchiveAssetType.N64, ArchiveAssetType.Nds,
-        ArchiveAssetType.Gob, ArchiveAssetType.Sdat
+        ArchiveAssetType.Gob, ArchiveAssetType.Sdat, ArchiveAssetType.Gba
     ];
 
     private ArchiveAssetBackend(IArchiveFileSystem fileSystem)

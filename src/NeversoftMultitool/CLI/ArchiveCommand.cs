@@ -3,6 +3,7 @@ using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
+using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Gob;
 using NeversoftMultitool.Core.Formats.N64;
 using NeversoftMultitool.Core.Formats.Nds;
@@ -268,6 +269,19 @@ public static class ArchiveCommand
 
                     case ".nds":
                         AnsiConsole.MarkupLine("[red]Not a Nintendo DS ROM[/] (header/logo CRC or FNT/FAT check failed)");
+                        return Task.FromResult(1);
+
+                    case ".gba" when GbaLevelCarver.IsVvLevelRom(input):
+                        AnsiConsole.MarkupLine("[blue]GBA ROM[/] detected (Vicarious Visions level table)");
+                        var gbaEntries = GbaLevelCarver.GetFileList(input);
+                        AnsiConsole.MarkupLine($"Found [green]{gbaEntries.Count}[/] entries");
+                        GbaLevelCarver.ExtractFiles(input, output, cancellationToken);
+                        filesExtracted = gbaEntries.Count;
+                        break;
+
+                    case ".gba":
+                        AnsiConsole.MarkupLine(
+                            "[red]Not a supported GBA ROM[/] (no Vicarious Visions level table found)");
                         return Task.FromResult(1);
 
                     case ".gob" when GobArchive.IsGobArchive(input):

@@ -1,6 +1,7 @@
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
@@ -38,6 +39,10 @@ internal sealed class MeshConverterTabPreview : IDisposable
     private const double ApocalypseLevelWalkEyeHeight = 56d;
     private const double ThpsLevelWalkEyeHeight = 100d;
     private const double ThawWorldzoneWalkEyeHeight = 66d;
+
+    // GBA levels export at GbaLevelGeometryWriter.Scale (16 GLB units per world
+    // unit); a skater's eye at ~1.4 world units gives 22.
+    private const double GbaLevelWalkEyeHeight = 22d;
 
     private readonly ModelViewerControl _viewer;
     private CancellationTokenSource? _previewCts;
@@ -120,7 +125,9 @@ internal sealed class MeshConverterTabPreview : IDisposable
         if (name.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(".scn.xbx", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(".scn.wpc", StringComparison.OrdinalIgnoreCase) ||
-            name.EndsWith(".scn.ngc", StringComparison.OrdinalIgnoreCase))
+            name.EndsWith(".scn.ngc", StringComparison.OrdinalIgnoreCase) ||
+            // Carved GBA level records are levels by definition.
+            name.EndsWith(MeshTypeDetector.GbaLevelSuffix, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -312,6 +319,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
     {
         if (!isLevel) return null;
         if (entry.IsPakWorldzone) return ThawWorldzoneWalkEyeHeight;
+        if (entry.FileName.EndsWith(MeshTypeDetector.GbaLevelSuffix, StringComparison.OrdinalIgnoreCase))
+            return GbaLevelWalkEyeHeight;
 
         // N64 bundles are emitted at k / ScaleDivisor with k = 1 for non-supers,
         // which IS the PS1 translation divisor — the same level exports at the

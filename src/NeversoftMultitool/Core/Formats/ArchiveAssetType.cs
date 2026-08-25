@@ -43,5 +43,12 @@ public enum ArchiveAssetType
     ///     Nintendo Nitro SDK SDAT sound archive. Entries are plain byte ranges of
     ///     the FILE block, named from the archive's own SYMB table.
     /// </summary>
-    Sdat
+    Sdat,
+
+    /// <summary>
+    ///     Vicarious Visions GBA Tony Hawk ROM opened as its carved level tree
+    ///     (one 0x15C level record per level plus the ROM companion the records
+    ///     dereference into). Entries are materialized at open, like N64.
+    /// </summary>
+    Gba
 }

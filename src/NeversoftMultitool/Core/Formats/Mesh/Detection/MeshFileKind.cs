@@ -36,6 +36,9 @@ public enum MeshFileKind
     /// <summary>Model bundle carved from an N64 ROM (<c>models/NNN/NNN_&lt;name&gt;.psx.n64</c>).</summary>
     N64Model,
 
+    /// <summary>Level record carved from a Vicarious Visions GBA ROM (<c>levels/N_&lt;name&gt;.lvl.gba</c>).</summary>
+    GbaLevel,
+
     /// <summary>RenderWare clump (<c>.skn</c>, <c>.dff</c>).</summary>
     RenderWareDff,
 

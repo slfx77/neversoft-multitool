@@ -19,7 +19,7 @@ public static class ArchiveTypeDetector
     public static readonly string[] ArchiveExtensions =
     [
         ".wad", ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".ddx", ".bon", ".pak", ".apk", ".zip", ".cut",
-        ".iso", ".cue", ".gdi", ".img", ".z64", ".nds", ".gob", ".sdat"
+        ".iso", ".cue", ".gdi", ".img", ".z64", ".nds", ".gob", ".sdat", ".gba"
     ];
 
     /// <summary>
@@ -90,6 +90,7 @@ public static class ArchiveTypeDetector
             ".nds" => Nds.NdsRomArchive.ClassifyRom(filePath) ?? "NDS ROM (raw)",
             ".gob" => Gob.GobArchive.ClassifyArchive(filePath) ?? "GOB (raw)",
             ".sdat" => Nds.SdatArchive.ClassifyArchive(filePath) ?? "SDAT (raw)",
+            ".gba" => Gba.GbaLevelCarver.ClassifyRom(filePath) ?? "GBA ROM (raw)",
             _ => "?"
         };
     }
@@ -122,6 +123,8 @@ public static class ArchiveTypeDetector
             // GOB needs its sibling .gfc index — without it the blob is unreadable.
             ".gob" => Gob.GobArchive.IsGobArchive(path) ? ArchiveAssetType.Gob : null,
             ".sdat" => Nds.SdatArchive.IsSdat(path) ? ArchiveAssetType.Sdat : null,
+            // Only VV carts with the level table carve; other GBA ROMs stay raw.
+            ".gba" => Gba.GbaLevelCarver.IsVvLevelRom(path) ? ArchiveAssetType.Gba : null,
             _ => null
         };
     }

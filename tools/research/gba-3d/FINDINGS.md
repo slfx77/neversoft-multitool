@@ -500,9 +500,67 @@ horizontal-per-cell proportion. Caveats: c=−16 was measured over ground z 0–
 +0x64/+0x68 identification is numeric (three independently fitted origins matched the
 fields), not traced through the loader's ldr instructions.
 
+## SHIPPED (2026-08-24): textured 3D level models (`.gba` → Mesh tab → GLB)
+
+A THPS2 `.gba` ROM now opens as an archive of its levels (`GbaLevelCarver`: one
+0x15C level record per level, named from the ROM's own strings — record `+0x00` =
+name, `+0x04` = location — plus the `rom.gbarom` companion the records dereference
+into). Carved `levels/N_<name>.lvl.gba` records route through the mesh pipeline
+(`MeshFileKind.GbaLevel`) and convert to a **textured 3D level model**: the
+engine-exact collision surface (ROM-executed height functions, skirts, kill-wall
+ring omitted) with the level's own composited art applied via the engine's art
+transform as the UV projection — each surface point samples the art pixel that
+draws it. All 9 levels convert (267,544 triangles), 0 glTF validator errors; the
+pool renders as a real textured bowl viewable from angles the game never drew.
+Iso-grazed steep walls stretch their art strip — the honest limit of one
+pre-rendered view. Scale: 16 GLB units per world unit; Fly/Walk camera (eye 22).
+
+## RESEARCH COMPLETE (2026-08-24): GAX timbre — awaiting C# port
+
+The full GAX v1.99 synthesis pipeline is decoded and hard-validated (per-voice:
+1758/1758 + 2113/2113 live mixer events exact; audio: 0.927 log-spectrogram
+correlation vs the emulator's real output, control 0.334). Key mechanics: waves
+are 1-based slots into the song's `sampleAddr` record array (133 records — the
+shipped 101-record contiguity scan UNDERCOUNTS; index the table directly); wave
+records at instr+0x0C carry loop/ping-pong/window + s16 finetune (1/32-semitone);
+pitch = perf + vibrato + note + **orderTranspose×32** (the shipped "transpose not
+applied" claim is RETRACTED — it applies at mix time) + finetune, stepped through
+the pitch table at banner+0x60 (`523.251 Hz × 2^(p/384) × 2048`); envelopes are
+timed slope points with sustain/loop; tempo = 59.7275/speed rows/s (default
+speed 6 ≈ 9.955 — the 10.0 policy was 0.5% fast); mix rates are call-site
+(15769/18158 Hz). Porting spec: the timbre research spec (kept with the probes
+until ported). Remaining gap: the boot jingle's 13380 Hz init path (irrelevant
+to the 11 songs).
+
+## RESEARCH COMPLETE (2026-08-24): sprites/UI — and the skater is REALTIME 3D
+
+**The skater has no sprite frames in ROM — it is a runtime software-rendered 3D
+character** (64×64 8bpp OBJ whose pixels match no ROM stream; 17 consecutive
+captures show smooth continuous rotation). The old "2496-byte streams = skater
+anim frames" hypothesis is REFUTED: those are per-character COLOUR streams (first
+256 B = the 128-colour skater palette uploaded to OBJ entries 100–227, proven
+live; the rest BGR555 shading ramps — i.e. the software renderer's shading
+tables). **So the GBA engine does have a 3D character pipeline** — model format
+unknown, a new research target. What extracts cleanly (colour-proven vs live
+palette RAM, arrangement via OAM): 123 skateboard decks (table 0x0874FECC,
+LZ77 2048 B = 32×128 4bpp + 32-byte palette at the art's aligned end — beware
+the off-by-one: the table-adjacent palette belongs to the NEXT deck and still
+looks plausible), 15 skater portraits (char table 0x08775870 stride 0x4C, 32×32
+8bpp, select palette 0x084A0B68), 14 level-select venue photos (level record
++0x44/+0x48, 64×64 8bpp, palette 0x084A0C4C), HUD/menu fonts, badges, icons.
+In-level OBJ palette = record +0x40 entries 0–99 (the tail is a default-skater
+bake the character stream overwrites). Unpinned (kept greyscale): grind sparks
+(likely code-generated), SWITCH/NOLLIE/FAKIE badges, three dither sheets.
+
 ## Next steps (in order)
 
-1. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
+0. **Port the two completed researches to C#**: GAX timbre into `GaxRenderer`
+   (with the two shipped-claim corrections above), and the sprite families into
+   an extractor (decks/portraits/venues/fonts with their proven palettes).
+1. **The skater's 3D model format** — the newly-found realtime character
+   renderer implies a stored model (vertices/topology + the colour-stream
+   shading ramps). Locating it is the real "character mesh" arc.
+2. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
    faithfully, but a minority of `+0x38` tiles still show noise: off-screen level
    areas the captured frames could not validate, plus ~24 tiles that are not in the
    pool at all (likely sprite/overlay art from another source). Bounded follow-up —

@@ -38,6 +38,7 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.RenderWareDff => ParseRwDff(request),
             ModelSourceKind.RenderWareBsp => ParseRwBsp(request),
             ModelSourceKind.N64Model => ParseN64Model(request),
+            ModelSourceKind.GbaLevel => ParseGbaLevel(request),
             _ => throw new NotSupportedException($"Unsupported mesh source kind: {request.SourceKind}")
         };
     }
@@ -161,6 +162,40 @@ public sealed class MeshModelParser : IModelParser
             request.N64AnimationIndices,
             request.IncludeAllN64Animations,
             request.N64AnimationOneShot);
+        return document;
+    }
+
+    /// <summary>
+    ///     A carved GBA level: the 0x15C table record plus its <c>rom.gbarom</c>
+    ///     companion (the record's pointers, art pools, and the ROM-executed collision
+    ///     height functions all dereference into the ROM). The record's ROM offset is
+    ///     recovered by content — its bytes occur exactly once at the level table.
+    /// </summary>
+    private static ModelDocument ParseGbaLevel(MeshImportRequest request)
+    {
+        var record = request.Source.ReadBytes();
+        var rom = request.Source.TryReadCompanion(Gba.GbaLevelCarver.RomEntryName)
+                  ?? throw new InvalidOperationException(
+                      $"Missing '{Gba.GbaLevelCarver.RomEntryName}' companion — carved GBA levels " +
+                      "must stay beside the ROM they were carved from");
+        var trueRecord = Gba.GbaLevelCarver.FindRecordOffset(rom, record);
+        if (trueRecord < 0)
+            throw new InvalidOperationException("The level record does not belong to the companion ROM");
+
+        var levelName = request.OutputStem;
+        var location = "";
+        foreach (var carved in Gba.GbaLevelCarver.ListLevels(rom))
+        {
+            if (!carved.EntryName.EndsWith(Path.GetFileName(request.FileName), StringComparison.OrdinalIgnoreCase))
+                continue;
+            levelName = carved.Name;
+            location = carved.Location;
+            break;
+        }
+
+        var native = new GbaLevelNativeSource(record, rom, trueRecord, levelName, location);
+        var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.GbaLevel, native);
+        GbaLevelGeometryWriter.Populate(document, native);
         return document;
     }
 

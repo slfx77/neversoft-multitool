@@ -33,10 +33,44 @@ public static class ArchiveFileSystem
         if (type == ArchiveAssetType.N64)
             return TryOpenN64Rom(path);
 
+        if (type == ArchiveAssetType.Gba)
+            return TryOpenGbaRom(path);
+
         // GOB entries are chunk CHAINS, not byte ranges — its own filesystem owns
         // both the .gob handle and the companion .gfc index.
         if (type == ArchiveAssetType.Gob)
             return TryOpenGob(path);
+
+        // X360 compression-wrapped paks have no on-disk byte ranges — entry offsets
+        // address the decompressed image, so they browse through materialized
+        // buffers (the same backend nested paks use) instead of the disk-backed
+        // range filesystem below.
+        if (type == ArchiveAssetType.Pak)
+        {
+            try
+            {
+                if (PakArchive.TryLoadCompressedForBrowsing(path, out var pakData, out var pabData))
+                {
+                    var name = Path.GetFileName(path);
+                    return TryOpenNested(
+                        pakData, name, path, path, 0, null,
+                        () => PakArchive.TryLoadCompressedForBrowsing(path, out var reloaded, out _)
+                            ? reloaded
+                            : File.ReadAllBytes(path),
+                        pabData,
+                        pabData == null
+                            ? null
+                            : () => PakArchive.TryLoadCompressedForBrowsing(path, out _, out var reloadedPab)
+                                ? reloadedPab ?? []
+                                : []);
+                }
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException
+                                       or ArgumentException or OverflowException)
+            {
+                return null;
+            }
+        }
 
         List<ArchiveEntry> entries;
         try
@@ -119,7 +153,7 @@ public static class ArchiveFileSystem
                 ArchiveAssetType.Pre => PreArchive.GetFileList(data),
                 ArchiveAssetType.CompressedPre => CompressedPreArchive.GetFileList(data),
                 ArchiveAssetType.Pkr => PkrArchive.GetFileList(data),
-                ArchiveAssetType.Pak => PakArchive.GetFileList(data, companionData != null),
+                ArchiveAssetType.Pak => PakArchive.GetFileList(data, companionData != null, entryName),
                 _ => throw new InvalidOperationException()
             };
         }
@@ -195,4 +229,42 @@ public static class ArchiveFileSystem
             Path.GetFileName(path), path, ArchiveAssetType.N64, entries, data);
     }
 
+    /// <summary>
+    ///     .gba open: carve the Vicarious Visions level tree in memory (per-level
+    ///     table records plus the ROM companion the records dereference into).
+    /// </summary>
+    private static CarvedArchiveFileSystem? TryOpenGbaRom(string path)
+    {
+        byte[] rom;
+        try
+        {
+            rom = File.ReadAllBytes(path);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+
+        var assets = Gba.GbaLevelCarver.Carve(rom);
+        if (assets.Count == 0)
+            return null;
+
+        var entries = new List<ArchiveEntry>(assets.Count);
+        var data = new List<byte[]>(assets.Count);
+        foreach (var (assetPath, assetData) in assets)
+        {
+            var slash = assetPath.LastIndexOf('/');
+            entries.Add(new ArchiveEntry
+            {
+                Directory = slash > 0 ? assetPath[..slash] : "",
+                Name = slash > 0 ? assetPath[(slash + 1)..] : assetPath,
+                Size = assetData.Length,
+                Offset = data.Count
+            });
+            data.Add(assetData);
+        }
+
+        return new CarvedArchiveFileSystem(
+            Path.GetFileName(path), path, ArchiveAssetType.Gba, entries, data);
+    }
 }

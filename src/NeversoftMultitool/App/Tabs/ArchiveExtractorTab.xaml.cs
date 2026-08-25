@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.DiscImage;
+using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Gob;
 using NeversoftMultitool.Core.Formats.N64;
 using NeversoftMultitool.Core.Formats.Nds;
@@ -131,6 +132,14 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                 case ".gob":
                     MainWindow.Instance?.SetStatus(
                         "Not a GOB container (no companion .gfc index, or it does not describe this file)");
+                    return;
+                case ".gba" when GbaLevelCarver.IsVvLevelRom(_archivePath):
+                    _archiveType = "GBA";
+                    entries = GbaLevelCarver.GetFileList(_archivePath);
+                    break;
+                case ".gba":
+                    MainWindow.Instance?.SetStatus(
+                        "Not a supported GBA ROM (no Vicarious Visions level table found)");
                     return;
                 default:
                     var probe = FormatProbe.ProbeArchive(_archivePath);
@@ -297,6 +306,9 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                         break;
                     case "GOB":
                         GobArchive.ExtractFiles(archivePath, outputDir, onProgress, token);
+                        break;
+                    case "GBA":
+                        GbaLevelCarver.ExtractFiles(archivePath, outputDir, token);
                         break;
                 }
             }, token);

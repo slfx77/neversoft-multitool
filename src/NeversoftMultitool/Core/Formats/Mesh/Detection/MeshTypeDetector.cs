@@ -21,6 +21,13 @@ public static class MeshTypeDetector
     /// <summary>THAW PS2 worldzone PAK. Deliberately not a generic mesh candidate.</summary>
     public const string WorldzoneSuffix = ".pak.ps2";
 
+    /// <summary>
+    ///     Carved GBA level records (<c>levels/&lt;N&gt;_&lt;name&gt;.lvl.gba</c>) —
+    ///     see <see cref="Gba.GbaLevelCarver" />. Trusted by name, like N64 bundles;
+    ///     a plain <c>.gba</c> ROM is an ARCHIVE, never a mesh file.
+    /// </summary>
+    public const string GbaLevelSuffix = ".lvl.gba";
+
     private static readonly string[] XboxSceneSuffixes =
     [
         ".skin.xbx", ".mdl.xbx", ".scn.xbx",
@@ -49,6 +56,7 @@ public static class MeshTypeDetector
         WorldzoneSuffix,
         .. CollisionSuffixes,
         N64ModelSuffix,
+        GbaLevelSuffix,
         ".ddm",
         ".psx",
         .. RenderWareDffSuffixes,
@@ -134,6 +142,7 @@ public static class MeshTypeDetector
                 MeshFileKind.Ps2Worldzone, suffix, Ps2SceneSubFormat.PakWorldzone,
                 RequiresContentProbe: true, DisplayFormat: "THAW PS2 Worldzone"),
             N64ModelSuffix => new MeshFileRoute(MeshFileKind.N64Model, suffix, DisplayFormat: "N64 Model"),
+            GbaLevelSuffix => new MeshFileRoute(MeshFileKind.GbaLevel, suffix, DisplayFormat: "GBA Level"),
             ".ddm" => new MeshFileRoute(MeshFileKind.Ddm, suffix, DisplayFormat: "DDM Mesh"),
             ".psx" => new MeshFileRoute(MeshFileKind.Psx, suffix, RequiresContentProbe: true),
             ".bsp" => new MeshFileRoute(MeshFileKind.RenderWareBsp, suffix, RequiresContentProbe: true),
@@ -240,6 +249,7 @@ public static class MeshTypeDetector
             MeshFileKind.Ddm => ModelSourceKind.Ddm,
             MeshFileKind.Psx => ModelSourceKind.Psx,
             MeshFileKind.N64Model => ModelSourceKind.N64Model,
+            MeshFileKind.GbaLevel => ModelSourceKind.GbaLevel,
             MeshFileKind.RenderWareDff => ModelSourceKind.RenderWareDff,
             MeshFileKind.RenderWareBsp => ModelSourceKind.RenderWareBsp,
             _ => ModelSourceKind.Generic

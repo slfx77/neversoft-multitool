@@ -45,6 +45,12 @@ internal static class FormatProbeArchive
                     FormatProbe.FormatSupport.Unsupported,
                     "GOB",
                     "No companion .gfc index, or it does not describe this file"),
+            ".gba" => Formats.Gba.GbaLevelCarver.IsVvLevelRom(filePath)
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "GBA ROM (VV levels)")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "GBA ROM",
+                    "No Vicarious Visions level table found (only THPS2 GBA carves)"),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",
