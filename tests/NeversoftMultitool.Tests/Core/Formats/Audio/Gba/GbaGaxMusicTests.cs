@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.Audio.Gba;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Audio.Gba;
@@ -77,21 +78,27 @@ public sealed class GbaGaxMusicTests(TestPaths paths)
     }
 
     [Fact]
-    public void RendersNonSilentStereoAudio()
+    public void RendersRealTimbreAudio()
     {
         var rom = LoadThps2();
         Assert.SkipWhen(rom == null, "THPS2 GBA ROM sample not available");
         var headers = GbaGaxMusic.FindSongHeaders(rom);
 
-        var options = new GaxRenderer.Options { SampleRate = 22050, RowsPerSecond = 10.0 };
+        // The title song plays at the game's 18158 Hz call-site request; the output
+        // rate is the true hardware rate from the ROM's own config (16777216/924).
+        var options = new GaxRenderer.Options { RequestedRateHz = GaxRenderer.TitleRateHz };
         var pcm = GaxRenderer.RenderSong(rom, headers[0], options, out var sampleRate);
 
-        Assert.Equal(22050, sampleRate);
-        Assert.True(pcm.Length > 0 && pcm.Length % 2 == 0); // interleaved stereo
-        // Song 0 is 14 patterns × 32 rows at 10 rows/s ≈ 45 s of audio.
-        var seconds = pcm.Length / 2.0 / sampleRate;
-        Assert.InRange(seconds, 40, 50);
-        Assert.Contains(pcm, s => Math.Abs((int)s) > 1000); // not silence
+        Assert.Equal(18157, sampleRate);
+        // Byte-exact against the validated reference implementation, which itself
+        // matched 3,871 live mixer voice-frame events exactly and scored 0.927
+        // log-spectrogram correlation against the emulator's real audio output.
+        Assert.Equal(563312, pcm.Length);
+        var bytes = new byte[pcm.Length * 2];
+        Buffer.BlockCopy(pcm, 0, bytes, 0, bytes.Length);
+        Assert.Equal(
+            "1e524cab4e0580db6ab3f3ca97193dccc2268b635a104e1c9472c2fc580f28e5",
+            Convert.ToHexStringLower(SHA256.HashData(bytes)));
     }
 
     // Only THPS2 (GAX v1.99, 20-byte song header) decodes with this layout; the

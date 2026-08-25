@@ -27,24 +27,12 @@ public static class GbaMusicCommand
             Description = "Render only this song index (default: all songs)",
             DefaultValueFactory = _ => -1
         };
-        var tempoOption = new Option<double>("--tempo")
-        {
-            Description = "Pattern rows per second (tempo policy; GAX v1.99 has no per-song tempo)",
-            DefaultValueFactory = _ => 10.0
-        };
-        var rateOption = new Option<int>("--rate")
-        {
-            Description = "WAV sample rate",
-            DefaultValueFactory = _ => 22050
-        };
         var verboseOption = new Option<bool>("-v", "--verbose") { Description = "List each song" };
 
         var command = new Command("gba-music", "Render GAX Sound Engine songs from a GBA ROM to WAV");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(songOption);
-        command.Options.Add(tempoOption);
-        command.Options.Add(rateOption);
         command.Options.Add(verboseOption);
         command.SetAction((parseResult, cancellationToken) =>
         {
@@ -53,8 +41,6 @@ public static class GbaMusicCommand
                 parseResult.GetValue(inputArgument)!,
                 parseResult.GetValue(outputOption),
                 parseResult.GetValue(songOption),
-                parseResult.GetValue(tempoOption),
-                parseResult.GetValue(rateOption),
                 parseResult.GetValue(verboseOption),
                 cancellationToken));
         });
@@ -62,7 +48,7 @@ public static class GbaMusicCommand
     }
 
     internal static int Execute(
-        string input, string? outputDir, int song, double tempo, int rate, bool verbose,
+        string input, string? outputDir, int song, bool verbose,
         CancellationToken cancellationToken = default)
     {
         if (!File.Exists(input))
@@ -100,7 +86,6 @@ public static class GbaMusicCommand
         AnsiConsole.MarkupLine($"Found [green]{headers.Count}[/] songs");
         var dir = outputDir ?? Path.Combine("TestOutput", Path.GetFileNameWithoutExtension(input) + "-gax-music");
         Directory.CreateDirectory(dir);
-        var options = new GaxRenderer.Options { SampleRate = rate, RowsPerSecond = tempo };
 
         var rendered = 0;
         for (var i = 0; i < headers.Count; i++)
@@ -108,20 +93,28 @@ public static class GbaMusicCommand
             if (song >= 0 && i != song)
                 continue;
             cancellationToken.ThrowIfCancellationRequested();
+            // The mix rate is call-site in the game: the boot/title song (address
+            // order 0) plays at 18158 Hz, everything else at 15769 Hz.
+            var options = new GaxRenderer.Options
+            {
+                RequestedRateHz = i == 0 ? GaxRenderer.TitleRateHz : GaxRenderer.DefaultRateHz
+            };
             var pcm = GaxRenderer.RenderSong(rom, headers[i], options, out var sampleRate);
             if (pcm.Length == 0)
                 continue;
             var path = Path.Combine(dir, $"song_{i:D2}.wav");
-            WavWriter.WritePcm16(path, sampleRate, 2, pcm);
+            WavWriter.WritePcm16(path, sampleRate, 1, pcm);
             rendered++;
             if (verbose)
                 AnsiConsole.MarkupLine(
                     $"  song_{i:D2}.wav  hdr 0x{headers[i].Address:X8}  {headers[i].ChannelCount} ch  "
-                    + $"{headers[i].OrderLength} patterns  {pcm.Length / 2 / sampleRate}s");
+                    + $"{headers[i].OrderLength} patterns  {pcm.Length / sampleRate}s @ {sampleRate} Hz");
         }
 
         AnsiConsole.MarkupLine($"Rendered [green]{rendered}[/] songs to [green]{Markup.Escape(dir)}[/]");
-        AnsiConsole.MarkupLine("[grey]Note: tempo and timbre are approximations; the note sequence is exact.[/]");
+        AnsiConsole.MarkupLine(
+            "[grey]Real timbre: instrument PCM waves, envelopes, vibrato and the songs' own tempo, "
+            + "via the frame-faithful GAX engine port.[/]");
         return 0;
     }
 }
