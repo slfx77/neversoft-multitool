@@ -400,7 +400,7 @@ because the *cause* of each was not what the evidence first suggested.
    "44 tiles too high" theory was wrong in both directions — a 381-candidate sweep
    (whole-tile and sub-tile phase) scored the declared base `+0x2C` best outright.
    Validation: seam scores 2–4× better than the old decode on all 9 levels, and NY
-   City's "WHERE'S RIOT?" ticker renders as **legible text**, which a misaligned tile
+   City's "WHERE'S RIO?" ticker renders as **legible text**, which a misaligned tile
    decode cannot produce.
 2. **Iso heightfield viewed from the wrong corner — it needed a mirror.** The
    horizontal term is `(gy − gx)`, not `(gx − gy)`. Measured, not assumed: every
