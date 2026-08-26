@@ -152,10 +152,12 @@ public static class NdsMeshCommand
     }
 
     /// <summary>
-    ///     Composites every multi-piece model set into one world-space level
-    ///     document. See <see cref="NdsLevelCompositor" /> for why merging is the
-    ///     whole job: the pieces are authored in world space and share their set's
-    ///     texture bank.
+    ///     Composites every multi-piece model set into one document. See
+    ///     <see cref="NdsLevelCompositor" /> for why merging is the whole job: the
+    ///     pieces are authored in world space and share their set's texture bank.
+    ///     <see cref="NdsModelSetBounds" /> then says whether the set is a LEVEL or a
+    ///     many-part model, which the container spells identically, and the output is
+    ///     named <c>level_</c> or <c>set_</c> accordingly.
     /// </summary>
     private static int ExportLevels(
         IArchiveFileSystem container, NdsTextureCatalog catalog, string output,
@@ -163,6 +165,7 @@ public static class NdsMeshCommand
     {
         var sets = NdsLevelCompositor.GroupSets(container);
         var exported = 0;
+        var worlds = 0;
         var pieces = 0;
         var triangles = 0;
 
@@ -172,10 +175,7 @@ public static class NdsMeshCommand
             if (members.Count < 2)
                 continue;
 
-            var name = $"level_{idA:x8}";
-            var document = new ModelDocument { Name = name, SourceKind = ModelSourceKind.Generic };
-            var added = 0;
-            var pieceOf = new Dictionary<ModelPrimitive, int>();
+            var parsed = new List<(uint IdB, ArchiveEntry Entry, byte[] Data, NdsGeometryFile Geometry)>();
             foreach (var (idB, entry) in members.OrderBy(m => m.IdB))
             {
                 byte[] data;
@@ -188,9 +188,19 @@ public static class NdsMeshCommand
                     continue;
                 }
 
-                if (!NdsGeometryFile.TryParseValidated(data, out var geometry))
-                    continue;
+                if (NdsGeometryFile.TryParseValidated(data, out var geometry))
+                    parsed.Add((idB, entry, data, geometry));
+            }
 
+            // A model set holds a level OR a many-part model — the container spells
+            // both the same way, so the pieces have to say which. See NdsModelSetBounds.
+            var world = NdsModelSetBounds.IsWorldScale(parsed.Select(p => p.Geometry));
+            var name = $"{(world ? "level" : "set")}_{idA:x8}";
+            var document = new ModelDocument { Name = name, SourceKind = ModelSourceKind.Generic };
+            var added = 0;
+            var pieceOf = new Dictionary<ModelPrimitive, int>();
+            foreach (var (idB, entry, data, geometry) in parsed)
+            {
                 var meshesBefore = document.Meshes.Count;
                 var groups = NdsGxInterpreter.Run(data, geometry);
                 NdsGeometryWriter.PopulateNdsGeometry(
@@ -215,6 +225,8 @@ public static class NdsMeshCommand
                 CancellationToken = cancellationToken
             });
             exported++;
+            if (world)
+                worlds++;
             pieces += added;
             triangles += document.TriangleCount;
             if (verbose)
@@ -227,7 +239,7 @@ public static class NdsMeshCommand
         }
 
         AnsiConsole.MarkupLine(
-            $"Composited [green]{exported}[/] levels "
+            $"Composited [green]{exported}[/] model sets — [green]{worlds}[/] world-scale "
             + $"([green]{pieces}[/] pieces, [green]{triangles}[/] triangles)");
         return exported > 0 ? 0 : 1;
     }

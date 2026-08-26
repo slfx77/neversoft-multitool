@@ -17,7 +17,7 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Nds;
 ///     [ 1] bounding-box X extent   (20.12)
 ///     [ 5] bounding-box Y extent   (20.12)
 ///     [ 9] bounding-box Z extent   (20.12)
-///     [10..12] bounding-box minimum XYZ (20.12)
+///     [10..12] bounding-box CENTRE XYZ  (20.12)
 ///     [14] joint count             (the ARM9 model ctor reads +0x38 and sizes its
 ///                                   joint arrays from it: count*0x28 + 2*count*0x10)
 ///     [15] 84 -- joint offset table position, constant in every shipped file
@@ -41,7 +41,11 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Nds;
 ///     wrong vertex format, fixed-point scale or matrix convention will not
 ///     reproduce it. Among rigid, self-contained models it matches to within 2% for
 ///     731/808 Sk8land, 793/808 Downhill Jam and 944/973 Proving Ground files; see
-///     NdsGeometryTests for which classes are excluded and why.
+///     NdsGeometryTests for which classes are excluded and why. Words 10..12 are the
+///     box CENTRE — see <see cref="DeclaredCentre" />, which corrects an earlier
+///     "minimum corner" reading that was invisible because only the extents were
+///     ever checked — so the oracle constrains WHERE the model sits as well as how
+///     big it is, and a missing or misapplied outer transform fails it.
 /// </summary>
 /// <summary>
 ///     One sub-object: a texture, named by ordinal in the model's bank, plus the
@@ -113,8 +117,28 @@ public sealed class NdsGeometryFile
     /// <summary>The model's own bounding-box extents, in world units.</summary>
     public Vector3 DeclaredExtent => new(Fixed(1), Fixed(5), Fixed(9));
 
-    /// <summary>The model's own bounding-box minimum corner, in world units.</summary>
-    public Vector3 DeclaredMinimum => new(Fixed(10), Fixed(11), Fixed(12));
+    /// <summary>
+    ///     The model's own bounding-box CENTRE, in world units — not its minimum
+    ///     corner. Measured over every rigid self-contained model whose decoded size
+    ///     reproduces <see cref="DeclaredExtent" />: the centre reading holds for
+    ///     2,525 of 2,525 across the three carts, while the minimum reading holds
+    ///     only for the 97 whose box is flat on every axis it would differ on (there,
+    ///     centre and minimum are the same number).
+    /// </summary>
+    public Vector3 DeclaredCentre => new(Fixed(10), Fixed(11), Fixed(12));
+
+    /// <summary>
+    ///     True when the header carries the authoring tool's boilerplate box instead
+    ///     of a measured one: words 2/3/4/6/7/8 — the off-diagonal of the 3×4 block
+    ///     the box occupies, zero in a real model — hold a fixed non-zero pattern,
+    ///     and the "extents" that go with it are nonsense (one axis around 65,000
+    ///     units). Every such file in all three carts decodes to zero vertices
+    ///     (102 Sk8land, 309 Downhill Jam, 440 Proving Ground; 851/851), so this is
+    ///     what an authored-empty model looks like rather than a second box layout.
+    ///     Its declared box must not be fed to a bounds oracle or a level's extent.
+    /// </summary>
+    public bool HasBoilerplateBox =>
+        (Header[2] | Header[3] | Header[4] | Header[6] | Header[7] | Header[8]) != 0;
 
     private float Fixed(int index)
     {

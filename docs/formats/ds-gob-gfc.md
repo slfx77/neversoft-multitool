@@ -363,14 +363,35 @@ An 84-byte header of 21 little-endian u32s, then a prologue, then the list:
 | --- | --- | --- |
 | 0 | `0x00` | version, always 4 |
 | 1, 5, 9 | `0x04`, `0x14`, `0x24` | bounding-box X/Y/Z **extents**, 20.12 |
-| 10-12 | `0x28`-`0x30` | bounding-box minimum corner, 20.12 |
+| 2-4, 6-8 | — | zero in a measured box; see *the boilerplate box* below |
+| 10-12 | `0x28`-`0x30` | bounding-box **centre**, 20.12 |
 | 14 | `0x38` | joint count |
 | 15 | `0x3C` | 84 — start of the prologue, constant in every shipped file |
 | 16 | `0x40` | sub-object count |
 | 17 | `0x44` | offset of the sub-object offset table |
-| 18 | `0x48` | end of the sub-object records |
+| 18 | `0x48` | end of the sub-object records (the POLYGON\_ATTR cull-patch section) |
 | 19 | `0x4C` | prologue size + 8 |
-| 20 | `0x50` | a further offset inside the record region |
+| 20 | `0x50` | display-list byte length — the runtime's DMA count |
+
+Words 10-12 are the box **centre**, not its minimum corner. The earlier "minimum"
+reading was invisible for a year because only the extents were ever checked: of
+every rigid self-contained model whose decoded size reproduces the declared
+extents, the centre reading holds for **2,525 of 2,525** across the three carts,
+while the minimum reading holds only for the 97 whose box is flat on every axis
+the two would differ on. Adding the centre to the bounds oracle left all three
+pinned ratios unchanged (731/808 · 793/808 · 944/973), so the decode was already
+right — but the oracle now constrains **where** a model sits as well as how big it
+is, which is what a missing outer transform would break.
+
+**The boilerplate box.** Words 2/3/4/6/7/8 are the off-diagonal of the 3×4 block
+the box occupies and are zero in a real model. In 851 files across the three carts
+(102 Sk8land, 309 Downhill Jam, 440 Proving Ground) they instead hold a fixed
+non-zero pattern, and the "extents" beside it are nonsense — one axis around
+65,000 units, tens of times the whole level. That is not a second box layout: all
+851 decode to **zero vertices**. It is what the authoring tool writes when a model
+has no geometry to measure, and the perfect correlation (851/851 both ways) is what
+identifies the class. Their declared box must be kept out of any bounds oracle or
+level extent, or a single empty piece inflates a level's bounds by ~65,000 units.
 
 **The display list runs from `76 + w19` to the first sub-object offset** (or to
 `w18` when there are none). That start formula reads oddly — a size counted from
@@ -549,14 +570,32 @@ resolved texture images (the stated idA binding, with the GX-state join as fallb
 
 ### Levels — a level IS a model set
 
-`nds-mesh --levels` composites every multi-piece model set into one glTF. Each
-overlay's manifest lists one idA with a run of geometry idBs (Sk8land's
-downtown set carries 135 pieces), and the pieces are authored in WORLD space —
-their header bounding boxes tile the level's footprint (2 of 135 near the
-origin, combined extent ~1,140 × 1,136 units) — so a level assembles by simply
-merging everything that shares an idA, the way THAW worldzone sectors compose;
-the pieces even share the set's one texture bank. Sk8land: 65 levels from
-1,036 pieces.
+`nds-mesh --levels` composites every multi-piece model set into one glTF. A set's
+pieces are authored in WORLD space — their header bounding boxes tile the level's
+footprint — so a level assembles by simply merging everything that shares an idA,
+the way THAW worldzone sectors compose; the pieces even share the set's one
+texture bank. Sk8land: 65 model sets composited from 1,036 pieces.
+
+**Nothing needs placing.** The PS1 games instance props from trigger nodes, and
+the obvious question is whether the DS carts do too. They do not: of the 876
+entries across Sk8land's eleven manifest tables, not one level piece is authored
+at its own origin — every declared box sits where the piece belongs, union boxes
+running hundreds of units off-origin. The only origin-authored set in the cart is
+a run of 96 sub-unit icons. So a composite is already complete, and there is no
+placement table to find. (The manifest records' words 3 and 4 are zero in every
+Sk8land record, which is the same answer from the other direction.)
+
+**A model set is not necessarily a level.** The container spells a level's 135
+world pieces and a skater's 46 body parts identically, so the *pieces* have to say
+which — see `NdsModelSetBounds`. Over every set with at least six measurable
+pieces the two populations separate with an **empty band**: model-scale sets top
+out at a 78.0-unit span and worlds start at 107.8, so the constant is that band's
+midpoint, not a tuned threshold, and every piece-count floor from 6 to 12 selects
+the same 22 sets (8 Sk8land, 7 Downhill Jam, 7 Proving Ground). Sk8land refereed
+it independently: its eight ARM9 *overlay* manifests are exactly the eight sets
+the classifier calls worlds, while the three manifests inside ARM9 itself — the
+skater, the icon run, and a four-piece set — are exactly the ones it rejects.
+Outputs are named `level_<idA>.glb` or `set_<idA>.glb` accordingly.
 
 Composites also resolve cross-piece coplanar decals: levels ship posters,
 signs and shadows as separate pieces lying EXACTLY on another piece's wall or

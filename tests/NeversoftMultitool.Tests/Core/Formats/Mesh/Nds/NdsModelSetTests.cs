@@ -168,6 +168,89 @@ public sealed class NdsModelSetTests(TestPaths paths)
         Assert.Equal(135, sets[0x571EC7FFu].Count);
     }
 
+    /// <summary>
+    ///     Pins the world-vs-model split and, more importantly, the EMPTY BAND it rests
+    ///     on. <see cref="NdsModelSetBounds.WorldScaleSpan" /> is the midpoint of a gap in
+    ///     the measured distribution, so the test asserts the gap itself: if a future
+    ///     decode change moved a set into the band, the constant would stop being a
+    ///     measurement and this would fail before any count did.
+    /// </summary>
+    [CorpusTheory]
+    [MemberData(nameof(WorldScaleCases))]
+    public void RealCart_WorldScaleSetsSeparateFromModelsByAnEmptyBand(
+        string build, string rom, string gobPath, int expectedWorlds)
+    {
+        var romPath = paths.FindSampleFile(build, rom);
+        Assert.SkipWhen(romPath == null, $"{build} ROM sample not available");
+
+        using var cart = ArchiveFileSystem.TryOpen(romPath!);
+        using var gob = cart!.TryOpenNested(cart.FindByPath(gobPath)!);
+        Assert.NotNull(gob);
+
+        var sets = new Dictionary<uint, List<NdsGeometryFile>>();
+        foreach (var entry in gob!.Entries)
+        {
+            if (!NdsModelSet.TryParseGeometryName(GobNames.TryResolve(entry.Crc), out var idA, out _))
+                continue;
+
+            byte[] data;
+            try
+            {
+                data = gob.ReadEntry(entry);
+            }
+            catch (InvalidDataException)
+            {
+                continue;
+            }
+
+            if (!NdsGeometryFile.TryParseValidated(data, out var geometry))
+                continue;
+            if (!sets.TryGetValue(idA, out var list))
+                sets[idA] = list = [];
+            list.Add(geometry);
+        }
+
+        var worlds = 0;
+        var largestModel = 0f;
+        var smallestWorld = float.MaxValue;
+        foreach (var pieces in sets.Values)
+        {
+            if (!NdsModelSetBounds.TryMeasure(pieces, out var min, out var max, out var measured)
+                || measured < NdsModelSetBounds.WorldPieceFloor)
+            {
+                continue;
+            }
+
+            var size = max - min;
+            var span = MathF.Max(size.X, MathF.Max(size.Y, size.Z));
+            if (NdsModelSetBounds.IsWorldScale(pieces))
+            {
+                worlds++;
+                smallestWorld = MathF.Min(smallestWorld, span);
+            }
+            else
+            {
+                largestModel = MathF.Max(largestModel, span);
+            }
+        }
+
+        Assert.Equal(expectedWorlds, worlds);
+        // Nothing may sit inside the band the constant is the middle of.
+        Assert.True(largestModel < NdsModelSetBounds.WorldScaleSpan,
+            $"a model-scale set spans {largestModel}, at or past the band");
+        Assert.True(smallestWorld > NdsModelSetBounds.WorldScaleSpan,
+            $"a world-scale set spans {smallestWorld}, at or before the band");
+    }
+
+    public static TheoryData<string, string, string, int> WorldScaleCases()
+    {
+        var data = new TheoryData<string, string, string, int>();
+        data.Add(Carts[0].Build, Carts[0].Rom, Carts[0].Gob, 8);
+        data.Add(Carts[1].Build, Carts[1].Rom, Carts[1].Gob, 7);
+        data.Add(Carts[2].Build, Carts[2].Rom, Carts[2].Gob, 7);
+        return data;
+    }
+
     public static TheoryData<string, string, string, string> BindingCases()
     {
         var data = new TheoryData<string, string, string, string>();

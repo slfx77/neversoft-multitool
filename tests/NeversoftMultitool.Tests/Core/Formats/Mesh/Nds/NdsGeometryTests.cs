@@ -236,12 +236,19 @@ public sealed class NdsGeometryTests(TestPaths paths)
                 continue;
 
             var groups = NdsGxInterpreter.Run(data, geometry);
-            if (!TryMeasure(groups, out var measured))
+            if (!TryMeasure(groups, out var measured, out var centre))
                 continue;
 
             total++;
-            if (Matches(measured, geometry.DeclaredExtent))
+            // Both halves of the box: the extents say the model is the right SIZE,
+            // the centre says it is in the right PLACE. Checking only the size — as
+            // this test did while words 10..12 were mislabelled the minimum corner —
+            // cannot see a missing outer transform at all.
+            if (Matches(measured, geometry.DeclaredExtent)
+                && MatchesCentre(centre, geometry.DeclaredCentre, geometry.DeclaredExtent))
+            {
                 matches++;
+            }
         }
 
         // One assertion so a failure reports both halves of the ratio at once.
@@ -262,7 +269,8 @@ public sealed class NdsGeometryTests(TestPaths paths)
         return external;
     }
 
-    private static bool TryMeasure(IReadOnlyList<NdsGeometryGroup> groups, out Vector3 extent)
+    private static bool TryMeasure(
+        IReadOnlyList<NdsGeometryGroup> groups, out Vector3 extent, out Vector3 centre)
     {
         var min = new Vector3(float.MaxValue);
         var max = new Vector3(float.MinValue);
@@ -278,6 +286,7 @@ public sealed class NdsGeometryTests(TestPaths paths)
         }
 
         extent = any ? max - min : Vector3.Zero;
+        centre = any ? (min + max) * 0.5f : Vector3.Zero;
         return any;
     }
 
@@ -292,6 +301,24 @@ public sealed class NdsGeometryTests(TestPaths paths)
         {
             return measured <= 0.05f || declared <= 0.05f
                                      || Math.Abs(declared - measured) <= 0.02f * declared;
+        }
+    }
+
+    /// <summary>
+    ///     The declared centre, judged against the size of the axis it sits on: a
+    ///     model 300 units across states its centre to a coarser 20.12 rounding than
+    ///     a model half a unit across, so a fixed absolute tolerance would either let
+    ///     a large model drift or fail every small one.
+    /// </summary>
+    private static bool MatchesCentre(Vector3 measured, Vector3 declared, Vector3 extent)
+    {
+        return Axis(measured.X, declared.X, extent.X)
+               && Axis(measured.Y, declared.Y, extent.Y)
+               && Axis(measured.Z, declared.Z, extent.Z);
+
+        static bool Axis(float measured, float declared, float extent)
+        {
+            return Math.Abs(declared - measured) <= Math.Max(0.02f * extent, 0.05f);
         }
     }
 
