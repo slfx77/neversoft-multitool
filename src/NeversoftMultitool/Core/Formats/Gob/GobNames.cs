@@ -16,13 +16,19 @@ namespace NeversoftMultitool.Core.Formats.Gob;
 ///     in their own resource and must never be merged into <c>QbKeyNames*.txt</c>:
 ///     they would not re-hash there and would poison those dictionaries' coverage.
 ///
-///     The embedded map holds only PROVEN pairs — a candidate string harvested from
-///     the carts' ARM9, overlays, and decompressed GOB content is accepted only when
-///     it re-hashes to a file's own key. Coverage is deliberately partial (1,724 of
-///     23,572 distinct keys): most files are named by the loader's
-///     <c>.\%08x.&lt;kind&gt;.bin</c> templates, whose 8 hex digits span exactly the
-///     32-bit CRC space, so no preimage search can distinguish a real name from a
-///     coincidence. See <c>docs/formats/ds-gob-gfc.md</c> for that measurement.
+///     The embedded map holds only PROVEN pairs — a candidate is accepted only when
+///     it re-hashes to a file's own key. Three sources contribute: strings harvested
+///     from the carts' ARM9, overlays and decompressed GOB content; texture banks,
+///     which state the id of the texel blob they own; and the loader's own
+///     <c>.\%08x.&lt;kind&gt;.bin</c> / <c>.\%08x.%08x.&lt;kind&gt;.bin</c> templates
+///     resolved against the ids the ARM9 code holds as plain u32s.
+///
+///     That last source needs care, because the 8 hex digits span exactly the 32-bit
+///     CRC space, so an unconstrained preimage search cannot tell a real name from a
+///     coincidence — it "names" 99.8% of a cart and is pure noise. What makes it
+///     sound is searching only ids the code actually spells, gating each kind on the
+///     target file's CONTENT, and requiring every kind to beat impossible-kind
+///     controls. See <c>docs/formats/ds-gob-gfc.md</c> for those measurements.
 /// </summary>
 public static class GobNames
 {

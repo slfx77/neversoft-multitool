@@ -3,18 +3,20 @@ namespace NeversoftMultitool.Core.Formats.Gob;
 /// <summary>
 ///     Gives an unnamed GOB file a real extension from its content.
 ///
-///     Most of the container is machine-named (see <c>docs/formats/ds-gob-gfc.md</c>
-///     for why those names cannot be recovered), so an unnamed file would otherwise
-///     extract as an opaque <c>&lt;crc32&gt;.bin</c>. The 1,724 files whose real
-///     names ARE proven give a Rosetta to write these rules against — each pairs a
-///     true extension with real bytes — and every rule here is scored on it:
-///     <b>0 of 2,351 named files are mislabelled</b>, which is the property that
-///     matters, since a confidently wrong extension is worse than none.
+///     Most of the container is machine-named, so a file the name dictionary cannot
+///     resolve would otherwise extract as an opaque <c>&lt;crc32&gt;.bin</c>. The
+///     files whose real names ARE proven give a Rosetta to write these rules
+///     against — each pairs a true extension with real bytes — and every rule here
+///     is scored on it: <b>no named file is mislabelled</b>, which is the property
+///     that matters, since a confidently wrong extension is worse than none.
 ///
-///     Coverage is deliberately partial. The Vicarious Visions asset formats that
-///     make up the bulk (a two-table sub-record container, ~46% of the corpus, and
-///     a signed-coordinate family, ~21%) are not yet identified, and files matching
-///     no rule keep <c>.bin</c> rather than being guessed at.
+///     Content sniffing reaches only a small slice of the unnamed bulk, and that is
+///     no longer the binding limit: the two Vicarious Visions families that used to
+///     dominate the unidentified mass are now identified by NAME rather than by
+///     shape — a two-table per-joint container is the animation format, and the
+///     signed-coordinate family is the geometry format. See
+///     <c>docs/formats/ds-gob-gfc.md</c>. Files matching no rule and carrying no
+///     recovered name still keep <c>.bin</c> rather than being guessed at.
 /// </summary>
 public static class GobContentTypes
 {

@@ -13,7 +13,7 @@ public sealed class GobNamesTests
     [Fact]
     public void EveryStoredNameReHashesToItsKey()
     {
-        Assert.Equal(6235, GobNames.Count);
+        Assert.Equal(22819, GobNames.Count);
 
         var checked_ = 0;
         foreach (var (key, name) in EnumerateResource())

@@ -8,12 +8,15 @@ namespace NeversoftMultitool.Tests.Core.Formats.Gob;
 ///     Pins the GOB content sniffer's one load-bearing property: it must never put
 ///     a WRONG extension on a file.
 ///
-///     The 6,235 proven names are the oracle — each pairs a true extension with
-///     real bytes — and the corpus test asserts that not one of the 6,906 named
-///     files across the three carts is mislabelled. Coverage of the UNNAMED bulk is
-///     only ~4%, because the Vicarious Visions asset formats that make up the rest
-///     are not identified yet; that is recorded as a measurement rather than
-///     papered over with a guess.
+///     The proven names are the oracle — each pairs a true extension with real
+///     bytes — and the corpus test asserts that not one named file across the three
+///     carts is mislabelled.
+///
+///     Only names that actually CARRY an extension can referee a rule. The loader's
+///     own templates suffix every resource they compose with a generic ".bin", so
+///     those are excluded: they assert nothing about encoding, and a DHJ/PG
+///     ".\&lt;id&gt;.animation.bin" being labelled ".comp" is the sniffer correctly
+///     reading its container, not a mislabel.
 /// </summary>
 public sealed class GobContentTypesTests(TestPaths paths)
 {
@@ -86,8 +89,18 @@ public sealed class GobContentTypesTests(TestPaths paths)
                 if (dot < 0)
                     continue;
 
-                checkedFiles++;
                 var truth = name[dot..].ToLowerInvariant();
+
+                // ".bin" is the suffix the loader's own templates put on EVERY
+                // resource it composes a name for, so it asserts nothing about
+                // encoding and cannot referee a content rule. Those files are
+                // legitimately labelled by their wrapper — a DHJ/PG
+                // ".\<id>.animation.bin" really is a `comp` container — which is
+                // agreement, not a mislabel.
+                if (truth == ".bin")
+                    continue;
+
+                checkedFiles++;
                 var guess = GobContentTypes.Detect(gob.ReadEntry(entry));
                 if (guess == null)
                     continue;
@@ -99,7 +112,7 @@ public sealed class GobContentTypesTests(TestPaths paths)
         }
 
         Assert.Empty(mislabelled);
-        Assert.Equal(6906, checkedFiles);
+        Assert.Equal(2313, checkedFiles);
         Assert.Equal(1728, labelled);
     }
 }

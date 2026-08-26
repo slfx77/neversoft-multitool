@@ -179,11 +179,11 @@ public sealed class GobArchiveTests(TestPaths paths)
     }
 
     [CorpusTheory]
-    [InlineData(Sk8landBuild, Sk8landRom, "vvobj/generated/gob/main", 18540, 14606, 21411156, 81141680, 1655,
+    [InlineData(Sk8landBuild, Sk8landRom, "vvobj/generated/gob/main", 18540, 14606, 21411156, 81141680, 14550,
         "DefaultConfig.xml", 698, "95fbae5b9fd13a3cdf02bedff9a0a4c2ab6478b2d313c8303ad3f222d812661e")]
-    [InlineData(DhjBuild, DhjRom, "vvobj/generated/gob/main", 12087, 4657, 60741360, 71658474, 2628,
+    [InlineData(DhjBuild, DhjRom, "vvobj/generated/gob/main", 12087, 4657, 60741360, 71658474, 4490,
         "DefaultConfig.xml", 1401, "3580f1c9c45945f7eb717230da4585cd3021f30bb970ed9409b04ea52108ef88")]
-    [InlineData(PgBuild, PgRom, "gob/mainUS", 11016, 5665, 48392876, 55721067, 2623,
+    [InlineData(PgBuild, PgRom, "gob/mainUS", 11016, 5665, 48392876, 55721067, 5096,
         "DefaultConfig.xml", 1015, "b226d23c03a8fae417a62a3c280072b16b7f5ceb828df6ee01258445bbccf48d")]
     public void RealCart_RebuildsEveryFileAtItsDeclaredSize(
         string build, string rom, string containerStem, int chunkCount, int fileCount,
