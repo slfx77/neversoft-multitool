@@ -846,7 +846,16 @@ public sealed class GltfModelExporter : IModelExporter
             var channel = builder.GetChannel(KnownChannel.BaseColor);
             var wrapS = ToTextureWrapMode(textures[textureIndex].WrapU);
             var wrapT = ToTextureWrapMode(textures[textureIndex].WrapV);
-            channel.Texture.WithSampler(wrapS, wrapT);
+            if (textures[textureIndex].NearestFilter)
+            {
+                channel.Texture.WithSampler(
+                    wrapS, wrapT,
+                    TextureMipMapFilter.NEAREST, TextureInterpolationFilter.NEAREST);
+            }
+            else
+            {
+                channel.Texture.WithSampler(wrapS, wrapT);
+            }
         }
 
         switch (material.AlphaMode)

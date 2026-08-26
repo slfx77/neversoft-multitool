@@ -149,7 +149,8 @@ internal static class ModelDocumentGeometryAdapter
         uint? checksum = null,
         ModelTextureWrap wrapU = ModelTextureWrap.Repeat,
         ModelTextureWrap wrapV = ModelTextureWrap.Repeat,
-        bool distinguishChecksumVariantsByContent = false)
+        bool distinguishChecksumVariantsByContent = false,
+        bool nearestFilter = false)
     {
         for (var i = 0; i < document.Textures.Count; i++)
         {
@@ -172,7 +173,8 @@ internal static class ModelDocumentGeometryAdapter
             PngBytes = pngBytes,
             NativeChecksum = checksum,
             WrapU = wrapU,
-            WrapV = wrapV
+            WrapV = wrapV,
+            NearestFilter = nearestFilter
         });
         return document.Textures.Count - 1;
     }

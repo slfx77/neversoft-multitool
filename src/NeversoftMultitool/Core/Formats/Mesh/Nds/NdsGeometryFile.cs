@@ -20,12 +20,12 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Nds;
 ///     [10..12] bounding-box minimum XYZ (20.12)
 ///     [14] joint count             (the ARM9 model ctor reads +0x38 and sizes its
 ///                                   joint arrays from it: count*0x28 + 2*count*0x10)
-///     [15] 84 -- start of the prologue, constant in every shipped file
+///     [15] 84 -- joint offset table position, constant in every shipped file
 ///     [16] sub-object count
 ///     [17] offset of the sub-object offset table
-///     [18] end of the sub-object records
+///     [18] offset of the POLYGON_ATTR cull-patch section (also the record end)
 ///     [19] prologue size + 8; the display list begins at 76 + this
-///     [20] a further offset inside the record region
+///     [20] display-list byte length -- the runtime's DMA count for the whole list
 ///     </code>
 ///
 ///     The display list runs from <c>76 + w19</c> to the first sub-object offset
@@ -33,6 +33,9 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Nds;
 ///     EXACTLY — for 4,741 of 4,741 files across all three carts. Deriving the
 ///     start from the counts instead (<c>84 + joints*12 + subObjects*4</c>) is only
 ///     93% right, because joint records are not a fixed 12 bytes in every file.
+///     The draw routine (Sk8land ITCM <c>0x01FFBBF0</c>) confirms both stored
+///     fields: it DMAs <c>w20</c> bytes from <c>geom + 0x4C + w19</c> straight into
+///     the GX FIFO.
 ///
 ///     The header's bounding box is an unusually good self-check: a decoder with a
 ///     wrong vertex format, fixed-point scale or matrix convention will not
@@ -45,6 +48,32 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Nds;
 ///     TEXIMAGE_PARAM sites in the display list that the runtime patches with it.
 /// </summary>
 public sealed record NdsSubObject(int TextureIndex, int[] PatchSites);
+
+/// <summary>
+///     One joint: which animation channel kinds drive it, and the display-list
+///     matrix operands the runtime scatters each frame's pose into.
+///
+///     The engine has no skeleton at runtime — no parent table, no matrix slots per
+///     joint. The hierarchy is compiled into the display list as
+///     PUSH / MULT_4x3 / POP nesting, the shipped operand values ARE the bind pose,
+///     and animating means OVERWRITING those operands in RAM before the list is
+///     DMA'd (Sk8land ITCM <c>0x01FFDA6C</c>, the joint-record scatter). Per flags
+///     bit, a target takes: rotation — 9 words (a 4.12 3x3) at target+0;
+///     translation — 3 words at target+0x24 when the joint also rotates (row 3 of
+///     the same MULT_4x3), else at target+0; scale — 3 words after the rotation
+///     block (the following MTX_SCALE's operands).
+///
+///     Corpus-verified: every target of every Sk8land joint record resolves to a
+///     matrix operand under these rules — flags 1/3/7 onto MULT_4x3/MULT_3x3
+///     rotation blocks (1,655), flags 2/6 onto MTX_TRANS operands (184) or MULT_4x3
+///     row 3 (1,033).
+/// </summary>
+public sealed record NdsJointRecord(int Flags, int[] Targets)
+{
+    public bool HasRotation => (Flags & 1) != 0;
+    public bool HasTranslation => (Flags & 2) != 0;
+    public bool HasScale => (Flags & 4) != 0;
+}
 
 public sealed class NdsGeometryFile
 {
@@ -71,6 +100,13 @@ public sealed class NdsGeometryFile
     ///     <see cref="TryParse" /> when the records are well formed.
     /// </summary>
     public IReadOnlyList<NdsSubObject> SubObjects { get; private set; } = [];
+
+    /// <summary>
+    ///     The model's joints, one per header-declared joint, in joint order. A
+    ///     joint whose offset-table entry is zero has no record and appears here
+    ///     with flags 0 and no targets. Empty when the records are malformed.
+    /// </summary>
+    public IReadOnlyList<NdsJointRecord> Joints { get; private set; } = [];
 
     public int JointCount => (int)Header[14];
 
@@ -134,7 +170,62 @@ public sealed class NdsGeometryFile
 
         file = new NdsGeometryFile(header, (int)start, (int)end, offsets);
         file.SubObjects = ReadSubObjects(data, file);
+        file.Joints = ReadJoints(data, file);
         return true;
+    }
+
+    /// <summary>
+    ///     Reads the joint records the offset table at 84 points to:
+    ///     <code>
+    ///     84: u32 recordOffset[jointCount]   // file-relative; 0 = no record
+    ///     record: { u16 targetCount, u16 flags, i32 targetRel[targetCount] }
+    ///     </code>
+    ///     Target offsets are RECORD-relative (the ARM9 scatter at ITCM 0x01FFDA6C
+    ///     reads the array at record+4 and adds the record base); they are stored
+    ///     here resolved to absolute file offsets. Variable targetCount is what made
+    ///     the prologue stride look irregular: a channel scattered to several
+    ///     display-list sites simply lists them all.
+    /// </summary>
+    private static NdsJointRecord[] ReadJoints(ReadOnlySpan<byte> data, NdsGeometryFile file)
+    {
+        var joints = file.JointCount;
+        if (joints == 0)
+            return [];
+        if (HeaderSize + joints * 4L > file.DisplayListStart)
+            return [];
+
+        var result = new NdsJointRecord[joints];
+        for (var j = 0; j < joints; j++)
+        {
+            var offset = (int)BinaryPrimitives.ReadUInt32LittleEndian(data[(HeaderSize + j * 4)..]);
+            if (offset == 0)
+            {
+                result[j] = new NdsJointRecord(0, []);
+                continue;
+            }
+
+            if (offset < 0 || offset + 4 > data.Length)
+                return [];
+
+            int count = BinaryPrimitives.ReadUInt16LittleEndian(data[offset..]);
+            int flags = BinaryPrimitives.ReadUInt16LittleEndian(data[(offset + 2)..]);
+            if (offset + 4 + count * 4 > data.Length)
+                return [];
+
+            var targets = new int[count];
+            for (var i = 0; i < count; i++)
+            {
+                var relative = BinaryPrimitives.ReadInt32LittleEndian(data[(offset + 4 + i * 4)..]);
+                var target = offset + relative;
+                if (target < file.DisplayListStart || target + 4 > file.DisplayListEnd)
+                    return [];
+                targets[i] = target;
+            }
+
+            result[j] = new NdsJointRecord(flags, targets);
+        }
+
+        return result;
     }
 
     /// <summary>

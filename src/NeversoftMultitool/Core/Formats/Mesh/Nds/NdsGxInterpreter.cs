@@ -3,8 +3,17 @@ using NeversoftMultitool.Core.Formats.Texture.Nds;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Nds;
 
-/// <summary>A vertex produced by running a DS display list.</summary>
-public readonly record struct NdsVertex(Vector3 Position, Vector4 Color, Vector2 TexCoord);
+/// <summary>
+///     A vertex produced by running a DS display list. <see cref="Matrix" /> is the
+///     provenance of the matrix that transformed it — the display-list offset of
+///     the last matrix command that produced the value (-1 = the initial identity).
+///     The DS has no per-vertex bone indices; a vertex belongs to whatever matrix
+///     was current when it was drawn, so provenance IS its joint identity, stable
+///     across frames because the runtime animates by rewriting matrix operands in
+///     place rather than by restructuring the list.
+/// </summary>
+public readonly record struct NdsVertex(
+    Vector3 Position, Vector4 Color, Vector2 TexCoord, int Matrix = -1);
 
 /// <summary>
 ///     The render state a run of triangles was drawn under. The low 16 bits of
@@ -66,7 +75,24 @@ public sealed class NdsGxInterpreter
     private readonly Matrix4x4[] _matrices = new Matrix4x4[4];
     private readonly List<Matrix4x4>[] _stacks =
         [[], [], [], []];
+
+    /// <summary>
+    ///     The position-matrix stack and the MTX_STORE/MTX_RESTORE slots are THE SAME
+    ///     32-entry memory on the GX — PUSH writes <c>slots[ptr++]</c>, POP moves the
+    ///     pointer and reloads, STORE/RESTORE address the array directly. A compiled
+    ///     display list may lean on that aliasing (a matrix pushed at depth d
+    ///     RESTOREd by slot number), so the stack is modelled the hardware's way.
+    ///     Measured against the separate-storage model this changes no shipped
+    ///     Sk8land model's output — the carts' lists happen to keep the two roles
+    ///     disjoint — but only the hardware model is safe to patch animation
+    ///     through, and the provenance tracking below depends on the pointer.
+    /// </summary>
     private readonly Matrix4x4[] _slots = new Matrix4x4[MatrixSlots];
+    private readonly int[] _slotProvenance = new int[MatrixSlots];
+    private readonly Dictionary<int, Matrix4x4> _usedMatrices = [];
+
+    private int _positionStackPointer;
+    private int _provenance = -1;
     private readonly List<NdsGeometryGroup> _groups = [];
     private readonly Dictionary<NdsMaterialKey, NdsGeometryGroup> _byMaterial = [];
     private readonly List<int> _strip = [];
@@ -86,12 +112,28 @@ public sealed class NdsGxInterpreter
         for (var i = 0; i < _matrices.Length; i++)
             _matrices[i] = Matrix4x4.Identity;
         for (var i = 0; i < MatrixSlots; i++)
+        {
             _slots[i] = Matrix4x4.Identity;
+            _slotProvenance[i] = -1;
+        }
     }
 
     public IReadOnlyList<NdsGeometryGroup> Groups => _groups;
 
+    /// <summary>
+    ///     Every matrix a vertex was transformed by, keyed by provenance. These are
+    ///     the model's effective joint globals for the pose the list was run with —
+    ///     the bind pose on unpatched data, an animation frame on patched data.
+    /// </summary>
+    public IReadOnlyDictionary<int, Matrix4x4> UsedMatrices => _usedMatrices;
+
     public static IReadOnlyList<NdsGeometryGroup> Run(ReadOnlySpan<byte> data, NdsGeometryFile file)
+    {
+        return RunInterpreter(data, file).Groups;
+    }
+
+    /// <summary>Runs the list and returns the interpreter itself, for callers that also need <see cref="UsedMatrices" />.</summary>
+    public static NdsGxInterpreter RunInterpreter(ReadOnlySpan<byte> data, NdsGeometryFile file)
     {
         var interpreter = new NdsGxInterpreter();
         foreach (var subObject in file.SubObjects)
@@ -99,7 +141,7 @@ public sealed class NdsGxInterpreter
             interpreter._siteTextures[site] = subObject.TextureIndex;
 
         NdsDisplayList.Walk(data, file.DisplayListStart, file.DisplayListEnd, interpreter.Execute);
-        return interpreter.Groups;
+        return interpreter;
     }
 
     /// <summary>Modes 1 (position) and 2 (position+vector) share the position matrix.</summary>
@@ -120,40 +162,64 @@ public sealed class NdsGxInterpreter
                 _mode = (int)(p[0] & 3);
                 break;
             case NdsGxCommand.MatrixPush:
-                _stacks[Slot].Add(Current);
+                if (Slot == 1)
+                {
+                    if (_positionStackPointer < 31)
+                    {
+                        _slots[_positionStackPointer] = Current;
+                        _slotProvenance[_positionStackPointer] = _provenance;
+                    }
+
+                    _positionStackPointer = Math.Min(_positionStackPointer + 1, 63);
+                }
+                else
+                {
+                    _stacks[Slot].Add(Current);
+                }
+
                 break;
             case NdsGxCommand.MatrixPop:
                 PopMatrix((int)(p[0] & 0x3F));
                 break;
             case NdsGxCommand.MatrixStore:
                 _slots[p[0] & 31] = Current;
+                _slotProvenance[p[0] & 31] = _provenance;
                 break;
             case NdsGxCommand.MatrixRestore:
                 Current = _slots[p[0] & 31];
+                _provenance = _slotProvenance[p[0] & 31];
                 break;
             case NdsGxCommand.MatrixIdentity:
                 Current = Matrix4x4.Identity;
+                Mutated(parameterOffset);
                 break;
             case NdsGxCommand.MatrixLoad4x4:
                 Current = Read4x4(p);
+                Mutated(parameterOffset);
                 break;
             case NdsGxCommand.MatrixLoad4x3:
                 Current = Read4x3(p);
+                Mutated(parameterOffset);
                 break;
             case NdsGxCommand.MatrixMultiply4x4:
                 Current = Read4x4(p) * Current;
+                Mutated(parameterOffset);
                 break;
             case NdsGxCommand.MatrixMultiply4x3:
                 Current = Read4x3(p) * Current;
+                Mutated(parameterOffset);
                 break;
             case NdsGxCommand.MatrixMultiply3x3:
                 Current = Read3x3(p) * Current;
+                Mutated(parameterOffset);
                 break;
             case NdsGxCommand.MatrixScale:
                 Current = Matrix4x4.CreateScale(Fixed(p[0]), Fixed(p[1]), Fixed(p[2])) * Current;
+                Mutated(parameterOffset);
                 break;
             case NdsGxCommand.MatrixTranslate:
                 Current = Matrix4x4.CreateTranslation(Fixed(p[0]), Fixed(p[1]), Fixed(p[2])) * Current;
+                Mutated(parameterOffset);
                 break;
             case NdsGxCommand.Color:
                 _color = FromBgr555(p[0]);
@@ -223,13 +289,32 @@ public sealed class NdsGxInterpreter
         }
     }
 
+    /// <summary>A position-mode mutation site becomes the current matrix's identity.</summary>
+    private void Mutated(int parameterOffset)
+    {
+        if (Slot == 1)
+            _provenance = parameterOffset;
+    }
+
     private void PopMatrix(int count)
     {
-        // The pop count is a 6-bit signed field; a negative count still pops.
+        // The pop count is a 6-bit SIGNED stack-pointer delta: positive pops,
+        // negative moves the pointer back up, zero reloads the current top.
         var n = count >= 0x20 ? count - 64 : count;
-        n = Math.Max(1, Math.Abs(n));
+        if (Slot == 1)
+        {
+            _positionStackPointer = Math.Clamp(_positionStackPointer - n, 0, 63);
+            if (_positionStackPointer < 31)
+            {
+                Current = _slots[_positionStackPointer];
+                _provenance = _slotProvenance[_positionStackPointer];
+            }
+
+            return;
+        }
+
         var stack = _stacks[Slot];
-        for (var i = 0; i < n && stack.Count > 0; i++)
+        for (var i = 0; i < Math.Max(1, Math.Abs(n)) && stack.Count > 0; i++)
         {
             Current = stack[^1];
             stack.RemoveAt(stack.Count - 1);
@@ -273,7 +358,8 @@ public sealed class NdsGxInterpreter
 
         var position = Vector3.Transform(
             new Vector3(_vx / 4096f, _vy / 4096f, _vz / 4096f), _matrices[1]);
-        group.Vertices.Add(new NdsVertex(position, _color, _texCoord));
+        _usedMatrices[_provenance] = _matrices[1];
+        group.Vertices.Add(new NdsVertex(position, _color, _texCoord, _provenance));
         _strip.Add(group.Vertices.Count - 1);
         Assemble(group);
     }
