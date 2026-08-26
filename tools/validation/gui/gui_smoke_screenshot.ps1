@@ -8,6 +8,7 @@
 #     [-Invoke "Collapse file list panel","Collapse side panel"]  # buttons to invoke by UIA name, in order
 #     [-WaitForName "File Name"]           # poll until an element with this UIA name exists (e.g. scan done)
 #     [-HoverOver "File Name"]             # park the cursor over this element before the screenshot
+#     [-SettleSec 8]                       # extra wait before the screenshot (async work a selection kicked off)
 #     [-KeepOpen]                          # leave the app running afterwards
 #
 # The app instance is launched fresh each run and closed at the end unless
@@ -21,6 +22,7 @@ param(
     [string[]]$Invoke,
     [string]$WaitForName,
     [string]$HoverOver,
+    [int]$SettleSec = 0,
     [switch]$KeepOpen
 )
 
@@ -78,14 +80,24 @@ function Find-ByName([System.Windows.Automation.AutomationElement]$Root, [string
 }
 
 function Invoke-Element([System.Windows.Automation.AutomationElement]$Element) {
-    $pattern = $null
-    if ($Element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
-        $pattern.Invoke(); return
+    # A name usually matches the TextBlock INSIDE a row, and the pattern lives on
+    # the row container, so walk up until one of the two patterns is available.
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    $name = $Element.Current.Name
+    $current = $Element
+    for ($depth = 0; $depth -lt 6 -and $current; $depth++) {
+        $pattern = $null
+        if ($current.TryGetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+            $pattern.Invoke(); return
+        }
+        if ($current.TryGetCurrentPattern(
+                [System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
+            $pattern.Select(); return
+        }
+        $current = $walker.GetParent($current)
     }
-    if ($Element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
-        $pattern.Select(); return
-    }
-    throw "Element '$($Element.Current.Name)' supports neither Invoke nor SelectionItem"
+    throw "Element '$name' and its ancestors support neither Invoke nor SelectionItem"
 }
 
 $process = Start-Process -FilePath $ExePath -PassThru
@@ -164,6 +176,10 @@ try {
         Invoke-Element (Find-ByName $window $name)
         Start-Sleep -Seconds 1
     }
+
+    # Work a selection kicks off asynchronously (a background scan, a preview
+    # build) finishes after the invoke returns; give it time before capturing.
+    if ($SettleSec -gt 0) { Start-Sleep -Seconds $SettleSec }
 
     if ($HoverOver) {
         $target = Find-ByName $window $HoverOver
