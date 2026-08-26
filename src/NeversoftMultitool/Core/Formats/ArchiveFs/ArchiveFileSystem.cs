@@ -154,6 +154,7 @@ public static class ArchiveFileSystem
                 ArchiveAssetType.CompressedPre => CompressedPreArchive.GetFileList(data),
                 ArchiveAssetType.Pkr => PkrArchive.GetFileList(data),
                 ArchiveAssetType.Pak => PakArchive.GetFileList(data, companionData != null, entryName),
+                ArchiveAssetType.Sdat => SdatArchive.BuildFileList(data),
                 _ => throw new InvalidOperationException()
             };
         }

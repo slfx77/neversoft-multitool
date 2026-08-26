@@ -18,6 +18,10 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
     private static readonly string[] ArchiveExtensions =
         [".ps2", ".pak", ".wad", ".pre", ".prx", ".pkr", ".nds", ".gob"];
 
+    /// <summary>Entries worth opening as containers of their own during an archive scan.</summary>
+    private static readonly string[] NestedArchiveSuffixes =
+        [".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".pak", ".apk", ".gob", ".sdat"];
+
     private readonly AudioConverterTabConversionController _conversionController = new();
     private readonly ObservableCollection<IListEntry> _items = [];
     private readonly List<AudioFileEntry> _parentFiles = [];
@@ -194,16 +198,36 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
 
             var archiveName = Path.GetFileName(path);
             var assets = new List<AudioScanAsset>();
-            foreach (var archiveEntry in backend.Entries)
+
+            // Breadth-first over nested archives, like the Texture tab: a DS cart's
+            // waves are not in the cart's own file table but inside the .gob it
+            // carries, so walking only the top level lists nothing at all.
+            var pending = new Queue<ArchiveAssetBackend>();
+            pending.Enqueue(backend);
+            while (pending.Count > 0)
             {
-                if (!AudioConverterTabOperations.IsAudioFile(archiveEntry.Name)) continue;
-                var entryPath = archiveEntry.FullName;
-                assets.Add(new AudioScanAsset(
-                    entryPath,
-                    EntryLeaf(entryPath),
-                    $"{archiveName}::{entryPath}",
-                    archiveEntry.Size,
-                    new ArchiveAssetSource(backend, archiveEntry)));
+                var current = pending.Dequeue();
+                foreach (var archiveEntry in current.Entries)
+                {
+                    if (AudioConverterTabOperations.IsAudioFile(archiveEntry.Name))
+                    {
+                        var entryPath = archiveEntry.FullName;
+                        assets.Add(new AudioScanAsset(
+                            entryPath,
+                            EntryLeaf(entryPath),
+                            $"{current.DisplayPath}::{entryPath}",
+                            archiveEntry.Size,
+                            new ArchiveAssetSource(current, archiveEntry)));
+                        continue;
+                    }
+
+                    if (!OrdinalFileName.HasAnySuffix(archiveEntry.Name, NestedArchiveSuffixes))
+                        continue;
+
+                    var nested = current.TryOpenNested(archiveEntry);
+                    if (nested != null)
+                        pending.Enqueue(nested);
+                }
             }
 
             var scan = BuildAudioScan(assets);

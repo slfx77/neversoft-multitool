@@ -142,6 +142,42 @@ public sealed class NdsAudioTests(TestPaths paths)
         Assert.Equal(79_347_626, totalSamples);
     }
 
+    /// <summary>
+    ///     A cart's audio is reachable by BROWSING it, not only by extracting it
+    ///     first. Both wave families live one level down — the effects inside the
+    ///     <c>.gob</c>, the soundtrack inside the <c>.sdat</c> — so anything that
+    ///     walks only the cart's own file table finds nothing at all, which is
+    ///     exactly what the Audio tab did.
+    /// </summary>
+    [CorpusFact]
+    public void RealCart_NestedOpenReachesBothTheGobWavesAndTheSdatTracks()
+    {
+        var romPath = paths.FindSampleFile(Sk8landBuild, Sk8landRom);
+        Assert.SkipWhen(romPath == null, "Sk8land ROM sample not available");
+
+        using var cart = ArchiveFileSystem.TryOpen(romPath!);
+        Assert.NotNull(cart);
+
+        var waves = 0;
+        var tracks = 0;
+        foreach (var entry in cart!.Entries)
+        {
+            using var nested = cart.TryOpenNested(entry);
+            if (nested == null)
+                continue;
+            foreach (var member in nested.Entries)
+            {
+                if (member.Name.EndsWith(".swav", StringComparison.Ordinal))
+                    waves++;
+                else if (member.Name.EndsWith(".strm", StringComparison.Ordinal))
+                    tracks++;
+            }
+        }
+
+        Assert.Equal(335, waves);
+        Assert.Equal(30, tracks);
+    }
+
     /// <summary>Minimal SWAV: 16-byte file header + DATA block + ADPCM payload.</summary>
     private static byte[] BuildSwav(int payloadBytes)
     {

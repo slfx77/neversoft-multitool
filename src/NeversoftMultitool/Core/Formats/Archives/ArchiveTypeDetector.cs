@@ -30,8 +30,19 @@ public static class ArchiveTypeDetector
     /// </summary>
     private static readonly string[] NestedArchiveExtensions =
     [
-        ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".pak", ".apk", ".gob"
+        ".pre", ".prx", ".prd", ".prf", ".prg", ".pkr", ".pak", ".apk", ".gob", ".sdat"
     ];
+
+    /// <summary>
+    ///     Whether an entry with this name is worth opening as a container of its own.
+    ///     The single source of truth for the question — a second copy of the list is
+    ///     how a nestable type ends up reachable from one caller and invisible to
+    ///     another.
+    /// </summary>
+    public static bool CanNest(string entryName)
+    {
+        return NestedArchiveExtensions.Contains(GetArchiveExtension(entryName));
+    }
 
     /// <summary>
     ///     Gets the archive-relevant extension, handling double extensions like .pak.ps2.
@@ -156,4 +167,8 @@ public static class ArchiveTypeDetector
             _ => null
         };
     }
+            // A DS cart's soundtrack is an SDAT sitting inside the cart's own file
+            // table, so it only ever appears nested. The unpacker already walks
+            // cart -> GOB -> SDAT; this lets a browsing caller do the same.
+            ".sdat" => Nds.SdatArchive.IsSdat(data.AsSpan()) ? ArchiveAssetType.Sdat : null,
 }

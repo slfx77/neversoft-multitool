@@ -68,7 +68,7 @@ public abstract class ArchiveFileSystemBase : IArchiveFileSystem
             return null;
 
         var ext = ArchiveTypeDetector.GetArchiveExtension(entry.Name);
-        if (ext is not (".pre" or ".prx" or ".prd" or ".prf" or ".prg" or ".pkr" or ".pak" or ".apk" or ".gob"))
+        if (!ArchiveTypeDetector.CanNest(entry.Name))
             return null;
 
         byte[] data;
