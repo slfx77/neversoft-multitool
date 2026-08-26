@@ -83,6 +83,8 @@ public class MeshFileEntry : BaseFileEntry
 
     internal bool IsPsx => Format == "PSX";
     internal bool IsN64Model => Format == "N64";
+    internal bool IsGbaLevel => Format == "GBA Level";
+    internal bool IsGbaModel => Format == "GBA Character";
     internal bool IsRwDff => Format == "RW DFF";
     internal bool IsRwBsp => Format == "RW BSP";
     internal bool IsCol => Format == "COL";
@@ -103,7 +105,11 @@ public class MeshFileEntry : BaseFileEntry
             or Ps2SceneSubFormat.PakSkin
             or Ps2SceneSubFormat.Standard)
         || (IsPsx && PsxIsSuperModel)
-        || (IsN64Model && N64HasEmbeddedAnimations);
+        || (IsN64Model && N64HasEmbeddedAnimations)
+        // Every GBA character shares the one skater mesh, so the ROM's clips
+        // always match the rig; discovery still fails closed on a ROM that
+        // carries no model complex.
+        || IsGbaModel;
 
     internal bool IsPs2Scene => Format is "PS2 (THPS4)" or "PS2 (THUG)"
         or "PS2 (THUG2)" or "PS2 (THAW)" or "PS2 (pre-compiled)";

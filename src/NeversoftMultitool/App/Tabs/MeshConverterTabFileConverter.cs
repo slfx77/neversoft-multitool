@@ -150,6 +150,8 @@ internal static class MeshConverterTabFileConverter
         if (entry.IsRwBsp) return ModelSourceKind.RenderWareBsp;
         if (entry.IsRwDff) return ModelSourceKind.RenderWareDff;
         if (entry.IsN64Model) return ModelSourceKind.N64Model;
+        if (entry.IsGbaLevel) return ModelSourceKind.GbaLevel;
+        if (entry.IsGbaModel) return ModelSourceKind.GbaModel;
         if (entry.IsPsx) return ModelSourceKind.Psx;
         return ModelSourceKind.Ddm;
     }

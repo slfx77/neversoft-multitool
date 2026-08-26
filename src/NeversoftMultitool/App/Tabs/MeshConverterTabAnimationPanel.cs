@@ -142,7 +142,7 @@ internal sealed class MeshConverterTabAnimationPanel(
     {
         var character = Character;
         if (character == null) return;
-        if (character.IsN64Model) return;
+        if (IsEmbeddedOnly(character)) return;
         var path = await FolderPickerHelper.PickFolderAsync();
         if (path == null || !ReferenceEquals(Character, character)) return;
 
@@ -183,7 +183,7 @@ internal sealed class MeshConverterTabAnimationPanel(
     {
         var character = Character;
         if (character == null) return;
-        if (character.IsN64Model) return;
+        if (IsEmbeddedOnly(character)) return;
         var path = await FilePickerHelper.PickFileAsync(ArchiveSourceRigCatalog.PickerExtensions);
         if (path == null || !ReferenceEquals(Character, character)) return;
 
@@ -426,10 +426,16 @@ internal sealed class MeshConverterTabAnimationPanel(
 
         if (_allProbes.Count == 0)
         {
-            statusText.Text = Character?.IsN64Model == true
-                ? "No eligible embedded N64 animation clips found. External banks and "
-                  + "shells with ambiguous matrix addressing are not supported."
-                : "No animations auto-discovered. Use Add folder… / Add archive… to broaden the search.";
+            statusText.Text = Character switch
+            {
+                { IsN64Model: true } =>
+                    "No eligible embedded N64 animation clips found. External banks and "
+                    + "shells with ambiguous matrix addressing are not supported.",
+                { IsGbaModel: true } =>
+                    "No GBA animation clips found. The character's companion ROM "
+                    + "(rom.gbarom) must sit beside it and carry the skater model.",
+                _ => "No animations auto-discovered. Use Add folder… / Add archive… to broaden the search."
+            };
             return;
         }
 
@@ -497,11 +503,16 @@ internal sealed class MeshConverterTabAnimationPanel(
         cts.Cancel();
     }
 
+    /// <summary>Characters whose clips live only inside their own source, so an
+    ///     external animation folder or archive can never apply to them.</summary>
+    private static bool IsEmbeddedOnly(MeshFileEntry character)
+        => character.IsN64Model || character.IsGbaModel;
+
     private void ApplyOperationControlState(bool operationActive)
     {
         var state = AnimationPanelOperationControlState.Create(
             _characterReady,
-            Character?.IsN64Model == true,
+            Character != null && IsEmbeddedOnly(Character),
             Character?.IsPs2Scene == true,
             Character?.SkeletonBoneCount.HasValue == true,
             SourceRig != null,

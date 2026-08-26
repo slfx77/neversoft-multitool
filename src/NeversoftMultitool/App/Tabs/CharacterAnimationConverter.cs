@@ -1,6 +1,7 @@
 using NeversoftMultitool.CLI;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
+using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Detection;
@@ -82,6 +83,9 @@ internal static class CharacterAnimationConverter
         if (character.IsN64Model && character.N64HasEmbeddedAnimations)
             return BuildN64(character, animations, oneShot);
 
+        if (character.IsGbaModel)
+            return BuildGba(character, animations);
+
         if (character.IsPsx && character.PsxIsSuperModel)
             return BuildPsx(character, animations, visibilityOverrides, oneShot);
 
@@ -120,6 +124,15 @@ internal static class CharacterAnimationConverter
 
             if (character.IsN64Model && character.N64HasEmbeddedAnimations)
                 return character.ObjectCount;
+
+            if (character.IsGbaModel)
+            {
+                // The synthesised rig is one bone per unique model vertex, and
+                // every GBA character shares the one skater mesh.
+                var rom = character.Source.TryReadCompanion(GbaLevelCarver.RomEntryName);
+                var model = rom == null ? null : GbaSkaterModel.TryLocate(rom);
+                return model?.VertCounts.Sum(count => count);
+            }
         }
         catch
         {
@@ -160,6 +173,35 @@ internal static class CharacterAnimationConverter
         return document.Animations.Count > 0
             ? new DocumentResult(document, null)
             : new DocumentResult(null, "The selected N64 animation slots did not decode.");
+    }
+
+    private static DocumentResult BuildGba(
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations)
+    {
+        var indices = animations
+            .Select(static probe => probe.Source)
+            .OfType<GbaAnimationSource>()
+            .Where(source => ReferenceEquals(source.ModelSource, character.Source))
+            .Select(static source => source.ClipIndex)
+            .Distinct()
+            .ToArray();
+        if (indices.Length == 0)
+            return new DocumentResult(null, "No GBA animation clips were selected.");
+
+        var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = character.Source,
+            FileName = fileName,
+            OutputStem = MeshTypeDetector.GetStem(fileName),
+            SourceKind = ModelSourceKind.GbaModel,
+            GbaAnimationIndices = indices
+        });
+
+        return document.Animations.Count > 0
+            ? new DocumentResult(document, null)
+            : new DocumentResult(null, "The selected GBA animation clips did not decode.");
     }
 
     private static DocumentResult BuildPs2Scene(

@@ -79,6 +79,13 @@ public sealed class GbaLevelCarverTests(TestPaths paths)
         Assert.Equal(ModelSourceKind.GbaLevel, MeshTypeDetector.ToSourceKind(route.Kind));
         Assert.Equal("0_hangar", MeshTypeDetector.GetStem("0_hangar.lvl.gba"));
 
+        // Both carved kinds must be mesh CANDIDATES — the GUI scanner buckets by
+        // this predicate, and a kind that routes but is not a candidate never
+        // reaches the file list at all.
+        Assert.True(MeshTypeDetector.IsMeshCandidate("0_hangar.lvl.gba"));
+        Assert.True(MeshTypeDetector.IsMeshCandidate("13_spider_man.chr.gba"));
+        Assert.Equal(GbaLevelCarver.LevelRecordSize, 0x15C);
+
         // A plain .gba ROM is an ARCHIVE, never a mesh file.
         Assert.Equal(MeshFileKind.None, MeshTypeDetector.DetectByName("Tony Hawk (USA).gba").Kind);
     }

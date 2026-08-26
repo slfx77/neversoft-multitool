@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using NeversoftMultitool.CLI;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
@@ -83,14 +83,14 @@ public sealed class SkaAnimationBindingPlanTests(TestPaths paths)
     {
         var active = AnimationPanelOperationControlState.Create(
             characterReady: true,
-            isN64Character: false,
+            isEmbeddedOnlyCharacter: false,
             isPs2SceneCharacter: true,
             targetSkeletonKnown: true,
             sourceRigSelected: true,
             operationActive: true);
         var restored = AnimationPanelOperationControlState.Create(
             characterReady: true,
-            isN64Character: false,
+            isEmbeddedOnlyCharacter: false,
             isPs2SceneCharacter: true,
             targetSkeletonKnown: true,
             sourceRigSelected: true,
@@ -100,12 +100,16 @@ public sealed class SkaAnimationBindingPlanTests(TestPaths paths)
         Assert.Equal(new AnimationPanelOperationControlState(true, true, true, true), restored);
     }
 
+    /// <summary>
+    ///     Characters whose clips live only inside their own source (N64 bundles,
+    ///     GBA characters) can never take an external animation folder or archive.
+    /// </summary>
     [Fact]
-    public void OperationControlState_N64PreservesExternalSourceAndRigGates()
+    public void OperationControlState_EmbeddedOnlyCharacterKeepsExternalSourcesDisabled()
     {
         var state = AnimationPanelOperationControlState.Create(
             characterReady: true,
-            isN64Character: true,
+            isEmbeddedOnlyCharacter: true,
             isPs2SceneCharacter: false,
             targetSkeletonKnown: true,
             sourceRigSelected: false,

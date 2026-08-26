@@ -55,9 +55,14 @@ internal readonly record struct AnimationPanelOperationControlState(
     bool ChooseArchiveSourceRigEnabled,
     bool ClearSourceRigEnabled)
 {
+    /// <param name="isEmbeddedOnlyCharacter">
+    ///     A character whose clips live only inside its own source (N64 bundles,
+    ///     GBA characters). External animation sources cannot apply to it, so the
+    ///     add-folder/add-archive controls stay disabled.
+    /// </param>
     public static AnimationPanelOperationControlState Create(
         bool characterReady,
-        bool isN64Character,
+        bool isEmbeddedOnlyCharacter,
         bool isPs2SceneCharacter,
         bool targetSkeletonKnown,
         bool sourceRigSelected,
@@ -66,7 +71,7 @@ internal readonly record struct AnimationPanelOperationControlState(
         var idleReady = characterReady && !operationActive;
         var canChooseRig = idleReady && isPs2SceneCharacter && targetSkeletonKnown;
         return new AnimationPanelOperationControlState(
-            idleReady && !isN64Character,
+            idleReady && !isEmbeddedOnlyCharacter,
             canChooseRig,
             canChooseRig,
             idleReady && isPs2SceneCharacter && sourceRigSelected);

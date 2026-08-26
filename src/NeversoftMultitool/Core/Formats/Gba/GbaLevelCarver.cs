@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 namespace NeversoftMultitool.Core.Formats.Gba;
 
@@ -28,6 +28,10 @@ public static class GbaLevelCarver
 
     /// <summary>Carved level records carry this suffix (routes to the mesh pipeline).</summary>
     public const string LevelSuffix = ".lvl.gba";
+
+    /// <summary>The level-table record stride — also the exact length of a carved
+    ///     <c>.lvl.gba</c> entry, which is what the GUI scanner gates on.</summary>
+    public const int LevelRecordSize = 0x15C;
 
     public readonly record struct CarvedLevel(int Index, string Name, string Location, string EntryName);
 
@@ -127,9 +131,9 @@ public static class GbaLevelCarver
         for (var i = 0; i < carved.Count; i++)
         {
             var trueRecord = (int)(levels[i].RecordAddress - RomBase) - 0x144;
-            if (trueRecord < 0 || trueRecord + 0x15C > rom.Length)
+            if (trueRecord < 0 || trueRecord + LevelRecordSize > rom.Length)
                 continue;
-            result.Add((carved[i].EntryName, rom.AsSpan(trueRecord, 0x15C).ToArray()));
+            result.Add((carved[i].EntryName, rom.AsSpan(trueRecord, LevelRecordSize).ToArray()));
         }
 
         // The 3D character models: one entry per roster character (the 0x4C record;
@@ -141,10 +145,11 @@ public static class GbaLevelCarver
             for (var i = 0; i < model.CharacterCount; i++)
             {
                 var name = GbaSkaterModel.TryGetCharacterName(rom, model, i) ?? $"character{i}";
-                var record = model.CharacterTableOffset + i * 0x4C;
-                if (record + 0x4C > rom.Length)
+                var record = model.CharacterTableOffset + i * GbaSkaterModel.CharacterRecordSize;
+                if (record + GbaSkaterModel.CharacterRecordSize > rom.Length)
                     continue;
-                result.Add(($"models/{i:D2}_{Slug(name)}.chr.gba", rom.AsSpan(record, 0x4C).ToArray()));
+                result.Add(($"models/{i:D2}_{Slug(name)}.chr.gba",
+                    rom.AsSpan(record, GbaSkaterModel.CharacterRecordSize).ToArray()));
             }
 
             // A second reference to the same ROM buffer so loose extractions keep a
@@ -165,7 +170,7 @@ public static class GbaLevelCarver
     /// </summary>
     public static int FindRecordOffset(ReadOnlySpan<byte> rom, ReadOnlySpan<byte> record)
     {
-        if (record.Length != 0x15C)
+        if (record.Length != LevelRecordSize)
             return -1;
         var at = rom.IndexOf(record);
         return at;

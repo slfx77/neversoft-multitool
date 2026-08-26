@@ -3,6 +3,7 @@ using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Collision;
+using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
@@ -78,6 +79,18 @@ internal static class MeshConverterTabFileScanner
         Parallel.ForEach(buckets.N64ModelFiles, parallelOptions, file =>
         {
             AddIfNotNull(results, ScanN64ModelFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
+
+        Parallel.ForEach(buckets.GbaLevelFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanGbaLevelFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
+
+        Parallel.ForEach(buckets.GbaModelFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanGbaModelFile(new FileSystemAssetSource(file), file, inputDir));
             Report();
         });
 
@@ -386,6 +399,8 @@ internal static class MeshConverterTabFileScanner
             MeshFileKind.RenderWareBsp => ScanRwBspFile(source, displayPath, rootDir),
             MeshFileKind.Ddm => ScanDdmFile(source, displayPath, rootDir),
             MeshFileKind.N64Model => ScanN64ModelFile(source, displayPath, rootDir),
+            MeshFileKind.GbaLevel => ScanGbaLevelFile(source, displayPath, rootDir),
+            MeshFileKind.GbaModel => ScanGbaModelFile(source, displayPath, rootDir),
             MeshFileKind.Psx => ScanPsxFile(source, displayPath, rootDir),
             _ => null
         };
@@ -417,6 +432,12 @@ internal static class MeshConverterTabFileScanner
                     break;
                 case MeshFileKind.N64Model:
                     buckets.N64ModelFiles.Add(file);
+                    break;
+                case MeshFileKind.GbaLevel:
+                    buckets.GbaLevelFiles.Add(file);
+                    break;
+                case MeshFileKind.GbaModel:
+                    buckets.GbaModelFiles.Add(file);
                     break;
                 case MeshFileKind.Psx:
                     buckets.PsxFiles.Add(file);
@@ -529,6 +550,57 @@ internal static class MeshConverterTabFileScanner
     ///     geometry count comes from the linked render bank rather than the
     ///     shell, which holds no mesh chunks.
     /// </summary>
+    /// <summary>
+    ///     Carved GBA level records. Trusted by name like N64 bundles, so the gate
+    ///     is only what a carved record must satisfy structurally: the exact record
+    ///     length and a companion ROM to dereference into. Everything downstream
+    ///     (the level's art, collision and conversion) is fail-closed.
+    /// </summary>
+    private static MeshFileEntry? ScanGbaLevelFile(AssetSource source, string displayPath, string rootDir)
+    {
+        // A level converts to one textured surface mesh.
+        return ScanGbaRecord(
+            source, displayPath, rootDir, GbaLevelCarver.LevelRecordSize, "GBA Level",
+            objectCount: 1, meshCount: 1);
+    }
+
+    /// <summary>Carved GBA character records — the shared skater mesh plus this
+    ///     character's colours, animated by the ROM's clip table.</summary>
+    private static MeshFileEntry? ScanGbaModelFile(AssetSource source, string displayPath, string rootDir)
+    {
+        // Every character is the same 8-sub-object mesh, emitted as one mesh node.
+        return ScanGbaRecord(
+            source, displayPath, rootDir, GbaSkaterModel.CharacterRecordSize, "GBA Character",
+            objectCount: GbaSkaterModel.SubObjectCount, meshCount: 1);
+    }
+
+    private static MeshFileEntry? ScanGbaRecord(
+        AssetSource source, string displayPath, string rootDir, int recordSize, string format,
+        int objectCount, int meshCount)
+    {
+        try
+        {
+            if (source.ReadBytes().Length != recordSize
+                || !source.CompanionExists(GbaLevelCarver.RomEntryName))
+                return null;
+
+            return new MeshFileEntry
+            {
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
+                Format = format,
+                ObjectCount = objectCount,
+                MeshCount = meshCount,
+                Source = source
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static MeshFileEntry? ScanN64ModelFile(AssetSource source, string displayPath, string rootDir)
     {
         try
@@ -882,6 +954,8 @@ internal static class MeshConverterTabFileScanner
         public List<string> Ps2GeomFiles { get; } = [];
         public List<string> Ps2SceneFiles { get; } = [];
         public List<string> N64ModelFiles { get; } = [];
+        public List<string> GbaLevelFiles { get; } = [];
+        public List<string> GbaModelFiles { get; } = [];
         public List<string> PsxFiles { get; } = [];
         public List<string> RwBspFiles { get; } = [];
         public List<string> RwDffFiles { get; } = [];

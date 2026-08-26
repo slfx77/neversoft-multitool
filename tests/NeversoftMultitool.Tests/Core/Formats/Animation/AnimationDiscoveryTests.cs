@@ -10,6 +10,56 @@ namespace NeversoftMultitool.Tests.Core.Formats.Animation;
 public sealed class AnimationDiscoveryTests(TestPaths paths)
 {
     [CorpusFact]
+    public void FindForCharacter_GbaSkater_RoutesExactClipSelectionBackToItsCharacter()
+    {
+        const string buildName = "Tony Hawk's Pro Skater 2 (2001-6-11, GBA - Final)";
+        var romPath = paths.FindSampleFile(buildName, "Tony Hawk's Pro Skater 2 (USA, Europe).gba");
+        Assert.SkipWhen(romPath == null, "THPS2 GBA ROM sample not available");
+
+        var backend = ArchiveAssetBackend.TryOpen(romPath!);
+        Assert.NotNull(backend);
+        using var fileSystem = backend.FileSystem;
+        var entry = Assert.Single(backend.Entries.Where(
+            e => e.Name.EndsWith("13_spider_man.chr.gba", StringComparison.OrdinalIgnoreCase)));
+        var source = new ArchiveAssetSource(backend, entry);
+
+        var probes = AnimationDiscovery.FindForCharacter(
+            source, skeletonBoneCount: 172, TestContext.Current.CancellationToken);
+
+        // The four authored-empty clips are not offered; every other clip is.
+        Assert.Equal(217, probes.Count);
+        Assert.All(probes, probe =>
+        {
+            var clipSource = Assert.IsType<GbaAnimationSource>(probe.Source);
+            Assert.Same(source, clipSource.ModelSource);
+            Assert.Equal($"{entry.Name}::anim_{clipSource.ClipIndex}", probe.ResolvedDisplayName);
+            Assert.True(probe.MatchesSkeleton);
+            Assert.Equal(172, probe.BoneCount);
+            Assert.Equal(clipSource.TickCount / 60f, probe.DurationSec);
+        });
+        Assert.DoesNotContain(65, probes.Select(p => ((GbaAnimationSource)p.Source).ClipIndex));
+
+        // FrameCount is DISTINCT frames, so a clip that holds one pose for many
+        // ticks is a single-frame pose the pane's filter can hide.
+        Assert.Equal(51, probes.Count(static probe => probe.IsSinglePose));
+
+        // Exact GUI-style selection: one checked row contributes only its clip.
+        var selected = Assert.IsType<GbaAnimationSource>(probes[3].Source);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = selected.ModelSource,
+            FileName = entry.Name,
+            OutputStem = "13_spider_man",
+            SourceKind = ModelSourceKind.GbaModel,
+            GbaAnimationIndices = [selected.ClipIndex]
+        });
+
+        Assert.Equal($"anim_{selected.ClipIndex}", Assert.Single(document.Animations).Name);
+        Assert.All(document.Meshes.SelectMany(static mesh => mesh.Primitives),
+            static primitive => Assert.NotNull(primitive.Skin));
+    }
+
+    [CorpusFact]
     public void FindForCharacter_N64DirectBank_RoutesExactEmbeddedSelectionBackToItsModel()
     {
         const string buildName = "Spider-Man (2000-11-21, N64 - Final)";

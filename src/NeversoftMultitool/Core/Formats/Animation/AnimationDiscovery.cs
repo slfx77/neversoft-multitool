@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Core.Formats.Animation;
@@ -37,6 +38,12 @@ internal static class AnimationDiscovery
         {
             ct.ThrowIfCancellationRequested();
             return N64EmbeddedAnimationDiscovery.CreateProbes(skinSource);
+        }
+
+        if (IsGbaCharacter(skinSource))
+        {
+            ct.ThrowIfCancellationRequested();
+            return GbaEmbeddedAnimationDiscovery.CreateProbes(skinSource);
         }
 
         if (IsPsxCharacter(skinSource))
@@ -149,6 +156,12 @@ internal static class AnimationDiscovery
     private static bool IsN64Character(AssetSource source)
     {
         return source.EntryName.EndsWith(".psx.n64", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsGbaCharacter(AssetSource source)
+    {
+        return source.EntryName.EndsWith(
+            MeshTypeDetector.GbaModelSuffix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPsxCharacter(AssetSource source)
