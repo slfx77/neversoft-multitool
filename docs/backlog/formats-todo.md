@@ -33,12 +33,27 @@ research (both blocked on disassembling the game's own loader). Status:
   entries are plain byte ranges served by `FileArchiveFileSystem`. Exposes the Nitro tree plus
   `_system/` (header, arm9/arm7, banner, overlays). Proving Ground DS's 16 `bink/*.bik` are now
   playable in the Video tab. Pinned by `NdsRomArchiveTests` (synthetic + 3-cart `[CorpusTheory]`).
-- 🔴 **VV GOB/GFC containers (DS)** — `main.gob`/`main.gfc` hold nearly all DS content. Framing is
-  characterized (`tools/research/vv-gob-gfc/FINDINGS.md`): BE `.gfc` index `{magic 0x8008, gobSize,
-  entryCount, uniqueCount}` + 16-byte dedup records `{size, offset, …, codec}` + a name-table tail;
-  `.gob` payloads are per-entry zlib/LZ77/raw and the codec set evolves across the three games. Full
-  decode needs the ARM9/overlay loader disassembled (now extractable via `_system/`). Then implement
-  `GobArchive` on the PAK+PAB companion pattern.
+- ✅ **VV GOB/GFC containers (DS) — SHIPPED 2026-08-23/25.** `Core/Formats/Gob/` +
+  `GobArchiveFileSystem`; every cart rebuilds bit-exact (14,606 / 4,650 / 5,657 files, 41,643 chunk
+  checksums). DS **textures** and **static meshes** (packed GX display lists, UVs, texture binding)
+  convert via `nds-texture` / `nds-mesh`. **Model-set naming landed 2026-08-25**: the loader's ids
+  live in ARM9 as plain u32s, so its own filename templates resolve — `GobNames.txt` 6,235 →
+  **22,819** proven pairs, Sk8land now 14,550/14,606 named, and the container's two dominant
+  unidentified families turned out to be the **geometry** and **animation** formats. Full
+  derivation, including the controls that make the naming sound and the refutations that do not
+  work, in `docs/formats/ds-gob-gfc.md`. Remaining DS work is tracked as its own phase list below.
+- 🔴 **DS formats above the static tier** — with naming solved, these are now reachable:
+  **animation** (Sk8land 11,156 indexed clips, `{u32 ?, nRot, nTrans, version}` + two per-joint
+  offset tables, `nRot == jointCount` for 76/77 model sets; DHJ/PG ship theirs inside `comp`
+  containers), **skinning** (the geometry prologue's variable-stride joint records are still
+  skipped, and `NdsGxInterpreter` discards the MTX_RESTORE slot at vertex-emit time),
+  **collisionspheres** (`{u32 count, u32 totalLength, u32 offsets[]}`, 229 files),
+  **pvs**, **`.hwas` streamed audio** (57 MB of DHJ+PG soundtrack; 512-byte header, one continuous
+  4-bit sign+magnitude ADPCM stream — the nibble histogram is unambiguous, the exact step/index
+  variant is not yet read out of ARM7), the **`comp`/`pmoc`** container, and **GUI wiring** (DS is
+  CLI-only; `nds-mesh` bypasses `MeshModelParser` on `ModelSourceKind.Generic`).
+  `tools/vendor/bizhawk-nds/` (BizHawk 2.9.1 + melonDS) is provisioned for dynamic analysis and
+  smoke-tested headlessly.
 - 🔴 **GBA 3D level meshes** — `tools/research/gba-3d/FINDINGS.md`. Confirmed geometry is STORED (not
   procedural): a raw ROM model region (~0x750000+ in THPS2) with a bounds+count+pointer descriptor
   table and small-index face lists, reached via an in-RAM object directory. The vertex-position codec

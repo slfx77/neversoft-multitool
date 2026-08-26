@@ -153,6 +153,79 @@ a plausible, entirely wrong name on ~14,000 files per cart. Do not re-attempt it
 without an independent oracle. `.\%08x.%08x.%s.bin` (two unknown u32s) was never
 in reach at all.
 
+## Model sets — where the ids actually are
+
+That refutation killed the *unconstrained* search. The independent oracle it
+asked for turned out to be sitting in the cart: **the code that asks for a file
+has to hold its id, and it holds it as a plain little-endian u32.**
+
+Hashing `.\<id>.<kind>.bin` over a candidate pool and testing membership in the
+container's own key set separates the two pools completely:
+
+| id pool | distinct | expected by chance | `textureinfo` | `collisionspheres` | controls |
+| --- | --- | --- | --- | --- | --- |
+| GOB content, LE u32 | 2,347,360 | 8.0 | 6 | 8 | 10, 14, 6 |
+| GOB content, BE u32 | 2,347,360 | 8.0 | 11 | 10 | 8, 11, 3 |
+| **ARM9 + overlay9, LE u32** | **114,276** | **0.4** | **198** | **182** | **1, 0, 0** |
+
+The container rows sit *at* chance. The code row is ~500x chance. And the method
+carries its own positive control: `texture` scores **1,096** against the GOB
+pool, because a texture bank record does store its `pixelId` as a plain u32 —
+the one id that is in the container is the one the method finds there.
+
+### The templates, and what they name
+
+Read from each cart's own ARM9, never assumed from a sibling — the three games
+do not agree:
+
+```
+.\%08x.%s.bin           textureinfo, collisionspheres, pvs, animation
+.\%08x.%08x.%s.bin      geometry, animation
+.\%s.texture.bin        a bank naming its own texel blob
+.\%sSMK.bin  .\%s%sSMK.bin
+```
+
+A model set is keyed by one id (`idA`); its geometry and animation take a second
+(`idB`). Sk8land spells animation clips **indexed** as
+`.\<idA>.<idB>.<n>.animation.bin`; Downhill Jam and Proving Ground instead ship
+one `.\<idA>.animation.bin` per set, and have no indexed form at all.
+
+| kind | template | Sk8land | DHJ | PG |
+| --- | --- | --- | --- | --- |
+| `textureinfo` | 1-id | 198 | 118 | 152 |
+| `collisionspheres` | 1-id | 182 | 103 | — |
+| `pvs` | 1-id | 15 | — | — |
+| `animation` | 1-id | — | 324 | 470 |
+| `geometry` | 2-id | **1,167** | **1,325** | **1,858** |
+| `animation` | 2-id | 183 | — | — |
+| `animation` | 2-id indexed | **11,156** | — | — |
+| *worst control* | | *4* | *1* | *2* |
+
+which names **12,900 / 14,606**, **1,870 / 4,657** and **2,485 / 5,665** files.
+Geometry coverage is 1167/1167, 1325/1404 and 1858/2170.
+
+### Two disciplines that make the names proven rather than plausible
+
+**Search the pairs the code spells, not the cross product.** The loader is
+handed `idA` and `idB` together and stores them together: for 1,164 of Sk8land's
+1,167 geometry files the two ids are **adjacent code words**, and the three that
+are not are exactly the chance hits the controls predict. Sweeping adjacent
+pairs (~400k) instead of `idA x pool` (~23M) drops the expected chance count
+from ~100 to ~1 *and raises recall*, because a model whose `idA` owns no
+texture bank is unreachable from an idA-seeded search — Downhill Jam went
+1,159 -> 1,325 and Proving Ground 1,567 -> 1,858.
+
+**Gate a wide search on content.** Before that narrowing, the `idA x pool`
+sweep produced 1,250 geometry hits of which only 1,167 were geometry files —
+and the controls landed at 65-83 raw, 3-4 after the content gate. A raw hit
+from a wide search is not a name.
+
+### Known limit
+
+79 Downhill Jam and 312 Proving Ground geometry files are still unnamed: either
+their ids are computed rather than stored, or they live in an overlay this pass
+does not reach. They keep their `<crc32>.bin` names, which stay stable.
+
 ## What is inside — content types
 
 Unnamed files extract as `<crc32>.bin`, so `GobContentTypes` gives them a real
@@ -163,28 +236,34 @@ mislabelled**, and 1,874 of them are positively identified.
 | Extension | Recognized by | Notes |
 | --- | --- | --- |
 | `.swav` | `SWAV` | Nitro wave, 1,405 across the carts — **the only standard Nintendo format the GOB carries** |
+| `.strm` `.swar` `.sbnk` `.sseq` `.sdat` | their own magics | the rest of the Nitro audio family |
 | `.xml` | `<` + printable | menu/config trees; the source of most proven stem names |
-| `.pal` | exactly 512 B, all u16 bit 15 clear | 256-entry BGR555 palette |
 | `.sac` | `20 00 4B 00` | |
 | `.hwas` | `sawh` | VV streamed audio: `{'hwas', blockSize, sampleRate, channels, …}` |
 | `.prp` | `PFPF` | props |
-| `.lwc` | `LWC` + version byte | |
+| `.lwc` | `LWC` prefix | the version byte is *not* checked |
 | `.comp` | `pmoc` (LE `'comp'`) | container of sub-records |
 
-Coverage of the unnamed bulk is only ~4%, and that is a real limit rather than a
-gap in effort. Two Vicarious Visions families dominate and neither is identified:
+`.pal` is deliberately **not** a rule — see the withdrawal recorded in
+`GobContentTypes`: "exactly 512 bytes of u16s with bit 15 clear" matches every
+real palette *and* a 32×32 4bpp texel blob, and once the texture banks named
+their own texel files the Rosetta caught it mislabelling 13 of them.
 
-- **~46% (10,302 files)** — `{u32 id, u32 n1, u32 n2, u32 d}` followed by TWO
-  offset tables of `n+1` entries each (`u32[4] == 16 + (n1 + n2 + 2) * 4` holds,
-  and the tables are monotone and in range on every file sampled). Its sub-records
-  begin `{u16 id, u16 kind, …}` — the same shape the `comp` container's members
-  use, so the two are related.
-- **~21% (4,741 files)** — `{4, a, 0, 0, 0, b, 0, 0, 0, c, …}` then signed 32-bit
-  triples that look like fixed-point coordinates, with a constant `0x54` at
-  index 15.
+Content sniffing reaches only ~4% of the unnamed bulk, but that ceased to be the
+binding limit once the loader's own names became recoverable (see **Model sets**
+below). Both families that once dominated the unidentified mass are now
+identified, and by name rather than by shape:
 
-Files matching no rule keep `.bin`. Guessing at these would be worse than
-leaving them opaque.
+- **`{4, a, 0, 0, 0, b, 0, 0, 0, c, …}` with a constant `0x54` at index 15** is
+  the **geometry** format documented under *Meshes* — `[0]` is version 4,
+  `[15]` is 84 = `0x54`, and `a`/`b`/`c` are the bounding-box extents sitting on
+  the diagonal of words 1/5/9.
+- **`{u32 ?, u32 nRot, u32 nTrans, u32 version}` + two offset tables of `n+1`**
+  is the **animation** format — Sk8land alone carries 10,733 of them. See
+  *Animation* below for the joint-count oracle that proves it.
+
+Files matching no rule and carrying no recovered name keep `.bin`. Guessing at
+those would be worse than leaving them opaque.
 
 ## Textures
 
@@ -424,12 +503,28 @@ a real signal, but nowhere near a binding.
 
 ### UV mapping
 
-Texcoords arrive as 12.4 fixed-point **texels** and become UVs by dividing by the
-size the site's own TEXIMAGE_PARAM declares. Values outside 0..1 are ordinary
+Texcoords arrive as 12.4 fixed-point **texels** and become UVs by dividing by
+the size the site's own TEXIMAGE_PARAM declares — and they STAY in that
+coordinate space. The art is stored bottom-up, and the correction for it lives
+in the **embedded image**, which the mesh writer re-flips back to file
+orientation, not in the UVs.
+
+That took two user screenshots to get right. Raw V against the decoder's
+upright PNGs rendered every face upside-down. The obvious fix, `v = 1 − t/h`,
+fixed the orientation and drew thin seams down every texture-atlas border: a
+coordinate flip is exact only at texel CENTRES, but the DS samples
+`floor(texel)` with no filtering, and island borders are authored at exact
+integer texel coordinates — so every border row sampled one off. Flipping the
+embedded image instead makes sampling bit-exact with the console by
+construction, tiling and mirroring included.
+
+DS materials also emit **nearest samplers**: the hardware has no texture
+filtering at all, and a viewer's linear default both softens the art and bleeds
+neighbouring atlas islands across UV borders. Values outside 0..1 are ordinary
 tiling — 77% of texcoords land inside the unit square and the tails reach ±64,
-which is a road surface repeating — so the wrap mode has to be carried across
-too: GX bits 16/17 enable repeat and 18/19 mirror, and a flip bit only mirrors
-while repeat is on.
+a road surface repeating — so the wrap mode has to be carried across too: GX
+bits 16/17 enable repeat and 18/19 mirror, and a flip bit only mirrors while
+repeat is on.
 
 ### Using it
 
@@ -440,6 +535,144 @@ nmt nds-mesh "Tony Hawk's American Sk8land (USA).nds" -o out/models
 3,492 models convert across the three carts (1,062 + 1,014 + 1,416; the rest of
 the version-4 files are authored-empty), 300,933 triangles, 1,065 of them with
 resolved texture images, 0 glTF validator errors and 0 warnings.
+
+## Animation — decoded, and exported
+
+These files made up the container's largest unidentified mass — Sk8land ships
+10,733 of them, 11,156 of its recovered animation names land on that exact
+family, and the joint-count oracle proved the identity before the decode: the
+geometry file states its own joint count at word 14, and the clip's channel
+counts match the geometry's joint-flag census for every one of the 11,156
+reachable (model, clip) pairs.
+
+Implementation: `Core/Formats/Animation/NdsAnimationFile.cs` (parser/evaluator),
+`Core/Formats/Mesh/Nds/NdsPoseScatter.cs` (application),
+`Core/Formats/Mesh/Conversion/NdsAnimatedModelWriter.cs` (glTF baking); CLI
+`nds-mesh --animations`.
+
+```
++0   u32 frames
++4   u32 rotationChannels
++8   u32 translationChannels
++12  u32 scaleChannels          // first read as "version = 1"; it is a count
++16  u32 tableEnd               // == 20 + (nRot+nTrans+nScale)*4, exact corpus-wide
++20  u32 channelOffset[nRot], [nTrans], [nScale]
+```
+
+Each channel:
+
+```
++0   u16 frames                 // == the clip's frames, in all 245,936+ channels
++2   u16 keyCount
++4   u16 id                     // per-kind ordinal (redundant)
++6   u8  keySize                // rotation 12, translation/scale 16
++8   u32 seekTableRel           // == 16; u32 key indices, one per 32 frames
++12  u32 keysRel                // keys run from here to EXACTLY the channel end
+```
+
+A key is `{u16 time, u16 flag, payload}` — rotation payload a **unit quaternion
+in s16 4.12** (measured: |q|² ≈ 4096² across the corpus), translation and scale
+fx32 triples. Times are frames; the final key of every channel lands on the
+clip's last frame. `channelSize == keysRel + keyCount*keySize` held for every
+channel, which is the identity that pinned the layout.
+
+**Flag bit 0 is HOLD** (decompiled key walk, ITCM `0x01FFD3B4` and siblings):
+the runtime refuses to take the next key for interpolation while the previous
+key carries it, so the value steps — except exactly at the next key's time,
+which always emits that key's own value. Interpolating through a held key
+produces in-between poses the game never displays; a skater's arm swinging
+through the body was the visible symptom before this was read out of the code.
+Interpolation is otherwise hemisphere-corrected **component lerp** (nlerp) for
+quaternions and plain lerp for vectors, with the factor computed on the
+hardware divider from `(t − prevTime·4)·0x1000 / ((nextTime − prevTime)·4)` —
+key times compare as `time·4` against a quarter-frame clock. The runtime does
+NOT normalise the lerped quaternion — the unit-q matrix formula runs on the
+slightly short vector, so mid-segment hardware matrices are microscopically
+non-orthonormal; the exporter normalises (glTF requires it) and records the
+deviation. The dispatch on the channel's keySize byte also reveals variants
+Sk8land never ships: keySize 1 is a constant identity/zero channel, an 8-byte
+rotation key holds four s8 Q1.7 quaternion components, and a compressed 8-byte
+translation key is `{s8 x, y, z, s8 shift}` — likely the DHJ/PG comp dialect.
+Notably the runtime's own s8-rotation LERP is buggy (the base term is dropped,
+`(f·(b−a) + a) >> 7`), so only held (flag-1) segments of that variant can ever
+have worked in a shipped game.
+
+An earlier note here read the offset table as two fence-post arrays starting at
++16, which manufactured a phantom empty first rotation channel ("the root never
+rotates") and mislabelled each kind's last channel. The table starts at +20 with
++16 as the end marker; roots do rotate.
+
+### How animation is applied — there is no skeleton
+
+The runtime has no skeleton: no parent table, no per-joint matrix slots, no
+CPU-side matrix composition. The hierarchy is **compiled into the display list**
+as `MTX_PUSH / MTX_MULT_4x3 / … / MTX_POP` nesting, the shipped operand values
+of those matrix commands ARE the bind pose, and animating a model means
+**overwriting the operands in RAM** and DMA-ing the unchanged list to the GX
+FIFO (draw routine ITCM `0x01FFBBF0`; scatter `0x01FFDA6C`; evaluator
+`0x01FFD120` — all decompiled).
+
+The geometry prologue's joint records are the scatter table:
+
+```
+84: u32 recordOffset[jointCount]           // file-relative; 0 = no record
+record: { u16 targetCount, u16 flags, i32 targetRel[targetCount] }
+```
+
+`flags` bit 0 = rotation, bit 1 = translation, bit 2 = scale — the on-disk
+flags census {2: 1212, 3: 944, 7: 243, 1: 84, 6: 5} is exactly the observed
+kind histogram. Targets are record-relative offsets of display-list matrix
+operands: a rotating joint's target is the 9-word 3x3 block of a `MTX_MULT_4x3`
+(or `MTX_MULT_3x3`), its translation goes to the same command's row 3
+(target+0x24), a translation-only joint targets a `MTX_TRANS` operand or a
+MULT_4x3 row 3 directly, and scale goes to the following `MTX_SCALE`. Every one
+of Sk8land's joint targets resolves under those rules (1,655 rotation blocks,
+184 TRANS operands, 1,033 row-3s — zero misses). Channel-to-joint mapping is
+positional per kind: the k-th rotation channel drives the k-th joint whose
+record has bit 0, and the count equality is the application gate.
+
+**The frame-0 oracle pinned the quaternion convention**: scattering frame 0 of
+the skater's first clip reproduces the shipped bind operands at vertex RMS
+0.001; the transposed convention lands at 0.42. Bind pose is literally an
+authored frame.
+
+### Export
+
+`NdsAnimatedModelWriter` animates exactly the way the hardware does — patch a
+copy of the list, re-run the interpreter — so each frame's vertex positions are
+correct by construction. Bones are the matrices the list transforms vertices
+with, identified by **provenance** (the offset of the last matrix command that
+produced the value); they are flat, carrying their measured per-frame GLOBAL
+transforms, and every vertex binds to exactly one (the DS has no weight
+blending). Fail-closed: an inapplicable clip, a failed decompose, or a changed
+matrix set skips the clip and leaves the static document untouched. The 30 fps
+cadence is an explicit export policy, not a measured runtime property.
+
+Clip counts: 46 model sets carry **225** clips each (skaters) and 31 carry
+**26**, contiguous from index 0. Skinned models' rest pose sits inside the
+declared header box only loosely — for animated props that box is the swept
+volume (a wheel declares its rotation circle, √2 wider than the wheel), so the
+bounding-box oracle deliberately excludes skinned files.
+
+### Downhill Jam / Proving Ground — same channels, unbound
+
+DHJ and PG spell animation as one `.\<idA>.animation.bin` per id. The `comp`
+wrapper turns out to BE the clip: `{u32 'pmoc', u32 frames, u32 nRot,
+u32 nTrans, u32 nScale, u32 channelOffset[nRot+nTrans+nScale]}` — the Sk8land
+header with a magic in place of the table-end word — and the channels inside
+are byte-for-byte the same grammar. All **322 + 467** files parse exactly
+(rotation channels keySize 12, vector channels 16, every channel consuming to
+its declared end). One dialect difference: their last key lands on `frames-1`
+where Sk8land's lands on `frames`.
+
+What is missing is the BINDING. Their animation ids are a disjoint id
+population — no animation idA owns geometry, a texture bank, or anything else,
+so the clip-to-model link lives somewhere not yet read (a scene file or the
+code). The census join that bound texture banks was measured and does not
+transfer: joining on channel counts vs the geometry's joint-flag census leaves
+**306 of 322** DHJ and **458 of 467** PG animations ambiguous — many rigs share
+a census — so a unique-survivor rule has almost no coverage, and anything less
+would be a guess. Their clips parse and stay unexported.
 
 ## Audio — the standard part
 

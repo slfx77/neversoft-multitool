@@ -113,3 +113,9 @@ tools/vendor/gltf-validator/*
 !tools/vendor/bizhawk/
 tools/vendor/bizhawk/*
 !tools/vendor/bizhawk/README.md
+
+# BizHawk 2.9.1 (melonDS core) for DS dynamic analysis — kept separate so the
+# pinned 2.6.3/mGBA install the GBA work uses is not disturbed.
+!tools/vendor/bizhawk-nds/
+tools/vendor/bizhawk-nds/*
+!tools/vendor/bizhawk-nds/README.md
