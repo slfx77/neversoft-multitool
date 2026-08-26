@@ -39,6 +39,7 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.RenderWareBsp => ParseRwBsp(request),
             ModelSourceKind.N64Model => ParseN64Model(request),
             ModelSourceKind.GbaLevel => ParseGbaLevel(request),
+            ModelSourceKind.GbaModel => ParseGbaModel(request),
             _ => throw new NotSupportedException($"Unsupported mesh source kind: {request.SourceKind}")
         };
     }
@@ -196,6 +197,34 @@ public sealed class MeshModelParser : IModelParser
         var native = new GbaLevelNativeSource(record, rom, trueRecord, levelName, location);
         var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.GbaLevel, native);
         GbaLevelGeometryWriter.Populate(document, native);
+        return document;
+    }
+
+    /// <summary>
+    ///     A carved GBA character: the roster record plus the ROM companion. The
+    ///     character index is recovered by content — the record occurs exactly once,
+    ///     at the character table.
+    /// </summary>
+    private static ModelDocument ParseGbaModel(MeshImportRequest request)
+    {
+        var record = request.Source.ReadBytes();
+        var rom = request.Source.TryReadCompanion(Gba.GbaLevelCarver.RomEntryName)
+                  ?? throw new InvalidOperationException(
+                      $"Missing '{Gba.GbaLevelCarver.RomEntryName}' companion — carved GBA characters " +
+                      "must stay beside the ROM they were carved from");
+        var model = Gba.GbaSkaterModel.TryLocate(rom)
+                    ?? throw new InvalidOperationException("The companion ROM does not carry the skater model");
+
+        var at = rom.AsSpan().IndexOf(record);
+        if (at < model.CharacterTableOffset || (at - model.CharacterTableOffset) % 0x4C != 0
+            || (at - model.CharacterTableOffset) / 0x4C >= model.CharacterCount)
+            throw new InvalidOperationException("The character record does not belong to the companion ROM");
+        var characterIndex = (at - model.CharacterTableOffset) / 0x4C;
+        var name = Gba.GbaSkaterModel.TryGetCharacterName(rom, model, characterIndex) ?? request.OutputStem;
+
+        var native = new GbaModelNativeSource(record, rom, characterIndex, name, Outfit: 0);
+        var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.GbaModel, native);
+        GbaModelGeometryWriter.Populate(document, native);
         return document;
     }
 

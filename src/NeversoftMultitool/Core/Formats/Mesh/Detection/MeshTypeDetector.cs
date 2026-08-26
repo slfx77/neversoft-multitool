@@ -28,6 +28,12 @@ public static class MeshTypeDetector
     /// </summary>
     public const string GbaLevelSuffix = ".lvl.gba";
 
+    /// <summary>
+    ///     Carved GBA character records (<c>models/&lt;NN&gt;_&lt;name&gt;.chr.gba</c>) —
+    ///     the shared 3D skater model with that character's colours.
+    /// </summary>
+    public const string GbaModelSuffix = ".chr.gba";
+
     private static readonly string[] XboxSceneSuffixes =
     [
         ".skin.xbx", ".mdl.xbx", ".scn.xbx",
@@ -57,6 +63,7 @@ public static class MeshTypeDetector
         .. CollisionSuffixes,
         N64ModelSuffix,
         GbaLevelSuffix,
+        GbaModelSuffix,
         ".ddm",
         ".psx",
         .. RenderWareDffSuffixes,
@@ -143,6 +150,7 @@ public static class MeshTypeDetector
                 RequiresContentProbe: true, DisplayFormat: "THAW PS2 Worldzone"),
             N64ModelSuffix => new MeshFileRoute(MeshFileKind.N64Model, suffix, DisplayFormat: "N64 Model"),
             GbaLevelSuffix => new MeshFileRoute(MeshFileKind.GbaLevel, suffix, DisplayFormat: "GBA Level"),
+            GbaModelSuffix => new MeshFileRoute(MeshFileKind.GbaModel, suffix, DisplayFormat: "GBA Character"),
             ".ddm" => new MeshFileRoute(MeshFileKind.Ddm, suffix, DisplayFormat: "DDM Mesh"),
             ".psx" => new MeshFileRoute(MeshFileKind.Psx, suffix, RequiresContentProbe: true),
             ".bsp" => new MeshFileRoute(MeshFileKind.RenderWareBsp, suffix, RequiresContentProbe: true),
@@ -250,6 +258,7 @@ public static class MeshTypeDetector
             MeshFileKind.Psx => ModelSourceKind.Psx,
             MeshFileKind.N64Model => ModelSourceKind.N64Model,
             MeshFileKind.GbaLevel => ModelSourceKind.GbaLevel,
+            MeshFileKind.GbaModel => ModelSourceKind.GbaModel,
             MeshFileKind.RenderWareDff => ModelSourceKind.RenderWareDff,
             MeshFileKind.RenderWareBsp => ModelSourceKind.RenderWareBsp,
             _ => ModelSourceKind.Generic

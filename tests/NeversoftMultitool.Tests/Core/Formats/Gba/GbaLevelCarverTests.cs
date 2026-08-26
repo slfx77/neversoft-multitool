@@ -23,19 +23,30 @@ public sealed class GbaLevelCarverTests(TestPaths paths)
 
         Assert.True(GbaLevelCarver.IsVvLevelRom(rom));
         var carve = GbaLevelCarver.Carve(rom);
-        Assert.Equal(10, carve.Count);
+        Assert.Equal(26, carve.Count);
 
-        // Names come from the ROM's own strings (record +0x00), locations from +0x04.
+        // Names come from the ROM's own strings (record +0x00, locations from +0x04;
+        // character names likewise from the roster records).
         string[] expected =
         [
             "levels/0_hangar.lvl.gba", "levels/1_school_ii.lvl.gba", "levels/2_marseille.lvl.gba",
             "levels/3_warehouse.lvl.gba", "levels/4_ny_city.lvl.gba", "levels/5_skate_street.lvl.gba",
             "levels/6_rooftops.lvl.gba", "levels/7_wind_tunnel.lvl.gba", "levels/8_pool.lvl.gba",
+            "models/00_tony_hawk.chr.gba", "models/01_bob_burnquist.chr.gba",
+            "models/02_steve_caballero.chr.gba", "models/03_kareem_campbell.chr.gba",
+            "models/04_rune_glifberg.chr.gba", "models/05_eric_koston.chr.gba",
+            "models/06_bucky_lasek.chr.gba", "models/07_rodney_mullen.chr.gba",
+            "models/08_chad_muska.chr.gba", "models/09_andrew_reynolds.chr.gba",
+            "models/10_geoff_rowley.chr.gba", "models/11_elissa_steamer.chr.gba",
+            "models/12_jamie_thomas.chr.gba", "models/13_spider_man.chr.gba",
+            "models/14_mindy.chr.gba",
+            "models/" + GbaLevelCarver.RomEntryName,
             GbaLevelCarver.RomEntryPath
         ];
         Assert.Equal(expected, carve.Select(c => c.Path).ToArray());
         Assert.All(carve.Take(9), c => Assert.Equal(0x15C, c.Data.Length));
-        Assert.Equal(rom.Length, carve[9].Data.Length);
+        Assert.All(carve.Skip(9).Take(15), c => Assert.Equal(0x4C, c.Data.Length));
+        Assert.Equal(rom.Length, carve[^1].Data.Length);
 
         var levels = GbaLevelCarver.ListLevels(rom);
         Assert.Equal("Warehouse", levels[3].Name);
@@ -50,10 +61,13 @@ public sealed class GbaLevelCarverTests(TestPaths paths)
 
         using var fs = ArchiveFileSystem.TryOpen(romPath!);
         Assert.NotNull(fs);
-        Assert.Equal(10, fs.Entries.Count);
+        Assert.Equal(26, fs.Entries.Count);
         var record = fs.FindByName("0_hangar.lvl.gba");
         Assert.NotNull(record);
         Assert.Equal(0x15C, fs.ReadEntry(record).Length);
+        var character = fs.FindByName("13_spider_man.chr.gba");
+        Assert.NotNull(character);
+        Assert.Equal(0x4C, fs.ReadEntry(character).Length);
     }
 
     [Fact]

@@ -132,6 +132,26 @@ public static class GbaLevelCarver
             result.Add((carved[i].EntryName, rom.AsSpan(trueRecord, 0x15C).ToArray()));
         }
 
+        // The 3D character models: one entry per roster character (the 0x4C record;
+        // the shared morph-target mesh + that character's colours resolve through
+        // the ROM companion — see GbaSkaterModel).
+        var model = GbaSkaterModel.TryLocate(rom);
+        if (model != null)
+        {
+            for (var i = 0; i < model.CharacterCount; i++)
+            {
+                var name = GbaSkaterModel.TryGetCharacterName(rom, model, i) ?? $"character{i}";
+                var record = model.CharacterTableOffset + i * 0x4C;
+                if (record + 0x4C > rom.Length)
+                    continue;
+                result.Add(($"models/{i:D2}_{Slug(name)}.chr.gba", rom.AsSpan(record, 0x4C).ToArray()));
+            }
+
+            // A second reference to the same ROM buffer so loose extractions keep a
+            // same-directory companion for the model records too.
+            result.Add(("models/" + RomEntryName, rom));
+        }
+
         // One shared copy of the ROM; the level records dereference into it.
         result.Add((RomEntryPath, rom));
         return result;

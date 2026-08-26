@@ -565,11 +565,49 @@ bake the character stream overwrites). Unpinned (kept greyscale): grind sparks
   found by its 200-byte prefix pairing. Fonts/HUD glyphs/badges remain
   research-only (address-pinned tables, some palette banks unproven).
 
+## SHIPPED (2026-08-26): the skater's 3D model — decoded, carved, converted
+
+**The skater model is fully decoded** (`GbaSkaterModel` + `GbaModelGeometryWriter`;
+carve emits `models/NN_<name>.chr.gba` per roster character, `.chr.gba` routes
+through the Mesh tab/CLI to a coloured GLB). It is a **morph-target** model — no
+skeleton; every animation frame stores the complete posed vertex set — and **one
+mesh is shared by all 15 characters**; a character contributes only its colour
+ramps and material→ramp binding.
+
+- **Model header** 0x08775CDC (32 B): `{u32 frameStride=864; u8 vertCounts[8]
+  ={6,16,18,4,99,3,26,0} (Σ172); u8 normCounts[8]={8,16,18,6,99,4,8,0};
+  u8 faceCounts[8]={8,16,20,6,178,2,36,0} (Σ266); u32 facePtr=0x08779DF4}`.
+  Located by content: `frameStride == 4 + Σ ceil(v/4)·12 + Σ ceil(n/2)·4` (the
+  engine's own bind arithmetic) with an in-ROM face pointer. **The identity has
+  exactly one other hit in the ROM** — a second, clipless mesh header at
+  0x744C98 (stride 460, facePtr = header+0x20; likely a level-object mesh, an
+  open lead) — so the locate walks candidates until the clip closure holds.
+- **Clips** directly after the header: 221 × `{u16 tickStart, u16 tickCount}`,
+  then a u16 tick→frame remap (7,874 ticks) ending exactly at facePtr — the
+  boundary is solved from that closure. 4,772 distinct frames.
+- **Frame pool** 0x080383BC: 4,772 × 864 B (~3.9 MB, half the cart), ending
+  exactly at character 0's first asset (which is how the base is recovered:
+  poolEnd − frameCount·stride). Frame = 3 s8 anchor bytes + pad, per-sub s8
+  (x,y,z) triples in 12-byte-aligned blocks, then packed u16 normals
+  (encoding undecoded, unused). Frame 0 spans exactly 101 z-up units
+  (deck −16 … head +85).
+- **Faces**: 266 × 8 B `{v0,v1,v2, n0,n1,n2, u16 material(0..45)|0x80 flag}`,
+  sub-object-local indices. Sub 4 = 99-vert body, sub 6 = 26-vert deck.
+- **Characters** 0x0877582C, stride 0x4C, name-first (idx 13 "Spider-Man",
+  14 "Mindy"): +0x40 outfit binding (8×48 B material→ramp rows), +0x44 colour
+  LZ77 (2,496 B = 8 outfits × 312 B = 156 BGR555; palette entry = 2·rowValue,
+  export takes the mid shade +6 of the 12-shade ramp). Verified by the
+  can't-pass-by-accident render: Spider-Man comes out in his red-mask/blue-suit
+  scheme, Hawk in skin/blue shirt/khaki; both GLBs Khronos-clean.
+
+Deferred: morph-target GLB animation (221 clips; ModelDocument has no morph
+support yet), the u16 normal encoding (lit shading), the 0x80 face flag
+(wheels), clip↔trick-name binding, and the 0x744C98 sibling mesh.
+
 ## Next steps (in order)
 
-1. **The skater's 3D model format** — the realtime character renderer implies a
-   stored model (vertices/topology + the colour-stream shading ramps). Locating
-   it is the real "character mesh" arc.
+1. **Skater model follow-ups** — morph-target animation export, normals,
+   the 0x744C98 clipless sibling mesh (see §SHIPPED 2026-08-26).
 2. **Fonts/HUD glyphs/badges extraction** (research complete in §sprites; needs
    either content-anchors for the pointer arrays or accepting fixed addresses).
 3. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
@@ -577,13 +615,10 @@ bake the character stream overwrites). Unpinned (kept greyscale): grind sparks
    areas the captured frames could not validate, plus ~24 tiles that are not in the
    pool at all (likely sprite/overlay art from another source). Bounded follow-up —
    re-capture frames covering more of a level, or find the second pool.
-2. **Are there meshes? (`+0x30` and the skater).** Two places 3D render data could
-   still hide, both unresolved: the level record's **`+0x30`** field, which decodes
-   as a face/quad list (stride-18 quads `v, v+1, v+18, v+19`) and whose consumer is
-   unidentified; and the **skater**, traced only as far as an OAM affine sprite
-   (64×64, hardware-rotated) — its underlying data representation was never examined.
-   Note the *collision* terrain IS genuinely 3D (the heightfield), matching the VV
-   dev interview; this item is specifically about **render** meshes.
+2. **Level-record `+0x30` face/quad list.** Decodes as stride-18 quads
+   `v, v+1, v+18, v+19` with an unidentified consumer — still open. (The skater
+   half of this item is RESOLVED: see §SHIPPED 2026-08-26 — the skater is a real
+   stored 3D model, now exported.)
 3. **GBA tile-sheets / sprites.** THPS2's 221 32-aligned LZ77 tile sheets
    (2048-byte ×126 = 64-tile 4bpp sheets, sprite/anim frames, fonts) are located but
    their palette + arrangement binding is runtime state — needs a palette-pairing

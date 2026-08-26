@@ -25,5 +25,12 @@ public enum ModelSourceKind
     ///     collision surface textured with the level's own pre-baked isometric art,
     ///     resolved against the <c>rom.gbarom</c> companion.
     /// </summary>
-    GbaLevel
+    GbaLevel,
+
+    /// <summary>
+    ///     A character record carved from a Vicarious Visions GBA ROM: the shared
+    ///     3D morph-target skater mesh coloured by this character's outfit ramps,
+    ///     resolved against the <c>rom.gbarom</c> companion.
+    /// </summary>
+    GbaModel
 }

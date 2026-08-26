@@ -39,6 +39,9 @@ public enum MeshFileKind
     /// <summary>Level record carved from a Vicarious Visions GBA ROM (<c>levels/N_&lt;name&gt;.lvl.gba</c>).</summary>
     GbaLevel,
 
+    /// <summary>Character record carved from a Vicarious Visions GBA ROM (<c>models/NN_&lt;name&gt;.chr.gba</c>).</summary>
+    GbaModel,
+
     /// <summary>RenderWare clump (<c>.skn</c>, <c>.dff</c>).</summary>
     RenderWareDff,
 
