@@ -383,15 +383,22 @@ pinned ratios unchanged (731/808 · 793/808 · 944/973), so the decode was alrea
 right — but the oracle now constrains **where** a model sits as well as how big it
 is, which is what a missing outer transform would break.
 
-**The boilerplate box.** Words 2/3/4/6/7/8 are the off-diagonal of the 3×4 block
-the box occupies and are zero in a real model. In 851 files across the three carts
-(102 Sk8land, 309 Downhill Jam, 440 Proving Ground) they instead hold a fixed
-non-zero pattern, and the "extents" beside it are nonsense — one axis around
-65,000 units, tens of times the whole level. That is not a second box layout: all
-851 decode to **zero vertices**. It is what the authoring tool writes when a model
-has no geometry to measure, and the perfect correlation (851/851 both ways) is what
-identifies the class. Their declared box must be kept out of any bounds oracle or
-level extent, or a single empty piece inflates a level's bounds by ~65,000 units.
+**Cameras.** Words 2/3/4/6/7/8 are the off-diagonal of the 3×4 block the box
+occupies and are zero in a real model. In 851 files across the three carts (102
+Sk8land, 309 Downhill Jam, 440 Proving Ground) they instead hold a fixed non-zero
+pattern, and the "extents" beside it are nonsense — one axis around 65,000 units,
+tens of times the whole level. Those files are **cameras**: every one decodes to
+zero vertices, and every one issues an `MTX_LOAD_4x4` whose matrix is a genuine
+perspective projection (`m[11] == -4096`, `m[15] == 0`, `m[3] == m[7] == 0`,
+`m[0]` and `m[5]` positive) — 851/851.
+
+The control is what makes that a classification rather than a coincidence: of the
+3,499 files with a normal box, **not one** issues an `MTX_LOAD_4x4` at all, so the
+header marker and the display-list content agree in both directions. A third,
+independent signal agrees too — the manifest record that declares a piece (below)
+carries class 3 and no texture bank for exactly this population, 529/529 across the
+three carts. A camera's declared box must be kept out of any bounds oracle or level
+extent, or one of them inflates a level's bounds by ~65,000 units.
 
 **The display list runs from `76 + w19` to the first sub-object offset** (or to
 `w18` when there are none). That start formula reads oddly — a size counted from
@@ -596,6 +603,60 @@ it independently: its eight ARM9 *overlay* manifests are exactly the eight sets
 the classifier calls worlds, while the three manifests inside ARM9 itself — the
 skater, the icon run, and a four-piece set — are exactly the ones it rejects.
 Outputs are named `level_<idA>.glb` or `set_<idA>.glb` accordingly.
+
+### The cart declares its model sets
+
+The container has no table of model sets — a set is only "the files sharing an
+id" there. The declaration is in the code, one table per set, as a run of
+fixed-stride records opening with the set's own `(idA, idB)` pair. **Every table's
+membership is exactly the group the container gives**, no extras and none missing,
+across all 47 tables in the three carts; and every set with at least four geometry
+files has one, so the tables are the whole population rather than the ones a scan
+happened to find. `NdsModelSetManifest` reads them, `NdsCartManifests` pairs them
+with the container.
+
+Nothing about the reading is a per-cart constant. The **stride differs per build**
+(Sk8land 32 bytes, Downhill Jam 36, Proving Ground 28) and is measured per table; a
+run is only accepted when it reproduces the container's grouping; and the fields are
+read relative to BOTH ends of the record, which is what makes one reading cover all
+three builds:
+
+```
++0x00 u32 idA
++0x04 u32 idB
++0x08 u32 textureBankId       // 0 = declares no bank
++0x0C u32 animationId         // DHJ/PG; a runtime cache slot in Sk8land, null on disc
+ ...
+ [n-3] u32 pvsMaskLo          // one 64-bit potentially-visible set, 0 where a
+ [n-2] u32 pvsMaskHi          //   build ships no pvs file
+ [n-1] u32 classFlags         // 3 = never drawn (cameras and menu rigs)
+```
+
+`textureBankId` equals the owning idA wherever it is non-zero — 0 of 3,032 records
+name a foreign set, so the shipped spelling-based texture binding is exactly what
+the record says. What it adds is the **zero** case: 529 records declare no bank at
+all, a fail-closed signal the GX-state join cannot produce.
+
+**The overlays also carry the artists' own object names.** Each table is followed by
+two parallel pointer arrays — record pointers then name pointers, ordered by name
+so the game can binary-search them: `Decals_Section01_03`, `SHADOWS_Section01_01`,
+`RAILS_Section01_30`, `menu_camera_b01`. Three things about that block are derived
+rather than assumed, and each validates itself: the region's LOAD ADDRESS (a pointer
+must land on one of the records, whose offsets are already known); the array LENGTH
+(a record with no name is simply absent from the index — Sk8land's ov04 indexes 95
+of 96, Proving Ground's menu set only 24 of 165); and the PAIRING (the names must
+come out in ascending order, which an array read one entry too long does not
+satisfy). **3,376 names recovered** — 866 / 1,058 / 1,452 — and a name is reported
+only when the whole block validates, never guessed.
+
+The geometry backs the names up. Pieces the exporter called decals or shadows are
+flat sheets and the rest are not: median shortest/longest side 0.0014 against 0.2173
+in Sk8land, 0.0009 against 0.1493 in Proving Ground. And where a table names camera
+pieces, 100% of them are called `Camera_*` / `Cam_*` / `menu_*` — 473/473 — which is
+the third of the three independent signals that identify that class.
+
+`nds-mesh --levels` uses the names as its mesh/node prefixes, so a composited level
+opens in Blender with `RAILS_Section01_30` rather than `1f5df9b2`.
 
 Composites also resolve cross-piece coplanar decals: levels ship posters,
 signs and shadows as separate pieces lying EXACTLY on another piece's wall or

@@ -164,10 +164,17 @@ public static class NdsMeshCommand
         bool verbose, CancellationToken cancellationToken)
     {
         var sets = NdsLevelCompositor.GroupSets(container);
+        // The cart's own code names its pieces. Reachable only from a CART — a bare
+        // extracted .gob has no code — so the names are additive and their absence
+        // just leaves the hex ids in place.
+        var manifests = container.Parent != null
+            ? NdsCartManifests.Read(container.Parent, container)
+            : new Dictionary<uint, NdsModelSetManifest>();
         var exported = 0;
         var worlds = 0;
         var pieces = 0;
         var triangles = 0;
+        var authored = 0;
 
         foreach (var (idA, members) in sets.OrderByDescending(s => s.Value.Count))
         {
@@ -199,14 +206,18 @@ public static class NdsMeshCommand
             var document = new ModelDocument { Name = name, SourceKind = ModelSourceKind.Generic };
             var added = 0;
             var pieceOf = new Dictionary<ModelPrimitive, int>();
+            manifests.TryGetValue(idA, out var manifest);
             foreach (var (idB, entry, data, geometry) in parsed)
             {
                 var meshesBefore = document.Meshes.Count;
                 var groups = NdsGxInterpreter.Run(data, geometry);
+                var piece = manifest?.Pieces.FirstOrDefault(p => p.IdB == idB)?.Name;
+                if (piece != null)
+                    authored++;
                 NdsGeometryWriter.PopulateNdsGeometry(
                     document, geometry, groups,
                     catalog.ResolveFor(entry, groups),
-                    namePrefix: $"{idB:x8}_");
+                    namePrefix: $"{piece ?? $"{idB:x8}"}_");
                 for (var m = meshesBefore; m < document.Meshes.Count; m++)
                 foreach (var primitive in document.Meshes[m].Primitives)
                     pieceOf[primitive] = added;
@@ -240,7 +251,8 @@ public static class NdsMeshCommand
 
         AnsiConsole.MarkupLine(
             $"Composited [green]{exported}[/] model sets — [green]{worlds}[/] world-scale "
-            + $"([green]{pieces}[/] pieces, [green]{triangles}[/] triangles)");
+            + $"([green]{pieces}[/] pieces, [green]{triangles}[/] triangles"
+            + (authored > 0 ? $", [green]{authored}[/] pieces named by the cart" : "") + ")");
         return exported > 0 ? 0 : 1;
     }
 

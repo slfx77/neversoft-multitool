@@ -255,6 +255,96 @@ public sealed class NdsGeometryTests(TestPaths paths)
         Assert.Equal(expected, $"{matches}/{total}");
     }
 
+    /// <summary>
+    ///     Pins that <see cref="NdsGeometryFile.IsCameraRig" /> classifies rather than
+    ///     guesses. The header marker and the display list's own content are two
+    ///     independent signals, and the assertion is that they agree in BOTH
+    ///     directions: every marked file loads a perspective projection, and among the
+    ///     unmarked ones — the control — none does, even though a handful do load a
+    ///     4×4 matrix. Without that control "851/851 carry a projection" would be
+    ///     compatible with every file carrying one.
+    /// </summary>
+    [CorpusTheory]
+    [MemberData(nameof(CameraCases))]
+    public void RealCart_CameraFilesAreMarkedInTheHeaderAndLoadAProjection(
+        string build, string rom, string gobPath, string expected)
+    {
+        var romPath = paths.FindSampleFile(build, rom);
+        Assert.SkipWhen(romPath == null, $"{build} ROM sample not available");
+
+        using var cart = ArchiveFileSystem.TryOpen(romPath!);
+        using var gob = cart!.TryOpenNested(cart.FindByPath(gobPath)!);
+        Assert.NotNull(gob);
+
+        var cameras = 0;
+        var camerasWithProjection = 0;
+        var models = 0;
+        var modelsLoadingA4X4 = 0;
+        var modelsWithProjection = 0;
+        var cameraVertices = 0;
+        foreach (var entry in gob!.Entries)
+        {
+            byte[] data;
+            try
+            {
+                data = gob.ReadEntry(entry);
+            }
+            catch (InvalidDataException)
+            {
+                continue;
+            }
+
+            if (!NdsGeometryFile.TryParseValidated(data, out var geometry))
+                continue;
+
+            var loads4X4 = false;
+            var projection = false;
+            NdsDisplayList.Walk(data, geometry.DisplayListStart, geometry.DisplayListEnd,
+                (opcode, p, _) =>
+                {
+                    if (opcode != NdsGxCommand.MatrixLoad4x4 || p.Length < 16 || projection)
+                        return;
+                    loads4X4 = true;
+                    // A GX projection: -1 in m[11], 0 in m[15], no shear in m[3]/m[7],
+                    // positive scales on the diagonal.
+                    projection = (int)p[11] == -4096 && p[15] == 0 && p[3] == 0 && p[7] == 0
+                                 && (int)p[0] > 0 && (int)p[5] > 0;
+                });
+
+            if (geometry.IsCameraRig)
+            {
+                cameras++;
+                if (projection)
+                    camerasWithProjection++;
+                foreach (var group in NdsGxInterpreter.Run(data, geometry))
+                    cameraVertices += group.Indices.Count;
+            }
+            else
+            {
+                models++;
+                if (loads4X4)
+                    modelsLoadingA4X4++;
+                if (projection)
+                    modelsWithProjection++;
+            }
+        }
+
+        Assert.Equal(cameras, camerasWithProjection);
+        Assert.Equal(0, modelsWithProjection);
+        Assert.Equal(0, cameraVertices);
+        Assert.Equal(expected, $"{cameras}/{models}/{modelsLoadingA4X4}");
+    }
+
+    public static TheoryData<string, string, string, string> CameraCases()
+    {
+        var data = new TheoryData<string, string, string, string>();
+        // cameras / models / models that load a 4x4 at all (the control's teeth)
+        data.Add(Carts[0].Build, Carts[0].Rom, Carts[0].Gob, "102/1065/0");
+        data.Add(Carts[1].Build, Carts[1].Rom, Carts[1].Gob, "309/1095/0");
+        data.Add(Carts[2].Build, Carts[2].Rom, Carts[2].Gob, "440/1730/0");
+        return data;
+    }
+
     private static bool UsesRuntimeMatrix(ReadOnlySpan<byte> data, NdsGeometryFile file)
     {
         var stored = 0u;

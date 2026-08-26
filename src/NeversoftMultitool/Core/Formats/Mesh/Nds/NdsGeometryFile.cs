@@ -128,16 +128,30 @@ public sealed class NdsGeometryFile
     public Vector3 DeclaredCentre => new(Fixed(10), Fixed(11), Fixed(12));
 
     /// <summary>
-    ///     True when the header carries the authoring tool's boilerplate box instead
-    ///     of a measured one: words 2/3/4/6/7/8 — the off-diagonal of the 3×4 block
-    ///     the box occupies, zero in a real model — hold a fixed non-zero pattern,
-    ///     and the "extents" that go with it are nonsense (one axis around 65,000
-    ///     units). Every such file in all three carts decodes to zero vertices
-    ///     (102 Sk8land, 309 Downhill Jam, 440 Proving Ground; 851/851), so this is
-    ///     what an authored-empty model looks like rather than a second box layout.
-    ///     Its declared box must not be fed to a bounds oracle or a level's extent.
+    ///     True when this file is a CAMERA rather than a model — it carries no
+    ///     geometry, and the header block that would hold a bounding box holds
+    ///     something else.
+    ///
+    ///     The marker is words 2/3/4/6/7/8, the off-diagonal of the 3×4 block the box
+    ///     occupies: zero in a real model, a fixed non-zero pattern here, with
+    ///     nonsense "extents" beside it (one axis around 65,000 units — tens of times
+    ///     a whole level). 851 files across the three carts carry it (102 / 309 / 440),
+    ///     every one of them decodes to zero vertices, and every one issues an
+    ///     <c>MTX_LOAD_4x4</c> whose matrix is a genuine perspective projection
+    ///     (<c>m[11] == -4096</c>, <c>m[15] == 0</c>, <c>m[3] == m[7] == 0</c>,
+    ///     <c>m[0]</c> and <c>m[5]</c> positive) — 851/851.
+    ///
+    ///     The control is what makes that a classification rather than a coincidence:
+    ///     of the 3,499 normal-box files only SIX issue an <c>MTX_LOAD_4x4</c> at all
+    ///     and NONE of the six is a projection, so the two independent signals — the
+    ///     header marker and the matrix content — agree perfectly in both directions.
+    ///     (Downhill Jam and Proving Ground state it a third way: the manifest record
+    ///     that names a set's pieces carries the owning id for a drawing piece and
+    ///     zero for a camera, 322/322 and 467/467.)
+    ///
+    ///     A camera's declared box must never reach a bounds oracle or a level extent.
     /// </summary>
-    public bool HasBoilerplateBox =>
+    public bool IsCameraRig =>
         (Header[2] | Header[3] | Header[4] | Header[6] | Header[7] | Header[8]) != 0;
 
     private float Fixed(int index)

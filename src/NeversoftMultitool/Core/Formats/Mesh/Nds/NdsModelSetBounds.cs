@@ -26,9 +26,10 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Nds;
 ///     itself (the skater's 46 parts, 96 unit-sized icons, and a four-piece set) are
 ///     exactly the ones it rejects.
 ///
-///     Pieces carrying the authoring tool's boilerplate box are skipped, not measured:
-///     see <see cref="NdsGeometryFile.HasBoilerplateBox" />. They are authored-empty and
-///     their nonsense extents would add ~65,000 units to any set that contains one.
+///     Camera files are skipped, not measured: see
+///     <see cref="NdsGeometryFile.IsCameraRig" />. They carry no geometry and no box
+///     at all, and the nonsense sitting where a box would be adds ~65,000 units to any
+///     set that contains one.
 /// </summary>
 public static class NdsModelSetBounds
 {
@@ -57,7 +58,7 @@ public static class NdsModelSetBounds
         measured = 0;
         foreach (var piece in pieces)
         {
-            if (piece.HasBoilerplateBox)
+            if (piece.IsCameraRig)
                 continue;
             var half = piece.DeclaredExtent * 0.5f;
             min = Vector3.Min(min, piece.DeclaredCentre - half);
