@@ -145,6 +145,29 @@ public sealed class NdsModelSetTests(TestPaths paths)
         Assert.Equal(expected, $"{stated}/{joined}/{textured}");
     }
 
+    /// <summary>
+    ///     Pins the level grouping: a DS level IS a model set (one idA, many
+    ///     geometry idBs, pieces authored in world space), so the compositor's
+    ///     input is simply the named geometry entries grouped by idA.
+    /// </summary>
+    [CorpusFact]
+    public void Sk8land_MultiPieceModelSetsGroupIntoLevels()
+    {
+        var romPath = paths.FindSampleFile(Carts[0].Build, Carts[0].Rom);
+        Assert.SkipWhen(romPath == null, "Sk8land ROM sample not available");
+
+        using var cart = ArchiveFileSystem.TryOpen(romPath!);
+        using var gob = cart!.TryOpenNested(cart.FindByPath(Carts[0].Gob)!);
+        var sets = NeversoftMultitool.CLI.NdsLevelCompositor.GroupSets(gob!);
+
+        var multi = sets.Where(s => s.Value.Count >= 2).ToList();
+        Assert.Equal(65, multi.Count);
+        Assert.Equal(1036, multi.Sum(s => s.Value.Count));
+
+        // The downtown set is the largest — 135 world-space pieces.
+        Assert.Equal(135, sets[0x571EC7FFu].Count);
+    }
+
     public static TheoryData<string, string, string, string> BindingCases()
     {
         var data = new TheoryData<string, string, string, string>();

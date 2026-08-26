@@ -51,7 +51,8 @@ internal static class NdsGeometryWriter
         NdsGeometryFile file,
         IReadOnlyList<NdsGeometryGroup> groups,
         NdsTextureSource? textures = null,
-        NdsSkinAssignment? skin = null)
+        NdsSkinAssignment? skin = null,
+        string namePrefix = "")
     {
         var index = 0;
         foreach (var group in groups)
@@ -59,7 +60,7 @@ internal static class NdsGeometryWriter
             if (group.Indices.Count == 0)
                 continue;
 
-            var name = $"mesh_{index:D3}";
+            var name = $"{namePrefix}mesh_{index:D3}";
             var material = BuildMaterial(document, group.Material, index, textures);
             var materialIndex = ModelDocumentGeometryAdapter.AddMaterial(document, material);
 

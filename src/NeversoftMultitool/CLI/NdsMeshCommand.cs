@@ -45,6 +45,11 @@ public static class NdsMeshCommand
             Description = "Bake each model's animation clips (Sk8land's indexed clip library) "
                           + "into skinned, animated glTF"
         };
+        var levelsOption = new Option<bool>("--levels")
+        {
+            Description = "Composite each multi-piece model set into one level glTF "
+                          + "(pieces are authored in world space and simply merge)"
+        };
 
         var command = new Command("nds-mesh", "Convert Nintendo DS (Vicarious Visions) models to glTF");
         command.Arguments.Add(inputArgument);
@@ -52,6 +57,7 @@ public static class NdsMeshCommand
         command.Options.Add(limitOption);
         command.Options.Add(verboseOption);
         command.Options.Add(animationsOption);
+        command.Options.Add(levelsOption);
         command.SetAction((parseResult, cancellationToken) =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -61,6 +67,7 @@ public static class NdsMeshCommand
                 parseResult.GetValue(limitOption),
                 parseResult.GetValue(verboseOption),
                 parseResult.GetValue(animationsOption),
+                parseResult.GetValue(levelsOption),
                 cancellationToken));
         });
         return command;
@@ -68,7 +75,8 @@ public static class NdsMeshCommand
 
     internal static int Execute(
         string input, string? outputDir, int limit, bool verbose,
-        bool animations = false, CancellationToken cancellationToken = default)
+        bool animations = false, bool levels = false,
+        CancellationToken cancellationToken = default)
     {
         if (!File.Exists(input))
         {
@@ -91,6 +99,8 @@ public static class NdsMeshCommand
 
         var catalog = NdsTextureCatalog.Build(container);
         var clipSource = animations ? NdsClipSource.Build(container) : null;
+        if (levels)
+            return ExportLevels(container, catalog, output, verbose, cancellationToken);
         var converted = 0;
         var empty = 0;
         var triangles = 0;
@@ -139,6 +149,79 @@ public static class NdsMeshCommand
             + (animated > 0 ? $", [green]{animated}[/] animated ({clipCount} clips)" : "")
             + (empty > 0 ? $", [yellow]{empty}[/] with no geometry" : ""));
         return converted > 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    ///     Composites every multi-piece model set into one world-space level
+    ///     document. See <see cref="NdsLevelCompositor" /> for why merging is the
+    ///     whole job: the pieces are authored in world space and share their set's
+    ///     texture bank.
+    /// </summary>
+    private static int ExportLevels(
+        IArchiveFileSystem container, NdsTextureCatalog catalog, string output,
+        bool verbose, CancellationToken cancellationToken)
+    {
+        var sets = NdsLevelCompositor.GroupSets(container);
+        var exported = 0;
+        var pieces = 0;
+        var triangles = 0;
+
+        foreach (var (idA, members) in sets.OrderByDescending(s => s.Value.Count))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (members.Count < 2)
+                continue;
+
+            var name = $"level_{idA:x8}";
+            var document = new ModelDocument { Name = name, SourceKind = ModelSourceKind.Generic };
+            var added = 0;
+            foreach (var (idB, entry) in members.OrderBy(m => m.IdB))
+            {
+                byte[] data;
+                try
+                {
+                    data = container.ReadEntry(entry);
+                }
+                catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+                {
+                    continue;
+                }
+
+                if (!NdsGeometryFile.TryParseValidated(data, out var geometry))
+                    continue;
+
+                var groups = NdsGxInterpreter.Run(data, geometry);
+                NdsGeometryWriter.PopulateNdsGeometry(
+                    document, geometry, groups,
+                    catalog.ResolveFor(entry, groups),
+                    namePrefix: $"{idB:x8}_");
+                added++;
+            }
+
+            if (added < 2 || document.TriangleCount == 0)
+                continue;
+
+            var result = ModelExportService.Export(document, new MeshExportRequest
+            {
+                OutputDirectory = output,
+                OutputStem = name,
+                CancellationToken = cancellationToken
+            });
+            exported++;
+            pieces += added;
+            triangles += document.TriangleCount;
+            if (verbose)
+            {
+                AnsiConsole.MarkupLine(
+                    $"  {name} [grey]{added} pieces, {document.TriangleCount} tris[/]"
+                    + (result.OutputPaths.Count > 0 ? "" : " [red]export failed[/]"));
+            }
+        }
+
+        AnsiConsole.MarkupLine(
+            $"Composited [green]{exported}[/] levels "
+            + $"([green]{pieces}[/] pieces, [green]{triangles}[/] triangles)");
+        return exported > 0 ? 0 : 1;
     }
 
     internal static ModelDocument BuildDocument(
@@ -195,6 +278,42 @@ public static class NdsMeshCommand
             + $"{source.Groups.Count} groups, joints {source.File.JointCount}, "
             + $"{model.Textures.Count} textures[/]"
             + (exported ? "" : " [red]export failed[/]"));
+    }
+}
+
+/// <summary>
+///     Composites multi-piece model sets into levels.
+///
+///     A DS level IS a model set: its overlay's manifest lists one idA with a run
+///     of geometry idBs (Sk8land's downtown set carries 135 pieces), and the
+///     pieces are authored in WORLD space — their header bounding boxes tile the
+///     level's whole footprint rather than centring on the origin (measured:
+///     2 of 135 pieces near origin, combined extent ~1,140x1,136 units). So a
+///     level assembles by simply merging every geometry file that shares an idA,
+///     the same way THAW worldzone sectors do; the pieces even share the set's
+///     one texture bank by construction.
+/// </summary>
+internal static class NdsLevelCompositor
+{
+    /// <summary>Groups the container's named geometry entries by model-set idA.</summary>
+    public static Dictionary<uint, List<(uint IdB, ArchiveEntry Entry)>> GroupSets(
+        IArchiveFileSystem container)
+    {
+        var sets = new Dictionary<uint, List<(uint, ArchiveEntry)>>();
+        foreach (var entry in container.Entries)
+        {
+            if (!NdsModelSet.TryParseGeometryName(
+                    GobNames.TryResolve(entry.Crc), out var idA, out var idB))
+            {
+                continue;
+            }
+
+            if (!sets.TryGetValue(idA, out var list))
+                sets[idA] = list = [];
+            list.Add((idB, entry));
+        }
+
+        return sets;
     }
 }
 
