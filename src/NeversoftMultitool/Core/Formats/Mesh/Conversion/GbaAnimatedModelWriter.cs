@@ -65,6 +65,10 @@ internal static class GbaAnimatedModelWriter
             boneCount += model.VertCounts[sub];
         }
 
+        // The cart embeds the same tricks.bin the PS1 discs do, so a clip a
+        // single trick owns gets its real name here as well as in the pane.
+        var trickNames = GbaTricksFile.TryBuildClipNames(rom, clips.Count);
+
         var skeletonIndex = document.Skeletons.Count;
         var frameCache = new Dictionary<int, Vector3[]>();
         var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -73,8 +77,10 @@ internal static class GbaAnimatedModelWriter
         {
             if (index < 0 || index >= clips.Count || clips[index].TickCount == 0)
                 continue;
-            var name = AnimationExportName.ForMesh(
-                meshStem: string.Empty, $"anim_{index}", usedNames);
+            var label = trickNames != null && trickNames.TryGetValue(index, out var trick)
+                ? trick
+                : $"anim_{index}";
+            var name = AnimationExportName.ForMesh(meshStem: string.Empty, label, usedNames);
             animations.Add(BakeClip(name, rom, model, clips[index], boneCount,
                 boneBase, skeletonIndex, frameCache));
         }

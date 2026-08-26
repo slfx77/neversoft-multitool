@@ -23,13 +23,21 @@ internal static class GbaEmbeddedAnimationDiscovery
                 return [];
 
             var boneCount = model.VertCounts.Sum(count => count);
+            // The cart ships the same tricks.bin the PS1 discs do; clips a single
+            // trick uniquely owns are listed by their real name.
+            var trickNames = GbaTricksFile.TryBuildClipNames(rom, model.ClipCount);
+
             var probes = new List<AnimationProbe>(model.ClipCount);
             foreach (var clip in GbaSkaterModel.ReadClips(rom, model))
             {
                 if (clip.TickCount == 0)
                     continue;
 
-                var clipSource = new GbaAnimationSource(source, clip.Index, clip.TickCount);
+                var clipSource = new GbaAnimationSource(
+                    source, clip.Index, clip.TickCount,
+                    trickNames != null && trickNames.TryGetValue(clip.Index, out var trick)
+                        ? trick
+                        : null);
                 probes.Add(new AnimationProbe(
                     clipSource,
                     clipSource.DisplayName,

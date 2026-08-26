@@ -600,13 +600,84 @@ ramps and material→ramp binding.
   can't-pass-by-accident render: Spider-Man comes out in his red-mask/blue-suit
   scheme, Hawk in skin/blue shirt/khaki; both GLBs Khronos-clean.
 
-Deferred: morph-target GLB animation (221 clips; ModelDocument has no morph
-support yet), the u16 normal encoding (lit shading), the 0x80 face flag
-(wheels), clip↔trick-name binding, and the 0x744C98 sibling mesh.
+Deferred: the u16 normal encoding (lit shading), the 0x80 face flag (wheels),
+and the 0x744C98 sibling mesh. (Animation export and clip naming shipped the
+same day — see below.)
+
+## SHIPPED (2026-08-26): animation export — all 221 clips
+
+The engine is a pure **morph player**: each frame stores the complete posed
+vertex set and the renderer draws whichever frame the clip's tick→frame remap
+names. glTF has no bone-free way to carry that through this pipeline, so the
+export synthesises the equivalent rig (the DS precedent):
+
+- **One bone per unique model vertex** (172), every rendered corner bound to its
+  own vertex at weight 1, **translation-only** channels keyed per tick with the
+  frame's absolute positions. Bind pose = frame 0, so bind geometry equals the
+  static export **by construction** (`LocalTransform = T(p0)`,
+  `InverseBindMatrix = T(-p0)` built directly, never `Matrix4x4.Invert`).
+- **The 3 per-frame anchor bytes are the pose's AABB centre** (measured 200/200
+  sampled frames) — a render/cull pivot for the 64×64 sprite, **not root
+  motion**. Applying them as translation would double the motion; the exporter
+  deliberately ignores them.
+- **The tick→frame remap is honoured tick by tick**: 73 of the 217 non-empty
+  clips hold or reorder frames, so a frame range misplays them.
+- 4 clips are authored-empty (65, 66, 84, 85); 51 resolve to a single distinct
+  frame (the pane's "Hide single-frame poses" filter catches those).
+- **60 ticks/s is an explicit export policy**, not measured runtime (GBA video
+  runs 59.7275 Hz).
+
+Opt-in via `mesh --gba-animations` / `--gba-animation <n>`, or the GUI
+Animations pane (which also fixed a latent gap: neither GBA kind had a scanner
+arm, so carved levels and characters never appeared in the Mesh tab at all).
+All 217 clips fit one Khronos-clean GLB; a static export with no animation
+requested stays byte-identical, SHA-pinned.
+
+## SHIPPED (2026-08-26): the cart embeds a real `tricks.bin` — 105 clips NAMED
+
+**The GBA port carries the same Neversoft trick-table bytecode the PS1 discs
+ship** (`docs/formats/psx-tricks-bin.md`), re-encoded by Vicarious Visions —
+found by tracing opcode `0x01` into the very clip table `GbaSkaterModel`
+documents. Verdict: **PROVEN**.
+
+- **Container**: base `0x0842A9E0`, 20,509 bytes. Header = 8×s16 with `[7]==0`
+  (the PS1 shape); sections 0/1 are per-skater (15 entries each), 4/5/6 global,
+  each addressing 8-byte record lists `{u8 kind, 3 bytes, s16 scriptOffset,
+  u16 flags}`; 2/3 hold script-offset arrays whose length is **not** structurally
+  bounded (an open limit — it does not affect naming).
+- **The opcode-width table is READ FROM THE ROM**, not assumed: the
+  `Trick_Skip` dispatcher (`ldr r0,[r0]; mov pc,r0` preceded by `cmp rX,#0x5A`,
+  unique in the ROM) leads to a jump table whose case bodies state each width.
+  **13 widths differ from the PS1 retail table** — `0x01` is 2 bytes here vs 3
+  there, `0x39` counts u8 not u16 — so the PS1 table desynchronises within a few
+  records. This is exactly why my first byte-sweep read `0x200|clip`: the record
+  is `01 <u8 clip>` and the `0x02` was the *next* opcode.
+- **Everything is content-located**: the base is the literal-pool word that both
+  satisfies the header identity AND has a `ldr [pc]` site (the identity alone
+  matches three places); the extent is the furthest terminator reachable from
+  the bounded record lists. Later VV carts have no `0x5A`-bounded dispatcher, so
+  the locator declines them.
+- **Census**: 174 tricks, 146 distinct names, clips referenced ≤ 200 of 221.
+  **105 clips are uniquely owned and get their real name**; 116 keep `anim_N`.
+- **Oracles that cannot pass by accident**: (a) names stating a flip count match
+  the deck's measured rotation — Triple Kickflip 1127° → 3, Double Hardflip
+  608° → 2, Kickflip 369° → 1, grinds/grabs ≈ 0 — and the ±1 controls collapse;
+  (b) mirror pairs roll in opposite directions 7/8 (shuffled: 47%); (c) the 16
+  clips two names share are **real skating identities the extractor was never
+  told** — BS Boardslide ≡ FS Lipslide (136), BS Smith ≡ FS Feeble (58), BS
+  Crooked ≡ FS Overcrook (57); (d) 11/11 uppercase/lowercase twins are explained
+  by a prologue `0x01` naming the twin's own clip.
+- **The UPPERCASE list is the special-variant animation set**, not a duplicate:
+  KICKFLIP plays clip 149 where Kickflip plays 20. Both are uniquely owned, so
+  both are named and no arbitrary choice arises.
+- Six named flip tricks measure 0° — `{540 Flip}`, `{Shove It Rewind}`,
+  `Varial`, `{Darkslide}`, `{Ho Ho Handplant}`, `One Foot Invert`. All six are
+  single-distinct-frame clips: **the port ships those animations as static
+  placeholders**, so this is a fact about the cart, not a mapping error.
 
 ## Next steps (in order)
 
-1. **Skater model follow-ups** — morph-target animation export, normals,
+1. **Skater model follow-ups** — the u16 normal encoding, the 0x80 face flag,
    the 0x744C98 clipless sibling mesh (see §SHIPPED 2026-08-26).
 2. **Fonts/HUD glyphs/badges extraction** (research complete in §sprites; needs
    either content-anchors for the pointer arrays or accepting fixed addresses).

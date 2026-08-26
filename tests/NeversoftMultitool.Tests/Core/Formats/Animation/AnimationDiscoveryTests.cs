@@ -32,12 +32,22 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
         {
             var clipSource = Assert.IsType<GbaAnimationSource>(probe.Source);
             Assert.Same(source, clipSource.ModelSource);
-            Assert.Equal($"{entry.Name}::anim_{clipSource.ClipIndex}", probe.ResolvedDisplayName);
+            Assert.Equal($"{entry.Name}::{clipSource.Label}", probe.ResolvedDisplayName);
             Assert.True(probe.MatchesSkeleton);
             Assert.Equal(172, probe.BoneCount);
             Assert.Equal(clipSource.TickCount / 60f, probe.DurationSec);
         });
         Assert.DoesNotContain(65, probes.Select(p => ((GbaAnimationSource)p.Source).ClipIndex));
+
+        // The cart's own tricks.bin names the clips a single trick owns; the
+        // rest keep the synthetic label.
+        var labels = probes.ToDictionary(
+            p => ((GbaAnimationSource)p.Source).ClipIndex,
+            p => ((GbaAnimationSource)p.Source).Label);
+        Assert.Equal("Kickflip", labels[20]);
+        Assert.Equal("{The 900}", labels[181]);
+        Assert.Equal("anim_136", labels[136]); // shared by BS Boardslide / FS Lipslide
+        Assert.Equal(105, labels.Count(pair => !pair.Value.StartsWith("anim_", StringComparison.Ordinal)));
 
         // FrameCount is DISTINCT frames, so a clip that holds one pose for many
         // ticks is a single-frame pose the pane's filter can hide.
