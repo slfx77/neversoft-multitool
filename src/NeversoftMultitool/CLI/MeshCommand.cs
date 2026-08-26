@@ -96,6 +96,21 @@ public static class MeshCommand
                 + "psx-anim-export --one-shot for those), and compressed 0x2C slots store every "
                 + "frame, so they have no end-of-clip branch to select."
         };
+        var gbaAnimationsOption = new Option<bool>("--gba-animations")
+        {
+            Description =
+                "Embed every non-empty GBA skater clip (THPS2 carries 217) in the exported model "
+                + "as a bone-per-vertex rig with per-tick translation keys. Off by default; the "
+                + "60 ticks/s cadence is an explicit export policy (GBA video runs 59.7275 Hz)."
+        };
+        var gbaAnimationOption = new Option<int[]>("--gba-animation")
+        {
+            Description =
+                "Embed one specific GBA clip by index. Repeat the option to select several. "
+                + "Out-of-range and authored-empty clips are skipped.",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = true
+        };
         var verboseOption = new Option<bool>("-v", "--verbose")
         {
             Description = "Enable verbose output"
@@ -119,6 +134,8 @@ public static class MeshCommand
         command.Options.Add(n64AnimationsOption);
         command.Options.Add(n64AnimationOption);
         command.Options.Add(oneShotOption);
+        command.Options.Add(gbaAnimationsOption);
+        command.Options.Add(gbaAnimationOption);
         command.Options.Add(verboseOption);
         command.Options.Add(formatOption);
         command.Options.Add(blenderHelperOption);
@@ -139,7 +156,11 @@ public static class MeshCommand
                 parseResult.GetValue(n64AnimationOption) is { Length: > 0 } selected
                     ? selected
                     : null,
-                parseResult.GetValue(oneShotOption));
+                parseResult.GetValue(oneShotOption),
+                parseResult.GetValue(gbaAnimationsOption),
+                parseResult.GetValue(gbaAnimationOption) is { Length: > 0 } gbaSelected
+                    ? gbaSelected
+                    : null);
             if (!MeshExportCliOptions.ValidateFormat(parseResult.GetValue(formatOption), out var format))
                 return Task.FromResult(1);
             var blenderHelperPath = parseResult.GetValue(blenderHelperOption);

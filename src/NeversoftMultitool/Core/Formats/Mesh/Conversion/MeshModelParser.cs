@@ -224,7 +224,18 @@ public sealed class MeshModelParser : IModelParser
 
         var native = new GbaModelNativeSource(record, rom, characterIndex, name, Outfit: 0);
         var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.GbaModel, native);
-        GbaModelGeometryWriter.Populate(document, native);
+
+        // Fail-closed: an animated request that selects nothing valid falls back
+        // to the plain static export, byte-identical to a request with no
+        // animation fields at all.
+        var animationRequested = request.IncludeAllGbaAnimations
+                                 || request.GbaAnimationIndices is { Count: > 0 };
+        var exported = animationRequested
+            ? GbaAnimatedModelWriter.TryPopulate(
+                document, native, request.GbaAnimationIndices, request.IncludeAllGbaAnimations)
+            : 0;
+        if (exported == 0)
+            GbaModelGeometryWriter.Populate(document, native);
         return document;
     }
 

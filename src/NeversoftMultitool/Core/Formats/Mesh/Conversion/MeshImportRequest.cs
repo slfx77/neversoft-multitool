@@ -108,6 +108,21 @@ public sealed class MeshImportRequest
     public bool N64AnimationOneShot { get; init; }
 
     /// <summary>
+    ///     Optional exact GBA skater clip selection (indices into the ROM's clip
+    ///     table). Null or empty keeps ordinary export static and byte-identical;
+    ///     a concrete list is used by the GUI Animations pane for selected-clip
+    ///     output. Out-of-range or authored-empty indices are skipped fail-closed.
+    /// </summary>
+    public IReadOnlyList<int>? GbaAnimationIndices { get; init; }
+
+    /// <summary>
+    ///     Explicit CLI opt-in for every non-empty GBA skater clip. Kept separate
+    ///     from <see cref="GbaAnimationIndices" /> so null and empty never acquire
+    ///     overloaded meanings.
+    /// </summary>
+    public bool IncludeAllGbaAnimations { get; init; }
+
+    /// <summary>
     ///     Pre-decoded SKA animation slots, populated into <see cref="ModelDocument.Animations" />
     ///     by the PS2 Scene and RW DFF parsers. Null = no animations to embed.
     /// </summary>

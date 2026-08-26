@@ -50,7 +50,10 @@ public static class GbaSkaterModel
     private const uint RomBase = 0x08000000;
     public const int SubObjectCount = 8;
     private const int FaceRecordSize = 8;
-    private const int CharacterStride = 0x4C;
+
+    /// <summary>The roster record stride — also the exact length of a carved
+    ///     <c>.chr.gba</c> entry, which is what the GUI scanner gates on.</summary>
+    public const int CharacterRecordSize = 0x4C;
 
     public sealed record ModelInfo(
         int HeaderOffset,
@@ -207,6 +210,20 @@ public static class GbaSkaterModel
         BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(model.TickTableOffset + tick * 2, 2));
 
     /// <summary>
+    ///     One clip's frame per tick, in playback order. Empty for the four
+    ///     authored-empty clips (tickCount 0). Holds and jumps are real — 73 of the
+    ///     217 non-empty clips repeat or reorder frames, so playback must honour
+    ///     this remap rather than a frame range.
+    /// </summary>
+    public static int[] ClipFrames(ReadOnlySpan<byte> rom, ModelInfo model, Clip clip)
+    {
+        var frames = new int[clip.TickCount];
+        for (var t = 0; t < frames.Length; t++)
+            frames[t] = FrameForTick(rom, model, clip.TickStart + t);
+        return frames;
+    }
+
+    /// <summary>
     ///     A character's flat per-material RGBA colours for one outfit: material →
     ///     the mid shade of its palette ramp (runtime lighting normally sweeps the
     ///     ramp; a fixed mid shade renders the skater's authored colours).
@@ -216,7 +233,7 @@ public static class GbaSkaterModel
     {
         if (character < 0 || character >= model.CharacterCount || outfit is < 0 or > 7)
             return null;
-        var record = model.CharacterTableOffset + character * CharacterStride;
+        var record = model.CharacterTableOffset + character * CharacterRecordSize;
         var bindingPtr = ReadU32(rom, record + 0x40);
         var colourPtr = ReadU32(rom, record + 0x44);
         if (bindingPtr < RomBase || colourPtr < RomBase)
@@ -247,7 +264,7 @@ public static class GbaSkaterModel
     /// <summary>The character's name string (record +0x00), for display.</summary>
     public static string? TryGetCharacterName(ReadOnlySpan<byte> rom, ModelInfo model, int character)
     {
-        var record = model.CharacterTableOffset + character * CharacterStride;
+        var record = model.CharacterTableOffset + character * CharacterRecordSize;
         var address = ReadU32(rom, record);
         if (address < RomBase || address >= RomBase + (uint)rom.Length)
             return null;
@@ -308,10 +325,10 @@ public static class GbaSkaterModel
         {
             if (!IsColourPortraitPair(rom, offset))
                 continue;
-            if (offset >= 0x44 + CharacterStride && IsColourPortraitPair(rom, offset - CharacterStride))
+            if (offset >= 0x44 + CharacterRecordSize && IsColourPortraitPair(rom, offset - CharacterRecordSize))
                 continue;
             var count = 1;
-            while (IsColourPortraitPair(rom, offset + count * CharacterStride))
+            while (IsColourPortraitPair(rom, offset + count * CharacterRecordSize))
                 count++;
             if (count >= 8)
                 return (offset, count);

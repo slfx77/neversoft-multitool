@@ -189,6 +189,8 @@ internal static class MeshExportCliOptions
             IncludeAllN64Animations = animationOptions.IncludeAllN64Animations,
             N64AnimationIndices = animationOptions.N64AnimationIndices,
             N64AnimationOneShot = animationOptions.OneShot,
+            IncludeAllGbaAnimations = animationOptions.IncludeAllGbaAnimations,
+            GbaAnimationIndices = animationOptions.GbaAnimationIndices,
             WorldzoneDebugDirectory = worldzoneDebugDirectory
         });
 

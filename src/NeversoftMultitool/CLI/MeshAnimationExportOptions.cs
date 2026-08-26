@@ -22,10 +22,19 @@ namespace NeversoftMultitool.CLI;
 ///     PSX animation tracks at all, and compressed 0x2C slots store every frame
 ///     and have no end-of-clip branch to select.
 /// </param>
+/// <param name="IncludeAllGbaAnimations">
+///     Embed every non-empty GBA skater clip (217 of THPS2's 221).
+/// </param>
+/// <param name="GbaAnimationIndices">
+///     Exact GBA clip selection. Null or empty keeps ordinary static export;
+///     out-of-range and authored-empty indices are skipped fail-closed.
+/// </param>
 public sealed record MeshAnimationExportOptions(
     bool IncludeAllN64Animations = false,
     IReadOnlyList<int>? N64AnimationIndices = null,
-    bool OneShot = false)
+    bool OneShot = false,
+    bool IncludeAllGbaAnimations = false,
+    IReadOnlyList<int>? GbaAnimationIndices = null)
 {
     public static MeshAnimationExportOptions None { get; } = new();
 }
