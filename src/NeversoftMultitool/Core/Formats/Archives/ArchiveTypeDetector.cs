@@ -164,11 +164,11 @@ public static class ArchiveTypeDetector
             // The .gob blob carries no header of its own; whether it is really a GOB
             // is settled against the companion .gfc in ArchiveFileSystem.TryOpenNested.
             ".gob" => ArchiveAssetType.Gob,
-            _ => null
-        };
-    }
             // A DS cart's soundtrack is an SDAT sitting inside the cart's own file
             // table, so it only ever appears nested. The unpacker already walks
             // cart -> GOB -> SDAT; this lets a browsing caller do the same.
             ".sdat" => Nds.SdatArchive.IsSdat(data.AsSpan()) ? ArchiveAssetType.Sdat : null,
+            _ => null
+        };
+    }
 }
