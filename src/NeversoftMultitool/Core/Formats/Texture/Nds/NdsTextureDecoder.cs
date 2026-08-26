@@ -36,17 +36,56 @@ public static class NdsTextureDecoder
         // subject or any lettering is looked at, and invisible to any statistical
         // check, since a flipped image is exactly as spatially coherent.
         var rgba = new byte[entry.Width * entry.Height * 4];
+        var transparent = TransparentIndices(entry);
         for (var y = 0; y < entry.Height; y++)
         {
             var destinationRow = (entry.Height - 1 - y) * entry.Width;
             for (var x = 0; x < entry.Width; x++)
-                WriteTexel(entry, texels, y * entry.Width + x, rgba.AsSpan((destinationRow + x) * 4));
+            {
+                WriteTexel(entry, texels, y * entry.Width + x,
+                    rgba.AsSpan((destinationRow + x) * 4), transparent);
+            }
         }
 
         return rgba;
     }
 
-    private static void WriteTexel(NdsTextureEntry entry, ReadOnlySpan<byte> texels, int i, Span<byte> dest)
+    /// <summary>
+    ///     Which palette indices are holes. Index 0 when TEXIMAGE_PARAM says so —
+    ///     and, when the key parked there is a saturated magenta-class colour,
+    ///     also any entry that is a near-duplicate of it: the art tools quantised
+    ///     frond/foliage sources drawn on a key-colour canvas into palettes that
+    ///     carry the key AGAIN at other slots (a Sk8land palm holds rgb(248,0,248)
+    ///     at 0, 8 AND 9), and the few edge texels using those render as key-colour
+    ///     speckles. The magenta gate keeps the rule away from art whose entry 0
+    ///     merely happens to match a legitimate colour — measured, every
+    ///     colour-0-transparent palette in all three carts has a magenta-class
+    ///     entry 0, and the rule touches 17 textures / 64 entries corpus-wide.
+    /// </summary>
+    private static uint TransparentIndices(NdsTextureEntry entry)
+    {
+        if (!entry.Color0Transparent || entry.Palette.Length == 0)
+            return 0;
+
+        var mask = 1u;
+        var key = entry.Palette[0];
+        int r0 = (key & 31) << 3, g0 = ((key >> 5) & 31) << 3, b0 = ((key >> 10) & 31) << 3;
+        if (r0 < 200 || b0 < 200 || g0 > 100)
+            return mask;
+
+        for (var i = 1; i < Math.Min(entry.Palette.Length, 32); i++)
+        {
+            var c = entry.Palette[i];
+            int r = (c & 31) << 3, g = ((c >> 5) & 31) << 3, b = ((c >> 10) & 31) << 3;
+            if (Math.Abs(r - r0) <= 24 && Math.Abs(g - g0) <= 24 && Math.Abs(b - b0) <= 24)
+                mask |= 1u << i;
+        }
+
+        return mask;
+    }
+
+    private static void WriteTexel(
+        NdsTextureEntry entry, ReadOnlySpan<byte> texels, int i, Span<byte> dest, uint transparent)
     {
         switch (entry.Format)
         {
@@ -67,20 +106,20 @@ public static class NdsTextureDecoder
                 return;
 
             case NdsTextureFormat.Palette256:
-                PalettedIndexed(entry, texels[i], dest);
+                PalettedIndexed(entry, texels[i], dest, transparent);
                 return;
 
             case NdsTextureFormat.Palette16:
             {
                 var b = texels[i / 2];
-                PalettedIndexed(entry, (i & 1) == 0 ? b & 0x0F : b >> 4, dest);
+                PalettedIndexed(entry, (i & 1) == 0 ? b & 0x0F : b >> 4, dest, transparent);
                 return;
             }
 
             case NdsTextureFormat.Palette4:
             {
                 var b = texels[i / 4];
-                PalettedIndexed(entry, (b >> ((i & 3) * 2)) & 3, dest);
+                PalettedIndexed(entry, (b >> ((i & 3) * 2)) & 3, dest, transparent);
                 return;
             }
 
@@ -89,10 +128,12 @@ public static class NdsTextureDecoder
         }
     }
 
-    /// <summary>Paletted formats: index 0 is a hole only when TEXIMAGE_PARAM says so.</summary>
-    private static void PalettedIndexed(NdsTextureEntry entry, int index, Span<byte> dest)
+    /// <summary>Paletted formats: holes per <see cref="TransparentIndices" />.</summary>
+    private static void PalettedIndexed(
+        NdsTextureEntry entry, int index, Span<byte> dest, uint transparent)
     {
-        Paletted(entry, index, dest, entry.Color0Transparent && index == 0 ? (byte)0 : (byte)255);
+        var hole = index < 32 && (transparent & (1u << index)) != 0;
+        Paletted(entry, index, dest, hole ? (byte)0 : (byte)255);
     }
 
     private static void Paletted(NdsTextureEntry entry, int index, Span<byte> dest, byte alpha)

@@ -520,7 +520,18 @@ construction, tiling and mirroring included.
 
 DS materials also emit **nearest samplers**: the hardware has no texture
 filtering at all, and a viewer's linear default both softens the art and bleeds
-neighbouring atlas islands across UV borders. Values outside 0..1 are ordinary
+neighbouring atlas islands across UV borders.
+
+One more transparency wrinkle, caught from a palm-tree screenshot: the art
+tools quantised key-colour canvases into palettes that carry the key AGAIN at
+other slots — a Sk8land frond palette holds rgb(248,0,248) at index 0, 8 *and*
+9, plus near-duplicates at 10-13, and the few edge texels using them render as
+magenta speckles (on hardware too, invisibly small at 256x192). The decoder
+therefore extends colour-0 transparency to near-duplicates of the key — gated
+on entry 0 being a saturated magenta-class colour so black/white-keyed art can
+never be harmed. Measured: every colour-0-transparent palette in all three
+carts is magenta-keyed, and the rule touches 17 textures / 64 entries
+corpus-wide. Values outside 0..1 are ordinary
 tiling — 77% of texcoords land inside the unit square and the tails reach ±64,
 a road surface repeating — so the wrap mode has to be carried across too: GX
 bits 16/17 enable repeat and 18/19 mirror, and a flip bit only mirrors while
@@ -533,8 +544,29 @@ nmt nds-mesh "Tony Hawk's American Sk8land (USA).nds" -o out/models
 ```
 
 3,492 models convert across the three carts (1,062 + 1,014 + 1,416; the rest of
-the version-4 files are authored-empty), 300,933 triangles, 1,065 of them with
-resolved texture images, 0 glTF validator errors and 0 warnings.
+the version-4 files are authored-empty), 300,933 triangles, 3,135 of them with
+resolved texture images (the stated idA binding, with the GX-state join as fallback), 0 glTF validator errors and 0 warnings.
+
+### Levels — a level IS a model set
+
+`nds-mesh --levels` composites every multi-piece model set into one glTF. Each
+overlay's manifest lists one idA with a run of geometry idBs (Sk8land's
+downtown set carries 135 pieces), and the pieces are authored in WORLD space —
+their header bounding boxes tile the level's footprint (2 of 135 near the
+origin, combined extent ~1,140 × 1,136 units) — so a level assembles by simply
+merging everything that shares an idA, the way THAW worldzone sectors compose;
+the pieces even share the set's one texture bank. Sk8land: 65 levels from
+1,036 pieces.
+
+Composites also resolve cross-piece coplanar decals: levels ship posters,
+signs and shadows as separate pieces lying EXACTLY on another piece's wall or
+floor plane (one level carries 83 piece-pair conflicts across 56 shared
+planes), which the hardware resolves purely by display-list DMA order — a
+concept glTF does not have. `NdsLevelOverlayResolver` applies the N64 port's
+proven size branch: per same-facing coplanar face pair from different pieces
+(per-face bounds, never union), the smaller face is the decal and lifts 0.02
+world units along its normal; near-equal pairs are left alone. The big levels
+lift 164–419 decal faces each.
 
 ## Animation — decoded, and exported
 

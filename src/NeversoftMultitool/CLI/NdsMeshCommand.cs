@@ -175,6 +175,7 @@ public static class NdsMeshCommand
             var name = $"level_{idA:x8}";
             var document = new ModelDocument { Name = name, SourceKind = ModelSourceKind.Generic };
             var added = 0;
+            var pieceOf = new Dictionary<ModelPrimitive, int>();
             foreach (var (idB, entry) in members.OrderBy(m => m.IdB))
             {
                 byte[] data;
@@ -190,16 +191,22 @@ public static class NdsMeshCommand
                 if (!NdsGeometryFile.TryParseValidated(data, out var geometry))
                     continue;
 
+                var meshesBefore = document.Meshes.Count;
                 var groups = NdsGxInterpreter.Run(data, geometry);
                 NdsGeometryWriter.PopulateNdsGeometry(
                     document, geometry, groups,
                     catalog.ResolveFor(entry, groups),
                     namePrefix: $"{idB:x8}_");
+                for (var m = meshesBefore; m < document.Meshes.Count; m++)
+                foreach (var primitive in document.Meshes[m].Primitives)
+                    pieceOf[primitive] = added;
                 added++;
             }
 
             if (added < 2 || document.TriangleCount == 0)
                 continue;
+
+            var liftedFaces = NdsLevelOverlayResolver.Apply(document, pieceOf);
 
             var result = ModelExportService.Export(document, new MeshExportRequest
             {
@@ -213,7 +220,8 @@ public static class NdsMeshCommand
             if (verbose)
             {
                 AnsiConsole.MarkupLine(
-                    $"  {name} [grey]{added} pieces, {document.TriangleCount} tris[/]"
+                    $"  {name} [grey]{added} pieces, {document.TriangleCount} tris, "
+                    + $"{liftedFaces} decals lifted[/]"
                     + (result.OutputPaths.Count > 0 ? "" : " [red]export failed[/]"));
             }
         }
