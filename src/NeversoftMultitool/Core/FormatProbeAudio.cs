@@ -15,7 +15,7 @@ internal static class FormatProbeAudio
         {
             ".adx" => ProbeAdxFile(filePath),
             ".pcm" => ProbePcmFile(filePath),
-            ".swav" or ".strm" => ProbeNitroWave(filePath),
+            ".swav" or ".strm" or ".hwas" => ProbeNitroWave(filePath),
             ".snd" => ProbeSndFile(filePath),
             ".xa" => ProbeExtensionOnlyFile(filePath, "XA Audio"),
             ".vab" => ProbeExtensionOnlyFile(filePath, "VAB Sound Bank"),

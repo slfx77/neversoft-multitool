@@ -829,6 +829,52 @@ all 30 tracks — and each ADPCM block re-seeds its own predictor, which a decod
 confirms: block boundaries are *smoother* than mid-block audio (mean |Δ| 521 vs
 985 on `STRM_CALIFORNIA`), so the framing carries no clicks.
 
+### `.hwas` — the studio's own stream
+
+Downhill Jam and Proving Ground ship no SDAT. Their soundtracks are 35 `.hwas`
+files inside the GOB — **86 minutes**, and the only music in either cart.
+`Core/Formats/Nds/HwasStream.cs`, routed through the same `audio` command and
+Audio tab.
+
+A 512-byte header, then 4-bit ADPCM in fixed 16 KB blocks:
+
+```
+0x00 u32 magic      = 'sawh' on disk
+0x04 u32 blockSize  = 16384
+0x08 u32 sampleRate = 22019
+0x0C u32 channels   = 1
+0x10 u32 0
+0x14 u32 storedBytes = fileSize - 512 = ceil(dataBytes / 512) * 512
+0x18 u32 dataBytes
+0x1C .. 0x1FF zero
+```
+
+Every constant holds for all 35 files, and the game's own header WRITER — these
+carts contain a runtime `.hwas` recorder — builds the fields in this order and
+writes 0x200 bytes. `dataBytes` never fills its last block (the tail runs 1,175 to
+15,975 bytes) and is odd in 11 files, so the padding must be dropped.
+
+**Each block restarts the codec**, with no per-block header to say so — which is
+why a first pass read the payload as one continuous stream. The file says
+otherwise three ways: the first nibble of every block is 0 in 3,500 of 3,500
+blocks (at half or a quarter of that stride, 56% and 35%); a continuous decode
+saturates 0.13–2.95% of samples where the reset gives 0.000–0.021%; and per-block
+DC wanders to −12,539 continuously but stays within about ±100 with it. The
+decoded audio adds a fourth: block boundaries come out **22× smoother** than
+mid-block steps (mean |Δ| 139 vs 3,101), the same oracle that validated the STRM
+framing.
+
+The codec was read out of the carts' own ADPCM **encoder** (`AdpcmEncodeSample`,
+Downhill Jam `0x020AE6EC` / Proving Ground `0x0206D7CC`, identical), whose index
+and step tables sit beside it; it packs the low nibble first, and the decoder is
+its exact inverse — round-tripping against it at a mean 99.79% sample match, the
+ceiling for a lossy codec. There is **no software decoder in any of the three
+carts**: the step table occurs exactly once and every reference belongs to the
+encoder, so playback is presumably the SPU's hardware ADPCM. One detail is
+therefore unproven and worth stating: the low predictor clamp is taken as
+−32768 because that is what the encoder uses, while −32767 (the Nitro SDK's
+value) differs on 8.3% of samples by at most 1 LSB.
+
 ## Where the format came from
 
 ARM9 is uncompressed in all three carts and holds the loader. In Sk8land

@@ -7,7 +7,7 @@ namespace NeversoftMultitool;
 internal static class AudioConverterTabOperations
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".seq", ".pcm", ".snd", ".pss", ".vid", ".swav", ".strm"];
+        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".seq", ".pcm", ".snd", ".pss", ".vid", ".swav", ".strm", ".hwas"];
 
     public static bool IsAudioFile(string path)
     {

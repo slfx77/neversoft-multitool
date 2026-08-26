@@ -3,17 +3,19 @@ using NeversoftMultitool.Core.Formats.Nds;
 
 namespace NeversoftMultitool.Core.Formats.Audio;
 
-/// <summary>Sample rate, channels and duration of a Nitro <c>.swav</c>/<c>.strm</c>.</summary>
+/// <summary>Sample rate, channels and duration of a DS wave — Nitro or <c>.hwas</c>.</summary>
 public sealed record NdsAudioProbeResult(int SampleRate, int Channels, double DurationSeconds, string Format);
 
 /// <summary>
-///     Converts the two Nintendo Nitro SDK wave formats the DS carts use to WAV:
+///     Converts the DS carts' wave formats to WAV: the two Nintendo Nitro SDK ones,
 ///     <see cref="SwavFile" /> (1,405 sound effects inside the GOB container) and
 ///     <see cref="StrmFile" /> (American Sk8land's 30-track, 62-minute soundtrack
-///     inside <c>sound_stream.sdat</c>). Both are wave type 2, Nintendo IMA-ADPCM
-///     (<see cref="NitroAdpcm" />), across the whole corpus; PCM8 and PCM16 are
-///     implemented because the formats allow them, not because a shipped file uses
-///     them.
+///     inside <c>sound_stream.sdat</c>) — plus the studio's own
+///     <see cref="HwasStream" />, which carries the Downhill Jam and Proving Ground
+///     soundtracks, 86 minutes across 35 files. The Nitro pair are wave type 2,
+///     Nintendo IMA-ADPCM (<see cref="NitroAdpcm" />), across the whole corpus; PCM8
+///     and PCM16 are implemented because the formats allow them, not because a
+///     shipped file uses them.
 /// </summary>
 public static class NdsAudioDecoder
 {
@@ -57,9 +59,19 @@ public static class NdsAudioDecoder
                 sampleRate = swav.SampleRate;
                 channels = 1;
             }
+            else if (HwasStream.IsHwas(data))
+            {
+                var hwas = HwasStream.Parse(data);
+                samples = hwas.Decode();
+                sampleRate = hwas.SampleRate;
+                channels = hwas.Channels;
+            }
             else
             {
-                return new AudioConvertResult { Skipped = true, ErrorMessage = "Not a Nitro SWAV or STRM wave" };
+                return new AudioConvertResult
+                {
+                    Skipped = true, ErrorMessage = "Not a Nitro SWAV or STRM wave, or a .hwas stream"
+                };
             }
 
             if (samples.Length == 0)
@@ -85,6 +97,13 @@ public static class NdsAudioDecoder
             {
                 var strm = StrmFile.Parse(data);
                 return new NdsAudioProbeResult(strm.SampleRate, strm.Channels, strm.DurationSeconds, "STRM");
+            }
+
+            if (HwasStream.IsHwas(data))
+            {
+                var hwas = HwasStream.Parse(data);
+                return new NdsAudioProbeResult(
+                    hwas.SampleRate, hwas.Channels, hwas.DurationSeconds, "HWAS");
             }
 
             if (SwavFile.IsSwav(data))
