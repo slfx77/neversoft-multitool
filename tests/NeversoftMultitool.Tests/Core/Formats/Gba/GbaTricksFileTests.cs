@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using NeversoftMultitool.Core.Formats.Gba;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Gba;
@@ -51,13 +51,32 @@ public sealed class GbaTricksFileTests(TestPaths paths)
         Assert.NotNull(names);
         Assert.Equal(105, names.Count);
 
-        Assert.Equal("Kickflip", names[20]);
-        Assert.Equal("HeelFlip", names[21]);
-        Assert.Equal("Impossible", names[22]);
+        Assert.Equal("Nosegrind", names[40]);
         Assert.Equal("{The 900}", names[181]);
+
         // The uppercase list is the SPECIAL-variant animation set, not a
-        // duplicate: it plays different clips, so both spellings get names.
-        Assert.Equal("KICKFLIP", names[149]);
+        // duplicate: it plays different clips, so both spellings get named. Only
+        // casing separates such a pair, and consumers compare names
+        // case-insensitively, so both carry their clip — otherwise the GUI pane
+        // drops one and the exporter suffixes it "_2" as if it were a copy.
+        Assert.Equal("Kickflip (20)", names[20]);
+        Assert.Equal("KICKFLIP (149)", names[149]);
+        Assert.Equal("HeelFlip (21)", names[21]);
+        Assert.Equal("HEELFLIP (150)", names[150]);
+
+        // A name with no case-twin stays exactly as the ROM spells it.
+        Assert.Equal("Method", names[18]);
+        Assert.Equal("{Christ Air}", names[169]);
+        // Eight uppercase/lowercase pairs, so 16 names carry their clip.
+        Assert.Equal(16, names.Values.Count(
+            v => v.EndsWith(")", StringComparison.Ordinal)
+                 && v.Contains(" (", StringComparison.Ordinal)));
+
+        // No two clips can end up with names a case-insensitive consumer would
+        // conflate — the defect this disambiguation exists to prevent.
+        Assert.Equal(
+            names.Count,
+            names.Values.Distinct(StringComparer.OrdinalIgnoreCase).Count());
 
         // Clips two tricks share keep their synthetic label rather than taking
         // an arbitrary owner's name. These particular collisions are real
@@ -89,7 +108,7 @@ public sealed class GbaTricksFileTests(TestPaths paths)
 
         (string Name, int Flips)[] expectations =
         [
-            ("Kickflip", 1), ("HeelFlip", 1), ("Impossible", 1),
+            ("Kickflip (20)", 1), ("HeelFlip (21)", 1), ("Impossible (22)", 1),
             ("{Triple Kickflip}", 3), ("{Triple Heelflip}", 3), ("{Double Hardflip}", 2),
             ("Nosegrind", 0), ("Melon", 0)  // a grind and a grab hold the deck flat
         ];
@@ -103,7 +122,7 @@ public sealed class GbaTricksFileTests(TestPaths paths)
 
         // The same measurement one clip off must NOT reproduce the claim — the
         // binding is exact, not a neighbourhood correlation.
-        var kickflip = byName["Kickflip"];
+        var kickflip = byName["Kickflip (20)"];
         Assert.NotEqual(1, (int)Math.Round(
             MeasureDeckRotationDegrees(rom, model, clips[kickflip - 1]) / 360.0));
     }

@@ -44,10 +44,18 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
         var labels = probes.ToDictionary(
             p => ((GbaAnimationSource)p.Source).ClipIndex,
             p => ((GbaAnimationSource)p.Source).Label);
-        Assert.Equal("Kickflip", labels[20]);
         Assert.Equal("{The 900}", labels[181]);
         Assert.Equal("anim_136", labels[136]); // shared by BS Boardslide / FS Lipslide
         Assert.Equal(105, labels.Count(pair => !pair.Value.StartsWith("anim_", StringComparison.Ordinal)));
+
+        // The cart's uppercase special-variant list plays DIFFERENT clips, and
+        // this pane dedupes rows by display name case-insensitively — so those
+        // names carry their clip or one of each pair would vanish from the list.
+        Assert.Equal("Kickflip (20)", labels[20]);
+        Assert.Equal("KICKFLIP (149)", labels[149]);
+        Assert.Equal(
+            probes.Count,
+            probes.Select(p => p.Source.DisplayName).Distinct(StringComparer.OrdinalIgnoreCase).Count());
 
         // FrameCount is DISTINCT frames, so a clip that holds one pose for many
         // ticks is a single-frame pose the pane's filter can hide.

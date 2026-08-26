@@ -123,6 +123,22 @@ public static class GbaTricksFile
         var resolved = claimants
             .Where(pair => pair.Value.Count == 1)
             .ToDictionary(pair => pair.Key, pair => pair.Value.First());
+
+        // The cart carries a second, UPPERCASE trick list whose entries play
+        // DIFFERENT clips (KICKFLIP is clip 149, Kickflip is 20), so both are
+        // legitimately named. Casing is the only thing telling them apart, and
+        // consumers compare names case-insensitively — the GUI pane would drop
+        // one of each pair and the exporter would suffix it "_2" as though it
+        // were a duplicate. Naming the clip in both keeps them distinguishable
+        // without claiming anything beyond which clip each one is.
+        foreach (var collision in resolved
+                     .GroupBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase)
+                     .Where(group => group.Count() > 1))
+        {
+            foreach (var (clip, name) in collision.ToList())
+                resolved[clip] = $"{name} ({clip})";
+        }
+
         return resolved.Count > 0 ? resolved : null;
     }
 

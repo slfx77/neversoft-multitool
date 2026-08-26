@@ -669,7 +669,13 @@ documents. Verdict: **PROVEN**.
   by a prologue `0x01` naming the twin's own clip.
 - **The UPPERCASE list is the special-variant animation set**, not a duplicate:
   KICKFLIP plays clip 149 where Kickflip plays 20. Both are uniquely owned, so
-  both are named and no arbitrary choice arises.
+  both are named and no arbitrary choice arises. **But casing is the only thing
+  separating those eight pairs and consumers compare names case-insensitively**
+  — the GUI pane dedupes rows by display name that way and was silently hiding
+  8 clips (it reported 209 of 217 matching, which is how the defect surfaced),
+  while the exporter suffixed one `KICKFLIP_2` as if it were a copy. Such names
+  now carry their clip (`Kickflip (20)` / `KICKFLIP (149)`): factual, and it
+  claims nothing beyond which clip each one is.
 - Six named flip tricks measure 0° — `{540 Flip}`, `{Shove It Rewind}`,
   `Varial`, `{Darkslide}`, `{Ho Ho Handplant}`, `One Foot Invert`. All six are
   single-distinct-frame clips: **the port ships those animations as static
