@@ -12,5 +12,6 @@ internal sealed class BlendPrimitiveManifest
     public BlendSkinManifest? Skin { get; init; }
     public string? TextureWibbleBuffer { get; init; }
     public string? ColourPulseBuffer { get; init; }
+    public List<BlendMorphTargetManifest>? MorphTargets { get; init; }
     public required List<Dictionary<string, object?>> NativeMetadata { get; init; }
 }

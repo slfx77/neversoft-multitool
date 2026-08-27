@@ -8,8 +8,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Gba;
 
 /// <summary>
 ///     Pins the THPS2 GBA skater's animation export: the clip/tick remap, the
-///     bone-per-vertex rig (bind pose == the static export), fail-closed selection,
-///     and the exported GLB's shape.
+///     morph-target representation (the engine blends complete posed vertex sets;
+///     it has no skeleton), fail-closed selection, and the exported GLB's shape.
 /// </summary>
 public sealed class GbaSkaterAnimationTests(TestPaths paths)
 {
@@ -55,22 +55,21 @@ public sealed class GbaSkaterAnimationTests(TestPaths paths)
     }
 
     [CorpusFact]
-    public void AnimatedDocument_KeepsStaticGeometryAndBindPose()
+    public void AnimatedDocument_KeepsTheStaticGeometryAsItsBaseMesh()
     {
-        var (rom, model, native) = LoadSpiderMan();
+        var (_, _, native) = LoadSpiderMan();
 
         var staticDocument = BuildStatic(native);
         var animatedDocument = ModelDocument.CreateNative(
             "13_spider_man", ModelSourceKind.GbaModel, native);
-        Assert.Equal(1, GbaAnimatedModelWriter.TryPopulate(
-            animatedDocument, native, [0], includeAllClips: false));
+        Assert.True(GbaAnimatedModelWriter.TryPopulate(animatedDocument, native, clipIndex: 20));
 
-        // The static path stays skinless and animation-free.
+        // The static path carries no animation and no morph data at all.
         Assert.Empty(staticDocument.Animations);
-        Assert.Empty(staticDocument.Skeletons);
-        Assert.All(staticDocument.Meshes.SelectMany(m => m.Primitives), p => Assert.Null(p.Skin));
+        Assert.All(staticDocument.Meshes.SelectMany(m => m.Primitives), p => Assert.Null(p.MorphTargets));
 
-        // Bind geometry is the static geometry, primitive for primitive.
+        // The animated base mesh IS the static mesh: same triangles, same
+        // topology, same positions. Only targets and a weights track are added.
         Assert.Equal(staticDocument.TriangleCount, animatedDocument.TriangleCount);
         Assert.Equal(266, animatedDocument.TriangleCount);
         var expected = staticDocument.Meshes.SelectMany(m => m.Primitives).ToList();
@@ -82,81 +81,67 @@ public sealed class GbaSkaterAnimationTests(TestPaths paths)
             Assert.Equal(
                 expected[i].Vertices.Select(v => v.Position),
                 actual[i].Vertices.Select(v => v.Position));
-            Assert.NotNull(actual[i].Skin);
+            Assert.Null(expected[i].Skin);
+            Assert.Null(actual[i].Skin);
         }
 
-        // One bone per unique model vertex, every corner weighted 1 onto its own.
-        var skeleton = Assert.Single(animatedDocument.Skeletons);
-        var boneCount = model.VertCounts.Sum(c => c);
-        Assert.Equal(172, boneCount);
-        Assert.Equal(boneCount, skeleton.Bones.Count);
-        Assert.All(skeleton.Bones, bone =>
-        {
-            Assert.Equal(-1, bone.ParentIndex);
-            // Pure translations: bind identity is exact, not merely close.
-            Assert.Equal(Matrix4x4.Identity, bone.LocalTransform * bone.InverseBindMatrix);
-        });
-        Assert.All(actual.SelectMany(p => p.Skin!.Influences), influence =>
-        {
-            Assert.InRange(influence.Joint0, 0, boneCount - 1);
-            Assert.Equal(1f, influence.Weight0);
-            Assert.Equal(0f, influence.Weight1);
-        });
-
-        // Frame 0 is the bind pose, so every bone sits on its static vertex.
-        var frame0 = GbaSkaterModel.ReadFrameVertices(rom, model, 0);
-        var bone = 0;
-        for (var sub = 0; sub < GbaSkaterModel.SubObjectCount; sub++)
-            foreach (var v in frame0[sub])
-                Assert.Equal(
-                    GbaModelGeometryWriter.ToGlb(v), skeleton.Bones[bone++].LocalTransform.Translation);
+        // No skeleton is invented for a model that has none.
+        Assert.Empty(animatedDocument.Skeletons);
     }
 
     [CorpusFact]
-    public void ClipKeys_ArePoolPosesInTickOrderNotAnAccumulation()
+    public void MorphTargetsAndWeightsReproduceEveryTicksPose()
     {
         var (rom, model, native) = LoadSpiderMan();
         var clips = GbaSkaterModel.ReadClips(rom, model);
 
-        // Clip 52 repeats frames (a hold) and is not a contiguous run — exactly the
-        // case a frame-range playback would get wrong.
+        // Clip 52 repeats frames (a hold) and is not a contiguous run — exactly
+        // the case a frame-range playback would get wrong.
         const int holdClip = 52;
-        var frames = GbaSkaterModel.ClipFrames(rom, model, clips[holdClip]);
-        Assert.True(frames.Distinct().Count() < frames.Length, "clip 52 should contain holds");
+        var ticks = GbaSkaterModel.ClipFrames(rom, model, clips[holdClip]);
+        Assert.True(ticks.Distinct().Count() < ticks.Length, "clip 52 should contain holds");
 
         var document = ModelDocument.CreateNative("13_spider_man", ModelSourceKind.GbaModel, native);
-        Assert.Equal(1, GbaAnimatedModelWriter.TryPopulate(
-            document, native, [holdClip], includeAllClips: false));
+        Assert.True(GbaAnimatedModelWriter.TryPopulate(document, native, holdClip));
         var animation = Assert.Single(document.Animations);
-        Assert.Equal(172, animation.Channels.Count);
+        var channel = Assert.IsType<ModelMorphChannel>(animation.MorphChannel);
 
-        // Every channel shares ONE times array instance and one key per tick.
-        var times = animation.Channels[0].Times;
-        Assert.All(animation.Channels, channel =>
-        {
-            Assert.Same(times, channel.Times);
-            Assert.Equal(ModelAnimationProperty.Translation, channel.Property);
-            Assert.Equal(ModelAnimationInterpolation.Linear, channel.Interpolation);
-            Assert.Equal(frames.Length, channel.KeyCount);
-        });
-        for (var t = 0; t < times.Length; t++)
-            Assert.Equal(t / GbaAnimatedModelWriter.TicksPerSecond, times[t]);
+        // Targets are the clip's DISTINCT frames, not one per tick.
+        Assert.Equal(ticks.Distinct().Count(), channel.TargetCount);
+        Assert.Equal(ticks.Length, channel.KeyCount);
+        Assert.Empty(animation.Channels);
+        for (var tick = 0; tick < ticks.Length; tick++)
+            Assert.Equal(tick / GbaAnimatedModelWriter.TicksPerSecond, channel.Times[tick]);
 
-        // Each key is the pool pose the remap names for that tick, verbatim — the
-        // per-frame anchor bytes (the pose AABB centre) are never added in.
-        for (var t = 0; t < frames.Length; t++)
+        // Every key applies exactly one target at full weight, and base + that
+        // target is the ROM's pose for the tick — the per-frame anchor bytes
+        // (the pose AABB centre) are never added in.
+        var mesh = document.Meshes[channel.MeshIndex];
+        foreach (var primitive in mesh.Primitives)
         {
-            var pose = GbaSkaterModel.ReadFrameVertices(rom, model, frames[t]);
-            var bone = 0;
-            for (var sub = 0; sub < GbaSkaterModel.SubObjectCount; sub++)
-                foreach (var v in pose[sub])
-                {
-                    var expected = GbaModelGeometryWriter.ToGlb(v);
-                    var values = animation.Channels[bone++].Values;
-                    Assert.Equal(expected.X, values[t * 3]);
-                    Assert.Equal(expected.Y, values[t * 3 + 1]);
-                    Assert.Equal(expected.Z, values[t * 3 + 2]);
-                }
+            Assert.NotNull(primitive.MorphTargets);
+            Assert.Equal(channel.TargetCount, primitive.MorphTargets!.Count);
+            Assert.All(primitive.MorphTargets,
+                t => Assert.Equal(primitive.Vertices.Length, t.PositionDeltas.Length));
+        }
+
+        for (var tick = 0; tick < ticks.Length; tick++)
+        {
+            var applied = Enumerable.Range(0, channel.TargetCount)
+                .Where(t => channel.Weights[tick * channel.TargetCount + t] != 0f)
+                .ToArray();
+            var target = Assert.Single(applied);
+            Assert.Equal(1f, channel.Weights[tick * channel.TargetCount + target]);
+
+            var pose = GbaSkaterModel.ReadFrameVertices(rom, model, ticks[tick])
+                .SelectMany(sub => sub.Select(GbaModelGeometryWriter.ToGlb))
+                .ToHashSet();
+            foreach (var primitive in mesh.Primitives)
+            {
+                var deltas = primitive.MorphTargets![target].PositionDeltas;
+                for (var v = 0; v < primitive.Vertices.Length; v++)
+                    Assert.Contains(primitive.Vertices[v].Position + deltas[v], pose);
+            }
         }
     }
 
@@ -165,36 +150,25 @@ public sealed class GbaSkaterAnimationTests(TestPaths paths)
     {
         var (_, _, native) = LoadSpiderMan();
 
-        // Empty clips, out-of-range and negative indices are skipped; the one valid
-        // index still exports, and names carry the CLIP index, not a compacted one.
-        var mixed = ModelDocument.CreateNative("13_spider_man", ModelSourceKind.GbaModel, native);
-        Assert.Equal(1, GbaAnimatedModelWriter.TryPopulate(
-            mixed, native, [65, 84, 500, -1, 3], includeAllClips: false));
-        Assert.Equal("anim_3", Assert.Single(mixed.Animations).Name);
+        foreach (var clip in (int[])[65, 66, 84, 85, 500, -1])
+        {
+            var document = ModelDocument.CreateNative("13_spider_man", ModelSourceKind.GbaModel, native);
+            Assert.False(GbaAnimatedModelWriter.TryPopulate(document, native, clip));
 
-        // A selection with nothing valid leaves the document COMPLETELY untouched,
-        // so the caller's static fallback produces the ordinary export.
-        var rejected = ModelDocument.CreateNative("13_spider_man", ModelSourceKind.GbaModel, native);
-        Assert.Equal(0, GbaAnimatedModelWriter.TryPopulate(
-            rejected, native, [65, 66, 999], includeAllClips: false));
-        Assert.Empty(rejected.Animations);
-        Assert.Empty(rejected.Skeletons);
-        Assert.Empty(rejected.Meshes);
-        Assert.Empty(rejected.Materials);
+            // Nothing was added, so the caller's static fallback produces the
+            // ordinary export rather than a degraded animated one.
+            Assert.Empty(document.Animations);
+            Assert.Empty(document.Meshes);
+            Assert.Empty(document.Materials);
+        }
     }
 
     [CorpusFact]
-    public void AllClips_ExportInOneKhronosCleanGlb()
+    public void OneClipExportsAsAKhronosCleanMorphGlb()
     {
-        var (_, _, native) = LoadSpiderMan();
+        var (rom, model, native) = LoadSpiderMan();
         var document = ModelDocument.CreateNative("13_spider_man", ModelSourceKind.GbaModel, native);
-        Assert.Equal(217, GbaAnimatedModelWriter.TryPopulate(
-            document, native, clipIndices: null, includeAllClips: true));
-
-        // The four empty clips leave gaps: names keep the ROM's own clip index.
-        Assert.DoesNotContain("anim_65", document.Animations.Select(a => a.Name));
-        Assert.Contains("anim_64", document.Animations.Select(a => a.Name));
-        Assert.Contains("anim_220", document.Animations.Select(a => a.Name));
+        Assert.True(GbaAnimatedModelWriter.TryPopulate(document, native, clipIndex: 20));
 
         var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
         Assert.NotNull(glb);
@@ -202,13 +176,21 @@ public sealed class GbaSkaterAnimationTests(TestPaths paths)
         AssertKhronosClean(glb!);
 
         using var stream = new MemoryStream(glb!, writable: false);
-        var model = ModelRoot.ReadGLB(stream);
-        Assert.Equal(217, model.LogicalAnimations.Count);
-        Assert.Equal(172, Assert.Single(model.LogicalSkins).JointsCount);
-        Assert.All(model.LogicalMeshes.SelectMany(m => m.Primitives), primitive =>
+        var exported = ModelRoot.ReadGLB(stream);
+
+        // The cart names clip 20 "Kickflip"; the clip carries its index because a
+        // case-twin (KICKFLIP, clip 149) exists.
+        var animation = Assert.Single(exported.LogicalAnimations);
+        Assert.Equal("Kickflip (20)", animation.Name);
+
+        // A weights track, no skin, no joints — this model has no skeleton.
+        Assert.Empty(exported.LogicalSkins);
+        var targetCount = GbaSkaterModel
+            .ClipFrames(rom, model, GbaSkaterModel.ReadClips(rom, model)[20]).Distinct().Count();
+        Assert.All(exported.LogicalMeshes.SelectMany(m => m.Primitives), primitive =>
         {
-            Assert.NotNull(primitive.GetVertexAccessor("JOINTS_0"));
-            Assert.NotNull(primitive.GetVertexAccessor("WEIGHTS_0"));
+            Assert.Equal(targetCount, primitive.MorphTargetsCount);
+            Assert.Null(primitive.GetVertexAccessor("JOINTS_0"));
         });
     }
 

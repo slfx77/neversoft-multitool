@@ -1,6 +1,7 @@
 using System.CommandLine;
 using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
@@ -170,6 +171,16 @@ internal static class MeshExportCliOptions
     {
         animationOptions ??= MeshAnimationExportOptions.None;
         var stem = outputStem ?? Path.GetFileNameWithoutExtension(file);
+
+        // GBA clips animate by morphing, and a glTF weights track addresses every
+        // target of the mesh — so each clip is its own file rather than one
+        // document carrying all 217 clips' poses at once.
+        if (sourceKind == ModelSourceKind.GbaModel && GbaClipSelection(animationOptions, file) is { Count: > 0 } clips)
+        {
+            return ExportGbaClips(
+                file, output, format, blenderHelperPath, cancellationToken, stem, exportStem, clips);
+        }
+
         var document = Parser.Parse(new MeshImportRequest
         {
             Source = new FileSystemAssetSource(file),
@@ -209,6 +220,101 @@ internal static class MeshExportCliOptions
                 WorldzoneScale = worldzoneScale,
                 CancellationToken = cancellationToken
             });
+    }
+
+    /// <summary>
+    ///     The GBA clips this run should export: every non-empty clip for
+    ///     <c>--gba-animations</c>, or exactly the requested indices. Empty when
+    ///     no animation was asked for, so the ordinary static path runs.
+    /// </summary>
+    private static IReadOnlyList<int> GbaClipSelection(MeshAnimationExportOptions options, string file)
+    {
+        if (!options.IncludeAllGbaAnimations && options.GbaAnimationIndices is not { Count: > 0 })
+            return [];
+
+        var rom = new FileSystemAssetSource(file).TryReadCompanion(GbaLevelCarver.RomEntryName);
+        var model = rom == null ? null : GbaSkaterModel.TryLocate(rom);
+        if (model == null)
+            return [];
+
+        // Only clips that really exist and really play: an out-of-range or
+        // authored-empty index falls through to the ordinary static export
+        // rather than producing a file named after a clip that has no frames.
+        var playable = GbaSkaterModel.ReadClips(rom, model)
+            .Where(static clip => clip.TickCount > 0)
+            .Select(static clip => clip.Index)
+            .ToHashSet();
+        if (options.IncludeAllGbaAnimations)
+            return [.. playable.Order()];
+        return [.. options.GbaAnimationIndices!.Distinct().Where(playable.Contains)];
+    }
+
+    /// <summary>
+    ///     Exports one file per clip, named <c>&lt;stem&gt;__&lt;clip&gt;</c>. A clip that
+    ///     does not export is skipped rather than failing the run or emitting a
+    ///     static copy under an animated name.
+    /// </summary>
+    private static MeshExportResult ExportGbaClips(
+        string file, string output, MeshOutputFormat format, string? blenderHelperPath,
+        CancellationToken cancellationToken, string stem, string? exportStem, IReadOnlyList<int> clips)
+    {
+        var paths = new List<string>();
+        var triangles = 0;
+        var materials = 0;
+        var textures = 0;
+        foreach (var clip in clips)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var document = Parser.Parse(new MeshImportRequest
+            {
+                Source = new FileSystemAssetSource(file),
+                FileName = Path.GetFileName(file),
+                OutputStem = stem,
+                SourceKind = ModelSourceKind.GbaModel,
+                GbaAnimationIndices = [clip]
+            });
+            // A clip that never leaves the base pose has no animation to carry;
+            // it still exports, as the static model in that pose.
+            var clipName = document.Animations.Count > 0
+                ? document.Animations[0].Name
+                : GbaClipName(file, clip);
+
+            var result = ModelExportService.Export(document, new MeshExportRequest
+            {
+                OutputDirectory = output,
+                OutputStem = $"{exportStem ?? document.Name}__{SafeClipName(clipName)}",
+                Format = format,
+                BlenderHelperPath = blenderHelperPath,
+                CancellationToken = cancellationToken
+            });
+            paths.AddRange(result.OutputPaths);
+            triangles = result.Triangles;
+            materials = result.MaterialCount;
+            textures = result.TextureCount;
+        }
+
+        return new MeshExportResult
+        {
+            OutputPaths = paths,
+            Triangles = triangles,
+            MaterialCount = materials,
+            TextureCount = textures
+        };
+    }
+
+    private static string GbaClipName(string file, int clip)
+    {
+        var rom = new FileSystemAssetSource(file).TryReadCompanion(GbaLevelCarver.RomEntryName);
+        var model = rom == null ? null : GbaSkaterModel.TryLocate(rom);
+        return model == null
+            ? $"anim_{clip}"
+            : GbaAnimatedModelWriter.GbaTrickClipName(rom, model, model.ClipCount, clip);
+    }
+
+    private static string SafeClipName(string name)
+    {
+        var safe = name.Select(c => char.IsAsciiLetterOrDigit(c) ? c : '_').ToArray();
+        return new string(safe).Trim('_');
     }
 
     public static Ps2SceneSubFormat DetectPs2SceneSubFormat(string file)

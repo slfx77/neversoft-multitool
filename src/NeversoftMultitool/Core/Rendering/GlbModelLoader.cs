@@ -51,10 +51,15 @@ internal static class GlbModelLoader
                 }
             }
 
+            // Resolved once per node: every primitive under a mesh shares the
+            // node's weights, and sampling the curve is the expensive part.
+            var morphWeights = GlbMorphTargets.ResolveWeights(node, animation, time);
+
             foreach (var prim in node.Mesh.Primitives)
             {
                 var submesh = LoadPrimitive(prim, worldMatrix, skin,
-                    jointWorldTransforms, inverseBindMatrices, jointNormalTransforms, node.Name);
+                    jointWorldTransforms, inverseBindMatrices, jointNormalTransforms,
+                    morphWeights, node.Name);
                 if (submesh != null)
                 {
                     scene.Submeshes.Add(submesh);
@@ -75,13 +80,20 @@ internal static class GlbModelLoader
 
     private static RenderSubmesh? LoadPrimitive(MeshPrimitive prim, Matrix4x4 worldMatrix,
         Skin? skin, Matrix4x4[]? jointWorldTransforms, Matrix4x4[]? inverseBindMatrices,
-        Matrix4x4[]? jointNormalTransforms, string? nodeName)
+        Matrix4x4[]? jointNormalTransforms, IReadOnlyList<float>? morphWeights,
+        string? nodeName)
     {
         var posAccessor = prim.GetVertexAccessor("POSITION");
         if (posAccessor == null) return null;
 
-        var rawPositions = posAccessor.AsVector3Array();
+        IReadOnlyList<Vector3> rawPositions = posAccessor.AsVector3Array();
         var vertexCount = rawPositions.Count;
+
+        // Morph deltas are in the mesh's own space, so they land before skinning
+        // and before the node transform.
+        if (morphWeights != null)
+            rawPositions = GlbMorphTargets.Apply(prim, "POSITION", rawPositions, morphWeights)
+                           ?? rawPositions;
 
         // Read optional attributes
         var normalAccessor = prim.GetVertexAccessor("NORMAL");
@@ -154,7 +166,11 @@ internal static class GlbModelLoader
         float[]? normals = null;
         if (normalAccessor != null)
         {
-            var rawNormals = normalAccessor.AsVector3Array();
+            IReadOnlyList<Vector3> rawNormals = normalAccessor.AsVector3Array();
+            if (morphWeights != null)
+                rawNormals = GlbMorphTargets.Apply(prim, "NORMAL", rawNormals, morphWeights)
+                             ?? rawNormals;
+
             normals = new float[vertexCount * 3];
 
             if (skin != null && jointsAccessor != null && weightsAccessor != null &&

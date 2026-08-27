@@ -25,6 +25,13 @@ ANIM_FLOAT_STRUCT = struct.Struct("<f")
 # Parallel-to-vertex PS1 UV animation payload:
 # uVel, vVel, frequency, enabled, uAmp, uPhase, vAmp, vPhase, width, height.
 WIBBLE_STRUCT = struct.Struct("<10f")
+# Parallel-to-vertex morph-target position delta.
+MORPH_DELTA_STRUCT = struct.Struct("<3f")
+
+# Set on every object whose primitive carried morph targets; carries the IR mesh
+# index so the weights track — which addresses a MESH, not a primitive — can find
+# every object built from that mesh.
+_MORPH_MESH_INDEX_PROPERTY = "neversoft_morph_mesh_index"
 
 _PSX_COLOUR_PULSE_ATTRIBUTE = "neversoft_psx_colour_pulse_channel"
 _PSX_COLOUR_PULSE_GROUP = "Neversoft PSX Colour Pulses"
@@ -2248,6 +2255,53 @@ def _apply_skin(obj, primitive, armatures, package, package_dir, root):
     mod.use_vertex_groups = True
 
 
+def _read_morph_deltas(package, package_dir, target, vertex_count):
+    """Read one target's per-vertex position deltas, or None when the buffer
+    does not parallel the mesh exactly. A short or long buffer would silently
+    shift deltas onto the wrong vertices, so it is rejected instead."""
+    data = _read_package_bytes(package, package_dir, target.get("PositionDeltaBuffer", ""))
+    if not data or len(data) != vertex_count * MORPH_DELTA_STRUCT.size:
+        return None
+    return [
+        MORPH_DELTA_STRUCT.unpack_from(data, index * MORPH_DELTA_STRUCT.size)
+        for index in range(vertex_count)
+    ]
+
+
+def _apply_morph_targets(obj, mesh, package, package_dir, primitive, mesh_index):
+    """Add one Blender shape key per IR morph target, plus the Basis they are
+    relative to.
+
+    Deltas are mesh-local, exactly like the base vertex coordinates the package
+    already wrote, so the object's world matrix (including the Y-up -> Z-up root)
+    applies to both identically and no conversion belongs here.
+
+    All-or-nothing: a target whose buffer does not parallel the mesh leaves the
+    object a plain static mesh rather than a partly-built morph rig."""
+    targets = primitive.get("MorphTargets")
+    if not targets or not mesh.vertices:
+        return False
+
+    vertex_count = len(mesh.vertices)
+    deltas = []
+    for index, target in enumerate(targets):
+        values = _read_morph_deltas(package, package_dir, target, vertex_count)
+        if values is None:
+            return False
+        deltas.append((target.get("Name") or f"target_{index:04d}", values))
+
+    base = [tuple(vertex.co) for vertex in mesh.vertices]
+    obj.shape_key_add(name="Basis", from_mix=False)
+    for name, values in deltas:
+        block = obj.shape_key_add(name=name, from_mix=False)
+        for index, (dx, dy, dz) in enumerate(values):
+            bx, by, bz = base[index]
+            block.data[index].co = (bx + dx, by + dy, bz + dz)
+
+    obj[_MORPH_MESH_INDEX_PROPERTY] = mesh_index
+    return True
+
+
 def _make_objects(
         manifest,
         package,
@@ -2339,6 +2393,8 @@ def _make_objects(
             _get_or_create_sky_collection().objects.link(obj)
         else:
             collection.objects.link(obj)
+        _apply_morph_targets(
+            obj, mesh, package, package_dir, primitive, node.get("MeshIndex", -1))
         if armatures:
             _apply_skin(obj, primitive, armatures, package, package_dir, root)
         created.append(obj)
@@ -2521,53 +2577,159 @@ def _make_animations(manifest, armatures, package, package_dir):
         armature_obj, _ = armatures[skeleton_index]
         if armature_obj is None or not actions:
             continue
+        _stash_actions(armature_obj.animation_data_create(), actions)
 
-        # use_fake_user is the load-bearing persistence fix: bpy.data.actions.new
-        # yields 0-user datablocks, and wm.save_as_mainfile drops any that lack a
-        # (fake) user — which is why only the last-assigned action used to
-        # survive. Set it on EVERY action before anything can fail.
+    _make_morph_animations(animations, package, package_dir, scene_fps)
+
+
+def _stash_actions(animation_data, actions):
+    """Park each clip on its own muted NLA track and make the first active.
+
+    use_fake_user is the load-bearing persistence fix: bpy.data.actions.new
+    yields 0-user datablocks, and wm.save_as_mainfile drops any that lack a
+    (fake) user — which is why only the last-assigned action used to survive.
+    Set it on EVERY action before anything can fail.
+
+    Stashing mirrors Blender's own glTF importer: one track per animation, all
+    muted so they read as separate parked clips (an unmuted stack would blend
+    every clip at once and read as "everything grouped under the first one").
+    The user solos a track, or picks a clip from the Action dropdown, to play
+    one. Best-effort only: the NLA + slotted-action API churned across Blender
+    4.4.x and the helper runs under --python-exit-code 1, so a version quirk
+    must degrade to fake-user-only persistence, never abort the whole export.
+
+    The first clip becomes the active action so the dope sheet / timeline shows
+    one animation by default; the rest are reachable via the NLA editor and the
+    Action dropdown."""
+    for action in actions:
+        action.use_fake_user = True
+
+    try:
         for action in actions:
-            action.use_fake_user = True
+            track = animation_data.nla_tracks.new()
+            track.name = action.name
+            track.mute = True
+            strip = track.strips.new(action.name, 1, action)
+            _bind_strip_action_slot(strip, action)
+    except (RuntimeError, AttributeError, TypeError):
+        pass
 
-        animation_data = armature_obj.animation_data_create()
-        # Stash each clip on its OWN muted NLA track, exactly like Blender's own
-        # glTF importer: one track per animation, all muted so they read as
-        # separate parked clips (an unmuted stack would blend every clip at once
-        # and read as "everything grouped under the first one"). The user solos
-        # a track, or picks a clip from the Action dropdown, to play it. Best-
-        # effort only: the NLA + slotted-action API churned across Blender 4.4.x
-        # and the helper runs under --python-exit-code 1, so a version quirk must
-        # degrade to fake-user-only persistence, never abort the whole export.
-        try:
-            for action in actions:
-                track = animation_data.nla_tracks.new()
-                track.name = action.name
-                track.mute = True
-                strip = track.strips.new(action.name, 1, action)
-                _bind_strip_action_slot(strip, action)
-        except (RuntimeError, AttributeError, TypeError):
-            pass
-
-        # Make the first clip the active action so the dope sheet / timeline
-        # shows one animation by default; the rest are reachable via the NLA
-        # editor and the Action dropdown.
-        first = actions[0]
-        animation_data.action = first
-        _bind_action_slot(animation_data, first)
+    animation_data.action = actions[0]
+    _bind_action_slot(animation_data, actions[0])
 
 
-def _get_action_fcurve_container(action):
+def _morph_objects_by_mesh():
+    """Group the shape-keyed objects _make_objects built by their IR mesh index.
+
+    A weights track addresses a MESH, and one mesh becomes one Blender object
+    per primitive per placing node, so a single track can drive several
+    objects."""
+    result = {}
+    for obj in bpy.data.objects:
+        mesh_index = obj.get(_MORPH_MESH_INDEX_PROPERTY)
+        if mesh_index is None or obj.type != 'MESH':
+            continue
+        keys = obj.data.shape_keys
+        if keys is None or len(keys.key_blocks) < 2:
+            continue
+        result.setdefault(int(mesh_index), []).append(obj)
+    return result
+
+
+def _morph_value_data_path(name):
+    return 'key_blocks["{}"].value'.format(
+        name.replace("\\", "\\\\").replace('"', '\\"'))
+
+
+def _make_morph_animations(animations, package, package_dir, scene_fps):
+    """Build a shape-key Action per ModelAnimation morph channel.
+
+    The FCurves live on the mesh's ShapeKey datablock (not the object), so each
+    object gets its own action even when one track drives several. Weights are
+    stored key-major and are already the values Blender wants — a shape key's
+    `value` IS its weight — so unlike bone channels there is no basis
+    conversion, only the same seconds -> frames scaling."""
+    channels = [
+        (animation, animation.get("MorphChannel"))
+        for animation in animations
+        if animation.get("MorphChannel")
+    ]
+    if not channels:
+        return
+
+    objects_by_mesh = _morph_objects_by_mesh()
+    if not objects_by_mesh:
+        return
+
+    actions_per_key = {}
+    for animation, channel in channels:
+        target_count = channel.get("TargetCount", 0)
+        key_count = channel.get("KeyCount", 0)
+        objects = objects_by_mesh.get(channel.get("MeshIndex", -1), [])
+        if not objects or target_count <= 0 or key_count <= 0:
+            continue
+
+        times = _read_float_buffer(
+            package, package_dir, channel.get("TimesBuffer", ""), key_count)
+        weights = _read_float_buffer(
+            package, package_dir, channel.get("WeightsBuffer", ""), key_count * target_count)
+        if not times or not weights:
+            continue
+
+        name = animation.get("Name") or "animation"
+        for obj in objects:
+            shape_keys = obj.data.shape_keys
+            blocks = shape_keys.key_blocks[1:]  # index 0 is the Basis
+            if len(blocks) != target_count:
+                continue
+
+            action = bpy.data.actions.new(
+                name=name if len(objects) == 1 else f"{name}__{obj.name}")
+            fcurve_target = _get_action_fcurve_container(action, id_type='KEY')
+            # A key block CLAMPS `value` to its slider range (0..1 by default),
+            # so a source that over- or under-drives a target would be silently
+            # flattened. Widen only when the track actually needs it.
+            low = min(0.0, min(weights))
+            high = max(1.0, max(weights))
+            for target_index, block in enumerate(blocks):
+                block.slider_min = low
+                block.slider_max = high
+                fcurve = fcurve_target.fcurves.new(
+                    data_path=_morph_value_data_path(block.name), index=0)
+                fcurve.keyframe_points.add(count=key_count)
+                for key_i in range(key_count):
+                    point = fcurve.keyframe_points[key_i]
+                    point.co = (
+                        times[key_i] * scene_fps,
+                        weights[key_i * target_count + target_index],
+                    )
+                    point.interpolation = 'LINEAR'
+                fcurve.update()
+
+            actions_per_key.setdefault(shape_keys.name, (shape_keys, []))[1].append(action)
+
+    for shape_keys, actions in actions_per_key.values():
+        if actions:
+            _stash_actions(shape_keys.animation_data_create(), actions)
+
+
+def _get_action_fcurve_container(action, id_type='OBJECT'):
     """Return the object exposing `.fcurves.new(data_path, index)` for this Action.
 
     Blender 4.4+ moved FCurves under a Layer→Strip→Slot→Channelbag tree. The
     legacy `Action.fcurves` accessor was removed for newly-created actions.
-    On 4.4+ we materialise a single OBJECT-typed slot + Keyframe strip and
-    return its channelbag. On older Blender the action itself still exposes
-    `fcurves` directly."""
+    On 4.4+ we materialise a single slot + Keyframe strip and return its
+    channelbag. On older Blender the action itself still exposes `fcurves`
+    directly.
+
+    A slot's id_type must match the datablock the action is assigned to, so
+    shape-key actions pass 'KEY'; bone actions keep the 'OBJECT' default and
+    their output is unchanged."""
     if hasattr(action, "layers") and hasattr(action, "slots"):
         layer = action.layers[0] if len(action.layers) else action.layers.new(name="Layer")
         strip = layer.strips[0] if len(layer.strips) else layer.strips.new(type='KEYFRAME')
-        slot = action.slots[0] if len(action.slots) else action.slots.new(id_type='OBJECT', name="Default")
+        slot = action.slots[0] if len(action.slots) else action.slots.new(
+            id_type=id_type, name="Default")
         return strip.channelbag(slot, ensure=True)
     return action
 

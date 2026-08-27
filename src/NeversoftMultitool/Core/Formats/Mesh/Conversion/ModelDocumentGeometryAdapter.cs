@@ -28,7 +28,8 @@ internal static class ModelDocumentGeometryAdapter
         int materialIndex,
         List<ModelVertex> vertices,
         List<int> indices,
-        ModelSkinBinding? skin = null)
+        ModelSkinBinding? skin = null,
+        IReadOnlyList<ModelMorphTarget>? morphTargets = null)
     {
         if (indices.Count == 0)
             return null;
@@ -39,7 +40,8 @@ internal static class ModelDocumentGeometryAdapter
             MaterialIndex = materialIndex,
             Vertices = vertices.ToArray(),
             Indices = indices.ToArray(),
-            Skin = skin
+            Skin = skin,
+            MorphTargets = morphTargets
         };
         mesh.Primitives.Add(primitive);
         return primitive;

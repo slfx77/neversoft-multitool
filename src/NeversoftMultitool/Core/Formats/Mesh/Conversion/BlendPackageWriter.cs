@@ -128,6 +128,7 @@ internal static class BlendPackageWriter
         for (var meshIndex = 0; meshIndex < document.Meshes.Count; meshIndex++)
         {
             var mesh = document.Meshes[meshIndex];
+            var morphTargetCount = BlendMorphPackageWriter.TargetCount(mesh);
             var primitives = new List<BlendPrimitiveManifest>(mesh.Primitives.Count);
             for (var primitiveIndex = 0; primitiveIndex < mesh.Primitives.Count; primitiveIndex++)
             {
@@ -185,6 +186,8 @@ internal static class BlendPackageWriter
                     Skin = skin,
                     TextureWibbleBuffer = textureWibblePath,
                     ColourPulseBuffer = colourPulsePath,
+                    MorphTargets = BlendMorphPackageWriter.WriteTargets(
+                        archive, mesh, meshIndex, primitiveIndex, morphTargetCount),
                     NativeMetadata = primitive.NativeMetadata.Select(BlendPackageManifest.ToDictionary).ToList()
                 });
             }
@@ -350,13 +353,18 @@ internal static class BlendPackageWriter
                 });
             }
 
-            animations.Add(new BlendAnimationManifest { Name = animation.Name, Channels = channels });
+            animations.Add(new BlendAnimationManifest
+            {
+                Name = animation.Name,
+                Channels = channels,
+                MorphChannel = BlendMorphPackageWriter.WriteChannel(archive, document, animation, animIndex)
+            });
         }
 
         return animations;
     }
 
-    private static void WriteFloatBuffer(ZipArchive archive, string path, IReadOnlyList<float> values)
+    internal static void WriteFloatBuffer(ZipArchive archive, string path, IReadOnlyList<float> values)
     {
         var entry = archive.CreateEntry(path, CompressionLevel.Fastest);
         using var stream = entry.Open();

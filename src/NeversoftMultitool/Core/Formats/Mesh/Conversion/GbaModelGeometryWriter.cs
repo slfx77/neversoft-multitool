@@ -4,37 +4,17 @@ using NeversoftMultitool.Core.Formats.Gba;
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 /// <summary>
-///     Binds the skater's rendered corners to the bone-per-vertex rig
-///     <see cref="GbaAnimatedModelWriter" /> builds: one bone per unique model
-///     vertex, so a corner's influence is simply its source vertex's global index
-///     (sub-object base + local index) at weight 1 — the GBA morphs vertices
-///     individually, so no blending exists to express.
-/// </summary>
-internal sealed class GbaSkinAssignment
-{
-    public required int SkeletonIndex { get; init; }
-
-    /// <summary>Per-sub-object global vertex base: Σ VertCounts[0..sub).</summary>
-    public required int[] SubObjectBoneBase { get; init; }
-
-    public ModelBoneInfluences InfluenceOf(int subObject, int localIndex) =>
-        ModelBoneInfluences.Single(SubObjectBoneBase[subObject] + localIndex);
-}
-
-/// <summary>
 ///     Builds a THPS2 GBA character as a 3D model: the shared morph-target skater
-///     mesh (one static pose — the pool's frame 0, a neutral standing stance) with
-///     the character's own outfit colours. Faces group into one primitive per
-///     material, coloured with the mid shade of the material's palette ramp — the
-///     runtime lights across the ramp; the mid shade is the authored colour
-///     (verified: it dresses the skater anatomically — skin, shirt with logo,
-///     pants, shoes, deck). Unlit, like the console's output.
+///     mesh with the character's own outfit colours. Faces group into one
+///     primitive per material, coloured with the mid shade of the material's
+///     palette ramp — the runtime lights across the ramp; the mid shade is the
+///     authored colour (verified: it dresses the skater anatomically — skin,
+///     shirt with logo, pants, shoes, deck). Unlit, like the console's output.
 ///
-///     <para>With a <see cref="GbaSkinAssignment" /> the same geometry binds to the
-///     animated writer's bone-per-vertex rig; without one this is the plain static
-///     export, byte-identical to before animation support existed. The packed
-///     u16 normals stay undecoded (materials are unlit, so flat face normals
-///     suffice).</para>
+///     <para>Without morph targets this writes the plain static export: the
+///     pool's frame 0, a neutral standing pose. With them, the same base mesh
+///     carries one clip's distinct frames as glTF morph targets — see
+///     <see cref="GbaAnimatedModelWriter" />.</para>
 /// </summary>
 internal static class GbaModelGeometryWriter
 {
@@ -45,7 +25,7 @@ internal static class GbaModelGeometryWriter
     private const int StaticFrame = 0;
 
     public static void Populate(
-        ModelDocument document, GbaModelNativeSource native, GbaSkinAssignment? skin = null)
+        ModelDocument document, GbaModelNativeSource native, GbaMorphTargets? morphTargets = null)
     {
         var rom = native.Rom;
         var model = GbaSkaterModel.TryLocate(rom)
@@ -55,6 +35,15 @@ internal static class GbaModelGeometryWriter
         var verts = GbaSkaterModel.ReadFrameVertices(rom, model, StaticFrame);
         var colors = GbaSkaterModel.TryGetMaterialColors(rom, model, native.CharacterIndex, native.Outfit)
                      ?? throw new InvalidDataException("The character's colour stream does not decode");
+
+        var boneBase = SubObjectBases(model);
+        // Morph deltas are keyed by base-vertex geometry, so a source vertex must
+        // resolve to ONE (position, normal) pair. Per-face normals put two
+        // distinct vertices on the same key; averaging per source vertex leaves
+        // only pairs that never move apart, for which sharing is exact.
+        var normals = morphTargets == null
+            ? null
+            : AverageVertexNormals(model, faces, verts, boneBase);
 
         var mesh = new ModelMesh { Name = native.CharacterName };
 
@@ -72,28 +61,40 @@ internal static class GbaModelGeometryWriter
 
             var vertices = new List<ModelVertex>();
             var indices = new List<int>();
-            var influences = skin != null ? new List<ModelBoneInfluences>() : null;
+            var sources = morphTargets == null ? null : new List<int>();
             foreach (var face in group)
-                AppendFace(vertices, indices, influences, skin, verts, face);
+                AppendFace(vertices, indices, sources, verts, normals, boneBase, face);
 
-            var binding = influences == null
-                ? null
-                : new ModelSkinBinding
-                {
-                    SkeletonIndex = skin!.SkeletonIndex,
-                    Influences = [.. influences]
-                };
             ModelDocumentGeometryAdapter.AddPrimitive(
-                mesh, $"m{material:D2}", materialIndex, vertices, indices, binding);
+                mesh, $"m{material:D2}", materialIndex, vertices, indices,
+                morphTargets: sources == null ? null : BuildTargets(morphTargets, sources));
         }
 
         ModelDocumentGeometryAdapter.AddMeshNode(document, native.CharacterName, mesh);
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }
 
+    /// <summary>Per-sub-object base into the flat source-vertex numbering.</summary>
+    internal static int[] SubObjectBases(GbaSkaterModel.ModelInfo model)
+    {
+        var bases = new int[GbaSkaterModel.SubObjectCount];
+        var total = 0;
+        for (var sub = 0; sub < GbaSkaterModel.SubObjectCount; sub++)
+        {
+            bases[sub] = total;
+            total += model.VertCounts[sub];
+        }
+
+        return bases;
+    }
+
+    // Model space is z-up; GLB is y-up right-handed: (x, z, -y) preserves chirality.
+    // Shared with GbaAnimatedModelWriter so base mesh and targets agree exactly.
+    internal static Vector3 ToGlb(sbyte[] v) => new(v[0] * Scale, v[2] * Scale, -v[1] * Scale);
+
     private static void AppendFace(
-        List<ModelVertex> vertices, List<int> indices, List<ModelBoneInfluences>? influences,
-        GbaSkinAssignment? skin, sbyte[][][] verts, GbaSkaterModel.Face face)
+        List<ModelVertex> vertices, List<int> indices, List<int>? sources,
+        sbyte[][][] verts, Vector3[]? normals, int[] boneBase, GbaSkaterModel.Face face)
     {
         var sub = verts[face.SubObject];
         if (face.V0 >= sub.Length || face.V1 >= sub.Length || face.V2 >= sub.Length)
@@ -101,26 +102,76 @@ internal static class GbaModelGeometryWriter
         var a = ToGlb(sub[face.V0]);
         var b = ToGlb(sub[face.V1]);
         var c = ToGlb(sub[face.V2]);
-        var normal = Vector3.Cross(b - a, c - a);
-        normal = normal.LengthSquared() < 1e-12f ? Vector3.UnitY : Vector3.Normalize(normal);
-        var va = new ModelVertex(a, normal, Vector4.One, Vector2.Zero);
-        var vb = new ModelVertex(b, normal, Vector4.One, Vector2.Zero);
-        var vc = new ModelVertex(c, normal, Vector4.One, Vector2.Zero);
-        if (influences != null)
-        {
-            ModelDocumentGeometryAdapter.AddSkinnedTriangle(
-                vertices, indices, influences,
-                va, skin!.InfluenceOf(face.SubObject, face.V0),
-                vb, skin.InfluenceOf(face.SubObject, face.V1),
-                vc, skin.InfluenceOf(face.SubObject, face.V2));
-        }
-        else
-        {
-            ModelDocumentGeometryAdapter.AddTriangle(vertices, indices, va, vb, vc);
-        }
+        var faceNormal = Vector3.Cross(b - a, c - a);
+        faceNormal = faceNormal.LengthSquared() < 1e-12f
+            ? Vector3.UnitY
+            : Vector3.Normalize(faceNormal);
+
+        var s0 = boneBase[face.SubObject] + face.V0;
+        var s1 = boneBase[face.SubObject] + face.V1;
+        var s2 = boneBase[face.SubObject] + face.V2;
+        var n0 = normals == null ? faceNormal : normals[s0];
+        var n1 = normals == null ? faceNormal : normals[s1];
+        var n2 = normals == null ? faceNormal : normals[s2];
+
+        var before = vertices.Count;
+        ModelDocumentGeometryAdapter.AddTriangle(vertices, indices,
+            new ModelVertex(a, n0, Vector4.One, Vector2.Zero),
+            new ModelVertex(b, n1, Vector4.One, Vector2.Zero),
+            new ModelVertex(c, n2, Vector4.One, Vector2.Zero));
+        if (sources == null || vertices.Count == before)
+            return; // a degenerate triangle the adapter dropped
+
+        sources.Add(s0);
+        sources.Add(s1);
+        sources.Add(s2);
     }
 
-    // Model space is z-up; GLB is y-up right-handed: (x, z, -y) preserves chirality.
-    // Shared with GbaAnimatedModelWriter so bind pose and channel keys agree exactly.
-    internal static Vector3 ToGlb(sbyte[] v) => new(v[0] * Scale, v[2] * Scale, -v[1] * Scale);
+    /// <summary>
+    ///     Redistributes source-vertex deltas onto one primitive's own corners.
+    /// </summary>
+    private static ModelMorphTarget[] BuildTargets(GbaMorphTargets morphTargets, List<int> sources)
+    {
+        var targets = new ModelMorphTarget[morphTargets.DeltasByTarget.Length];
+        for (var t = 0; t < targets.Length; t++)
+        {
+            var source = morphTargets.DeltasByTarget[t];
+            var deltas = new Vector3[sources.Count];
+            for (var v = 0; v < sources.Count; v++)
+                deltas[v] = source[sources[v]];
+            targets[t] = new ModelMorphTarget
+            {
+                Name = $"{morphTargets.ClipName}_f{morphTargets.Frames[t]}",
+                PositionDeltas = deltas
+            };
+        }
+
+        return targets;
+    }
+
+    private static Vector3[] AverageVertexNormals(
+        GbaSkaterModel.ModelInfo model, List<GbaSkaterModel.Face> faces, sbyte[][][] verts, int[] boneBase)
+    {
+        var normals = new Vector3[model.VertCounts.Sum(count => count)];
+        foreach (var face in faces)
+        {
+            var sub = verts[face.SubObject];
+            if (face.V0 >= sub.Length || face.V1 >= sub.Length || face.V2 >= sub.Length)
+                continue;
+            var a = ToGlb(sub[face.V0]);
+            var normal = Vector3.Cross(ToGlb(sub[face.V1]) - a, ToGlb(sub[face.V2]) - a);
+            if (normal.LengthSquared() < 1e-12f)
+                continue;
+            normal = Vector3.Normalize(normal);
+            normals[boneBase[face.SubObject] + face.V0] += normal;
+            normals[boneBase[face.SubObject] + face.V1] += normal;
+            normals[boneBase[face.SubObject] + face.V2] += normal;
+        }
+
+        for (var i = 0; i < normals.Length; i++)
+            normals[i] = normals[i].LengthSquared() < 1e-12f
+                ? Vector3.UnitY
+                : Vector3.Normalize(normals[i]);
+        return normals;
+    }
 }

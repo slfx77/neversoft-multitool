@@ -175,20 +175,28 @@ internal static class CharacterAnimationConverter
             : new DocumentResult(null, "The selected N64 animation slots did not decode.");
     }
 
-    private static DocumentResult BuildGba(
-        MeshFileEntry character,
-        IReadOnlyList<AnimationProbe> animations)
+    /// <summary>
+    ///     The GBA clips a probe selection names, in pane order.
+    /// </summary>
+    public static IReadOnlyList<int> GbaClipIndices(
+        MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
     {
-        var indices = animations
+        return animations
             .Select(static probe => probe.Source)
             .OfType<GbaAnimationSource>()
             .Where(source => ReferenceEquals(source.ModelSource, character.Source))
             .Select(static source => source.ClipIndex)
             .Distinct()
             .ToArray();
-        if (indices.Length == 0)
-            return new DocumentResult(null, "No GBA animation clips were selected.");
+    }
 
+    /// <summary>
+    ///     Builds ONE GBA clip. The skater animates by morphing, and a glTF
+    ///     weights track addresses every target of the mesh, so a document
+    ///     carries one clip — callers wanting several build several.
+    /// </summary>
+    public static DocumentResult BuildGbaClip(MeshFileEntry character, int clipIndex)
+    {
         var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
         var document = new MeshModelParser().Parse(new MeshImportRequest
         {
@@ -196,12 +204,22 @@ internal static class CharacterAnimationConverter
             FileName = fileName,
             OutputStem = MeshTypeDetector.GetStem(fileName),
             SourceKind = ModelSourceKind.GbaModel,
-            GbaAnimationIndices = indices
+            GbaAnimationIndices = [clipIndex]
         });
 
         return document.Animations.Count > 0
             ? new DocumentResult(document, null)
-            : new DocumentResult(null, "The selected GBA animation clips did not decode.");
+            : new DocumentResult(null, "The selected GBA animation clip did not decode.");
+    }
+
+    private static DocumentResult BuildGba(
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations)
+    {
+        var indices = GbaClipIndices(character, animations);
+        return indices.Count == 0
+            ? new DocumentResult(null, "No GBA animation clips were selected.")
+            : BuildGbaClip(character, indices[0]);
     }
 
     private static DocumentResult BuildPs2Scene(

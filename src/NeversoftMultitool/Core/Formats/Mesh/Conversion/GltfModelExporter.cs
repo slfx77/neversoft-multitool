@@ -5,6 +5,7 @@ using SharpGLTF.Materials;
 using SharpGLTF.Memory;
 using SharpGLTF.Scenes;
 using SharpGLTF.Schema2;
+using SharpGLTF.Transforms;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using AlphaMode = SharpGLTF.Materials.AlphaMode;
 
@@ -111,8 +112,50 @@ public sealed class GltfModelExporter : IModelExporter
         var model = scene.ToGltf2();
         for (var i = 0; i < cameraNames.Count && i < model.LogicalCameras.Count; i++)
             model.LogicalCameras[i].Name = cameraNames[i];
+        ApplyMorphAnimations(model, document);
         ApplySceneExtras(model, document);
         return (model, totalTriangles);
+    }
+
+    /// <summary>
+    ///     Publishes morph-weight tracks. Unlike bone tracks these cannot be built
+    ///     through SceneBuilder — the toolkit's node builder exposes no morph
+    ///     property — so they are written onto the converted glTF, where the
+    ///     weights sampler can address the mesh's targets directly.
+    /// </summary>
+    private static void ApplyMorphAnimations(ModelRoot model, ModelDocument document)
+    {
+        var morphing = document.Animations.Where(static a => a.MorphChannel != null).ToList();
+        if (morphing.Count == 0)
+            return;
+
+        foreach (var animation in morphing)
+        {
+            var channel = animation.MorphChannel!;
+            if ((uint)channel.MeshIndex >= (uint)document.Meshes.Count)
+                continue;
+
+            // SceneBuilder names the emitted node after the source mesh.
+            var meshName = document.Meshes[channel.MeshIndex].Name;
+            var node = model.LogicalNodes.FirstOrDefault(
+                n => n.Mesh != null && string.Equals(n.Mesh.Name, meshName, StringComparison.Ordinal));
+            var emitted = node?.Mesh?.Primitives.FirstOrDefault()?.MorphTargetsCount ?? 0;
+            if (node?.Mesh == null || emitted != channel.TargetCount)
+                continue;
+
+            var keyframes = new Dictionary<float, SparseWeight8>(channel.KeyCount);
+            for (var key = 0; key < channel.KeyCount; key++)
+            {
+                var weights = new float[channel.TargetCount];
+                Array.Copy(channel.Weights, key * channel.TargetCount, weights, 0, channel.TargetCount);
+                keyframes[channel.Times[key]] = SparseWeight8.Create(weights);
+            }
+
+            var gltfAnimation = model.LogicalAnimations
+                                    .FirstOrDefault(a => string.Equals(a.Name, animation.Name, StringComparison.Ordinal))
+                                ?? model.CreateAnimation(animation.Name);
+            gltfAnimation.CreateMorphChannel(node, keyframes, channel.TargetCount, linear: true);
+        }
     }
 
     private static (HashSet<int> Skeletons, List<string> Names) AddPerspectiveCameras(
@@ -547,6 +590,7 @@ public sealed class GltfModelExporter : IModelExporter
             totalTriangles += AddTriangles(prim, primitive);
         }
 
+        AddMorphTargets(mesh, modelMesh);
         ApplyMeshExtras(mesh, modelMesh);
         scene.AddRigidMesh(mesh, worldTransform);
         return totalTriangles;
@@ -970,6 +1014,51 @@ public sealed class GltfModelExporter : IModelExporter
         }
 
         return triangles;
+    }
+
+    /// <summary>
+    ///     Emits a mesh's morph targets. The toolkit keys a delta by the base
+    ///     vertex's GEOMETRY (position + normal), so two source vertices that
+    ///     share both necessarily share a delta. That is exact when they never
+    ///     move apart — which is what <see cref="ModelMorphTarget" /> producers
+    ///     must guarantee — so a disagreement is a decode error rather than a
+    ///     rounding artefact, and the mesh is left un-morphed rather than
+    ///     silently tearing.
+    /// </summary>
+    private static void AddMorphTargets<TvM>(
+        MeshBuilder<VertexPositionNormal, TvM, VertexEmpty> mesh, ModelMesh modelMesh)
+        where TvM : struct, IVertexMaterial
+    {
+        var targetCount = modelMesh.Primitives.Count > 0
+            ? modelMesh.Primitives[0].MorphTargets?.Count ?? 0
+            : 0;
+        if (targetCount == 0)
+            return;
+        if (modelMesh.Primitives.Any(p => (p.MorphTargets?.Count ?? 0) != targetCount))
+            return;
+
+        for (var target = 0; target < targetCount; target++)
+        {
+            var builder = mesh.UseMorphTarget(target);
+            var assigned = new Dictionary<VertexPositionNormal, Vector3>();
+            foreach (var primitive in modelMesh.Primitives)
+            {
+                var deltas = primitive.MorphTargets![target].PositionDeltas;
+                for (var v = 0; v < primitive.Vertices.Length && v < deltas.Length; v++)
+                {
+                    var key = MakeVertex(primitive.Vertices[v]).Geometry;
+                    if (assigned.TryGetValue(key, out var existing))
+                    {
+                        if (Vector3.DistanceSquared(existing, deltas[v]) > 1e-6f)
+                            return;
+                        continue;
+                    }
+
+                    assigned[key] = deltas[v];
+                    builder.SetVertexDelta(key, new VertexGeometryDelta(deltas[v], Vector3.Zero, Vector3.Zero));
+                }
+            }
+        }
     }
 
     private static GltfVertex MakeVertex(ModelVertex vertex)

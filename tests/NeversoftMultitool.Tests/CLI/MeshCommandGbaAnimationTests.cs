@@ -15,8 +15,13 @@ public sealed class MeshCommandGbaAnimationTests(TestPaths paths)
     private const string GbaBuild = "Tony Hawk's Pro Skater 2 (2001-6-11, GBA - Final)";
     private const string GbaRomName = "Tony Hawk's Pro Skater 2 (USA, Europe).gba";
 
+    /// <summary>
+    ///     Morph weights address every target of the mesh, so bundling all 217
+    ///     clips into one document is not expressible — each clip is its own
+    ///     file, named after the clip.
+    /// </summary>
     [CorpusFact]
-    public void MeshCommand_GbaAnimationsFlag_IsOptInAndWiresEveryNonEmptyClip()
+    public void MeshCommand_GbaAnimationsFlag_IsOptInAndWritesOneFilePerClip()
     {
         using var temp = new TempDirectory();
         var characterPath = StageCharacter(temp);
@@ -30,11 +35,41 @@ public sealed class MeshCommandGbaAnimationTests(TestPaths paths)
 
         var staticModel = ReadOnlyGlb(staticOutput);
         Assert.Empty(staticModel.LogicalAnimations);
-        Assert.Empty(staticModel.LogicalSkins);
+        Assert.All(staticModel.LogicalMeshes.SelectMany(m => m.Primitives),
+            p => Assert.Equal(0, p.MorphTargetsCount));
 
-        var animatedModel = ReadOnlyGlb(animatedOutput);
-        Assert.Equal(217, animatedModel.LogicalAnimations.Count);
-        Assert.Equal(172, Assert.Single(animatedModel.LogicalSkins).JointsCount);
+        var files = Directory.GetFiles(animatedOutput, "*.glb", SearchOption.AllDirectories);
+        Assert.Equal(217, files.Length);
+        Assert.Contains(files, f => Path.GetFileName(f) == "13_character__Kickflip__20.glb");
+
+        // Each animating clip carries exactly its own clip as a morph-weights
+        // track and no skin — this model has no skeleton to invent one from.
+        // The other 51 are the port's static placeholders: every one of their
+        // frames IS the neutral pose, so they export as that pose with nothing
+        // to animate, byte-identical to the plain static export.
+        var animating = 0;
+        var staticPose = 0;
+        var staticHash = SingleGlbHash(staticOutput);
+        foreach (var file in files)
+        {
+            using var stream = File.OpenRead(file);
+            var model = ModelRoot.ReadGLB(stream);
+            Assert.Empty(model.LogicalSkins);
+            if (model.LogicalAnimations.Count == 1)
+            {
+                Assert.All(model.LogicalMeshes.SelectMany(m => m.Primitives),
+                    p => Assert.True(p.MorphTargetsCount > 0));
+                animating++;
+                continue;
+            }
+
+            Assert.Empty(model.LogicalAnimations);
+            Assert.Equal(staticHash, Hash(file));
+            staticPose++;
+        }
+
+        Assert.Equal(166, animating);
+        Assert.Equal(51, staticPose);
     }
 
     [CorpusFact]
@@ -51,8 +86,9 @@ public sealed class MeshCommandGbaAnimationTests(TestPaths paths)
         var two = Path.Combine(temp.Path, "two");
         Assert.Equal(0, MeshCommand.Create()
             .Parse([characterPath, "--output", two, "--gba-animation", "0", "2"]).Invoke());
-        Assert.Equal(["anim_0", "anim_2"],
-            ReadOnlyGlb(two).LogicalAnimations.Select(a => a.Name).Order().ToArray());
+        Assert.Equal(
+            ["13_character__anim_0.glb", "13_character__anim_2.glb"],
+            Directory.GetFiles(two, "*.glb").Select(Path.GetFileName).Order().ToArray());
     }
 
     [CorpusFact]
@@ -106,8 +142,12 @@ public sealed class MeshCommandGbaAnimationTests(TestPaths paths)
 
     private static string SingleGlbHash(string outputDirectory)
     {
-        var path = Assert.Single(Directory.GetFiles(
-            outputDirectory, "*.glb", SearchOption.AllDirectories));
+        return Hash(Assert.Single(Directory.GetFiles(
+            outputDirectory, "*.glb", SearchOption.AllDirectories)));
+    }
+
+    private static string Hash(string path)
+    {
         return Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
     }

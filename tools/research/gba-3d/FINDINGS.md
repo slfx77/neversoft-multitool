@@ -604,18 +604,46 @@ Deferred: the u16 normal encoding (lit shading), the 0x80 face flag (wheels),
 and the 0x744C98 sibling mesh. (Animation export and clip naming shipped the
 same day — see below.)
 
-## SHIPPED (2026-08-26): animation export — all 221 clips
+## SHIPPED (2026-08-26): animation export — all 221 clips, as MORPH TARGETS
 
 The engine is a pure **morph player**: each frame stores the complete posed
 vertex set and the renderer draws whichever frame the clip's tick→frame remap
-names. glTF has no bone-free way to carry that through this pipeline, so the
-export synthesises the equivalent rig (the DS precedent):
+names — and glTF expresses exactly that, so the export is morph targets.
 
-- **One bone per unique model vertex** (172), every rendered corner bound to its
-  own vertex at weight 1, **translation-only** channels keyed per tick with the
-  frame's absolute positions. Bind pose = frame 0, so bind geometry equals the
-  static export **by construction** (`LocalTransform = T(p0)`,
-  `InverseBindMatrix = T(-p0)` built directly, never `Matrix4x4.Invert`).
+**A skinned rig was tried first and rejected on measurement.** A bone-per-vertex
+rig (172 bones) works and plays everywhere, but 172 bones for a humanoid + board
+is not a usable rig. Reducing it needs vertices that move rigidly together, and
+they do not: even the solid **deck's own vertices drift 6 units apart** across
+the pool, and only 0.9% of vertex pairs hold a constant distance. Fitting rigid
+bones costs (model ~101 units tall): **128 bones → 1.5% worst error, 64 → 2.2%
+(RMS 0.68, below the s8 quantization noise), 30 → 9.1%, 6 → 63%.** A
+humanoid-sane ~20 bones is unreachable, so the model is genuinely hand-animated
+per vertex and morph targets are the honest representation.
+
+- **Targets are the clip's distinct POSES**, keyed by pose rather than by frame:
+  a hold reuses one target, and a frame whose pose IS the base contributes none.
+  That matters mechanically — an all-zero target is dropped on write and would
+  silently shift every later target's index, corrupting the weights.
+- **Base mesh = pool frame 0**, the same neutral pose the static export writes,
+  so a target is the plain difference from it and the static export is untouched.
+- **Weights are one-hot per tick** (all-zero shows the base). LINEAR, at 1/60 s.
+- **51 clips are motionless** — every frame of them IS the neutral pose, i.e. the
+  port ships those animations as static placeholders. They export as that pose
+  with no animation, byte-identical to the static export. The remaining **166
+  clips animate, 4,826 targets total, mean 29 per clip.**
+- **One GLB per clip**, because a weights track carries one value per target per
+  key: all 217 clips in one document would mean 4,826 targets and a weights
+  array in the gigabytes. Per clip it is ~29 targets and a few hundred KB.
+- Verified exactly: evaluating the exported targets and weights reproduces the
+  ROM's pose for **every tick at 0.000000 error**.
+- Morph deltas are keyed by base-vertex geometry, so the writer emits
+  **averaged per-vertex normals** rather than per-face ones — with face normals
+  two distinct vertices (69 and 94, which separate by 70 units mid-clip) collide
+  on one key. After averaging the only remaining collision is a pair that is
+  identical in all 4,772 frames, for which sharing is exact; the exporter
+  verifies that and declines to morph rather than tear if it ever fails.
+
+Facts shared by both representations:
 - **The 3 per-frame anchor bytes are the pose's AABB centre** (measured 200/200
   sampled frames) — a render/cull pivot for the 64×64 sprite, **not root
   motion**. Applying them as translation would double the motion; the exporter
@@ -630,8 +658,8 @@ export synthesises the equivalent rig (the DS precedent):
 Opt-in via `mesh --gba-animations` / `--gba-animation <n>`, or the GUI
 Animations pane (which also fixed a latent gap: neither GBA kind had a scanner
 arm, so carved levels and characters never appeared in the Mesh tab at all).
-All 217 clips fit one Khronos-clean GLB; a static export with no animation
-requested stays byte-identical, SHA-pinned.
+Every output is Khronos-clean; an authored-empty or out-of-range selection falls
+back to the static export, byte-identical and SHA-pinned.
 
 ## SHIPPED (2026-08-26): the cart embeds a real `tricks.bin` — 105 clips NAMED
 

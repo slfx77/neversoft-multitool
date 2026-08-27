@@ -57,6 +57,18 @@ internal sealed class MeshConverterTabAnimationExporter(
         var cts = BeginOperation("Exporting animated GLB");
         try
         {
+            // GBA clips animate by morphing, and a glTF weights track addresses
+            // every target of the mesh — so each clip is its own file.
+            if (character.IsGbaModel)
+            {
+                var written = await Task.Run(
+                    () => ExportGbaClipFiles(character, animations, outputPath, cts.Token), cts.Token);
+                MainWindow.Instance?.SetStatus(written > 0
+                    ? $"Exported {written} clip(s) beside {Path.GetFileName(outputPath)}"
+                    : "No GBA clips could be exported.");
+                return;
+            }
+
             var result = await Task.Run(
                 () => CharacterAnimationConverter.BuildAnimatedGlb(
                     character, animations, visibilityOverrides, animationSourceRig, oneShot),
@@ -144,6 +156,47 @@ internal sealed class MeshConverterTabAnimationExporter(
         {
             EndOperation(cts);
         }
+    }
+
+    /// <summary>
+    ///     Writes one GLB per selected GBA clip, named after the picked file plus
+    ///     the clip. A clip that fails to build is skipped rather than aborting
+    ///     the others. Returns how many files were written.
+    /// </summary>
+    private static int ExportGbaClipFiles(
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations,
+        string outputPath,
+        CancellationToken token)
+    {
+        var directory = Path.GetDirectoryName(outputPath);
+        if (string.IsNullOrEmpty(directory))
+            return 0;
+        var stem = Path.GetFileNameWithoutExtension(outputPath);
+
+        var written = 0;
+        foreach (var clip in CharacterAnimationConverter.GbaClipIndices(character, animations))
+        {
+            token.ThrowIfCancellationRequested();
+            var (document, _) = CharacterAnimationConverter.BuildGbaClip(character, clip);
+            if (document == null)
+                continue;
+
+            var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
+            if (glb == null || triangles == 0)
+                continue;
+
+            var name = SanitizeClipName(document.Animations[0].Name);
+            File.WriteAllBytes(Path.Combine(directory, $"{stem}__{name}.glb"), glb);
+            written++;
+        }
+
+        return written;
+    }
+
+    private static string SanitizeClipName(string name)
+    {
+        return new string(name.Select(c => char.IsAsciiLetterOrDigit(c) ? c : '_').ToArray()).Trim('_');
     }
 
     private CancellationTokenSource BeginOperation(string label)
