@@ -625,6 +625,33 @@ is worn by four characters **including Chad Muska** — the hood. Triangle count
 now vary per character (Spider-Man 234, Muska 242) where they were a uniform
 266.
 
+## FIXED (2026-08-27): holes where staircases and benches stand
+
+A user circled black holes in the collision surface that are staircases and park
+benches in the artwork. They were not the art-surround problem below — those
+cells were being **rejected as out-of-bounds kill wall**.
+
+The kill-wall test read the cell record's raw base-height word at `+8`. For most
+materials that word is the height, but **material 30 stores something else
+there**: its cells read as absurd values (98304.75, 65536.00, 86017.00,
+131073.50) while the surface their own height function returns sits on the
+playfield. Since the surface is computed by *executing the material's function*
+with the record, the raw word was never the thing to test.
+
+The test is now the sampled surface, and it is right in **both** directions:
+
+- **62 cells gained** — School II 21, NY City 38, Skate Street 3. School II's
+  are unmistakable once sampled: `(19,15)` 8.50, `(19,16)` 7.00, `(19,17)` 5.50,
+  `(19,19)` 4.00, `(19,20)` 2.50 — a descending staircase — plus `(20,24)`
+  0.00..1.50, a bench.
+- **48 cells newly rejected** — all Marseille's top border row, material 11,
+  raw word 10.50 but sampled surface at **34.38**, the kill height. The raw
+  reading had been drawing a strip of kill wall across the level's edge.
+
+Six levels are unaffected in either direction (the Hangar stays at exactly
+14,739 triangles). School II goes 52,245 → 52,753. Both the 3D writer and the
+2D isometric render share the one test, so both stopped holing.
+
 ## FIXED (2026-08-27): black slabs where the art draws nothing
 
 A user reported objects "missing / displaying black" in School II. The cause is

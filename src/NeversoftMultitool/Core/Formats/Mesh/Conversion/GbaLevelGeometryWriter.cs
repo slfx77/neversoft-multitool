@@ -83,8 +83,10 @@ internal static class GbaLevelGeometryWriter
         for (var gx = 0; gx < w; gx++)
         {
             var index = gy * w + gx;
-            var cell = grid.CellAt(gx, gy);
-            live[index] = cell.BaseHeight / Fixed <= GbaCollisionRenderer.OutOfBoundsHeight;
+            // Judged by the material's own sampled surface, never the raw
+            // base-height word — material 30 stores something else there, and
+            // trusting it punched holes where real objects stand.
+            live[index] = !GbaCollisionRenderer.IsOutOfBounds(rom, grid, gx, gy);
             if (!live[index])
                 continue;
             var samples = grid.SampleCell(rom, gx, gy, step);

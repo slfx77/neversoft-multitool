@@ -28,8 +28,29 @@ public static class GbaCollisionRenderer
     /// <summary>Sub-quads per cell edge. 4 keeps thin rails visible without over-sampling.</summary>
     public const int SubDivisions = 4;
 
-    /// <summary>Cells whose base height exceeds this are the out-of-bounds kill wall.</summary>
+    /// <summary>Cells whose surface stands above this are the out-of-bounds kill wall.</summary>
     public const double OutOfBoundsHeight = 30.0;
+
+    /// <summary>
+    ///     True when a cell is out-of-bounds kill wall rather than playfield.
+    ///
+    ///     <para>The test is the cell's <b>sampled surface</b> — what the material's
+    ///     own height function returns — never the raw base-height word. For most
+    ///     materials the two agree, but material 30 stores something else in that
+    ///     word: its cells read as absurd heights (98304.75, 65536, 86017) while
+    ///     their real surface sits on the playfield. Trusting the raw word dropped
+    ///     62 cells across four levels, and they were real objects — a descending
+    ///     staircase in School II sampling 8.50 down to 0.50, and its park
+    ///     benches — which is what left holes in the collision surface.</para>
+    /// </summary>
+    public static bool IsOutOfBounds(ReadOnlySpan<byte> rom, GbaCollisionSurface.Grid grid, int x, int y)
+    {
+        var samples = grid.SampleCell(rom, x, y, 3);
+        var max = int.MinValue;
+        foreach (var v in samples)
+            max = Math.Max(max, v);
+        return max / Fixed > OutOfBoundsHeight;
+    }
 
     // Iso basis, zoomed. Note Project() halves the horizontal/depth terms (TW/2, TH/2)
     // but not the height term, so matching the ENGINE's proportions (its art transform
@@ -98,7 +119,8 @@ public static class GbaCollisionRenderer
 
             heights[index] = values;
             sloped[index] = max - min > 1e-9;
-            if (cell.BaseHeight / Fixed <= OutOfBoundsHeight)
+            // The material's own surface decides, not the raw base-height word.
+            if (max <= OutOfBoundsHeight)
                 live[index] = true;
             else
                 omitted++;
@@ -294,7 +316,7 @@ public static class GbaCollisionRenderer
         for (var gx = 0; gx < grid.Width; gx++)
         {
             var cell = grid.CellAt(gx, gy);
-            if (cell.BaseHeight / Fixed > OutOfBoundsHeight)
+            if (IsOutOfBounds(rom, grid, gx, gy))
             {
                 omitted++;
                 continue;

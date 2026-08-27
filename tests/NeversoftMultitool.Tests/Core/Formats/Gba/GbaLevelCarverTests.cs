@@ -132,7 +132,7 @@ public sealed class GbaLevelCarverTests(TestPaths paths)
         var native = new GbaLevelNativeSource(carve[1].Data, rom, schoolRecord, "School II", "");
         var document = ModelDocument.CreateNative("1_school_ii", ModelSourceKind.GbaLevel, native);
         GbaLevelGeometryWriter.Populate(document, native);
-        Assert.Equal(52245, document.TriangleCount);
+        Assert.Equal(52753, document.TriangleCount);
 
         // And a level whose art fills its canvas is untouched — the Hangar keeps
         // exactly the geometry it had before any coverage test existed.
@@ -141,6 +141,53 @@ public sealed class GbaLevelCarverTests(TestPaths paths)
         var hangarDocument = ModelDocument.CreateNative("0_hangar", ModelSourceKind.GbaLevel, hangar);
         GbaLevelGeometryWriter.Populate(hangarDocument, hangar);
         Assert.Equal(14739, hangarDocument.TriangleCount);
+    }
+
+    /// <summary>
+    ///     Whether a cell is out-of-bounds kill wall is decided by the surface its
+    ///     material's own height function returns, never by the raw base-height
+    ///     word. Material 30 stores something else in that word — its cells read as
+    ///     absurd heights while standing on the playfield — and the raw reading
+    ///     punched holes exactly where real objects are.
+    /// </summary>
+    [CorpusFact]
+    public void KillWallsAreJudgedByTheSurfaceTheMaterialActuallyReturns()
+    {
+        var romPath = RomPath;
+        Assert.SkipWhen(romPath == null, "THPS2 GBA ROM sample not available");
+        var rom = File.ReadAllBytes(romPath!);
+        var carve = GbaLevelCarver.Carve(rom);
+
+        var gained = 0;
+        var rejected = 0;
+        for (var level = 0; level < 9; level++)
+        {
+            var grid = GbaCollisionSurface.TryLoad(
+                rom, GbaLevelCarver.FindRecordOffset(rom, carve[level].Data));
+            Assert.NotNull(grid);
+            for (var gy = 0; gy < grid.Height; gy++)
+            for (var gx = 0; gx < grid.Width; gx++)
+            {
+                var rawSaysWall = grid.CellAt(gx, gy).BaseHeight / 4096.0
+                                  > GbaCollisionRenderer.OutOfBoundsHeight;
+                var isWall = GbaCollisionRenderer.IsOutOfBounds(rom, grid, gx, gy);
+                if (rawSaysWall == isWall)
+                    continue;
+                if (rawSaysWall)
+                    gained++;   // playfield the raw word hid: staircases, benches
+                else
+                    rejected++; // kill wall the raw word let through
+            }
+        }
+
+        // 21 in School II (a staircase sampling 8.50 down to 0.50, and its park
+        // benches), 38 in NY City, 3 in Skate Street.
+        Assert.Equal(62, gained);
+
+        // The other direction is just as real: Marseille's top border row reads a
+        // low base word but its surface stands at the 34.375 kill height, so it
+        // was being drawn as a wall across the level's edge.
+        Assert.Equal(48, rejected);
     }
 
     [CorpusFact]
