@@ -985,5 +985,26 @@ nmt unpack out/
 ```
 
 The pair also opens in place: `.gob` is a nested-open extension, with the sibling
-`.gfc` resolved as its companion, so the Texture and Audio tabs browse a cart
-without an unpack step.
+`.gfc` resolved as its companion, so the tabs browse a cart without an unpack step.
+
+```bash
+# Every model in a cart, named the way the studio named it.
+nmt nds-mesh "Tony Hawk's American Sk8land (USA).nds" -o out/models
+nmt nds-mesh "...nds" -o out/levels --levels        # one file per level
+nmt nds-mesh "...nds" -o out/anim   --animations    # clips baked in
+
+# A DS model also converts through the generic command once extracted.
+nmt mesh out/gob -o out/models
+```
+
+In the GUI, **Meshes & Characters** takes a cart through *Select archive…* and the
+**Texture** tab scans one directly. A DS row's clips appear in the Animations pane
+when its model set ships a library. Routing is by the loader's own name — a model is
+`.\<idA>.<idB>.geometry.bin` — which is lossless: of the geometry files Downhill Jam
+and Proving Ground leave unnamed, not one carries a vertex.
+
+The road a tab row takes is not the road `nds-mesh` takes. The command indexes every
+texture bank and texel blob in the container up front; a row has one `AssetSource` and
+asks for each companion by name (`NdsModelCompanions`). That the two agree — the
+per-entry walk reproduces the command's totals exactly, 1,062/1,014/1,416 models and
+88,609/93,309/119,015 triangles — is what pins the per-entry route.
