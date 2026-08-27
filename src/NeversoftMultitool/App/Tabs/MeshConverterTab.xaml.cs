@@ -33,6 +33,10 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private readonly MeshConverterTabBatchRunner _batchRunner;
     private readonly ObservableCollection<MeshFileEntry> _items = [];
 
+    // One scan serves both 3D tabs; this one renders its own slice of it.
+    private readonly MeshTabScanSession _scan = MeshTabScanSession.Instance;
+    private const MeshScanSlice Slice = MeshScanSlice.All;
+
     private readonly Dictionary<string, bool> _visibilityOverrides =
         new(StringComparer.Ordinal);
 
@@ -85,6 +89,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             ConversionProgress, ConvertButton, CancelButton, DispatcherQueue);
 
         ModelViewer.ModelLoaded += ModelViewer_ModelLoaded;
+        _scan.Changed += OnScanSessionChanged;
         Unloaded += MeshConverterTab_Unloaded;
 
         // Selected here rather than in XAML so SelectionChanged can't fire
@@ -109,6 +114,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         UserSettings.Changed -= OnUserSettingsChanged;
         Unloaded -= MeshConverterTab_Unloaded;
         ModelViewer.ModelLoaded -= ModelViewer_ModelLoaded;
+        _scan.Changed -= OnScanSessionChanged;
         _scanCts?.Dispose();
         _scanCts = null;
         _xbxSkeletonGeneration++;
@@ -141,7 +147,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
         await CancelInFlightScan();
 
-        _items.Clear();
+        _scan.Clear();
         ConvertButton.IsEnabled = false;
 
         var cts = new CancellationTokenSource();
@@ -161,8 +167,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
             token.ThrowIfCancellationRequested();
 
-            foreach (var entry in entries)
-                _items.Add(entry);
+            _scan.Publish(path, entries);
 
             if (entries.Count == 0)
                 MainWindow.Instance?.SetStatus(
@@ -192,7 +197,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     {
         await CancelInFlightScan();
 
-        _items.Clear();
+        _scan.Clear();
         ConvertButton.IsEnabled = false;
 
         var cts = new CancellationTokenSource();
@@ -229,8 +234,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
             token.ThrowIfCancellationRequested();
 
-            foreach (var entry in entries)
-                _items.Add(entry);
+            _scan.Publish(rootDir, entries);
 
             MainWindow.Instance?.SetStatus($"Found {entries.Count} mesh file(s).");
         }
@@ -296,6 +300,26 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
         // Fires during InitializeComponent before later-declared elements exist.
         if (FilesFilterBox == null) return;
         _filesFilterDebounce?.Invoke();
+    }
+
+    /// <summary>
+    ///     A scan finished — in this tab or the other one. Refill from the shared
+    ///     session and re-run the full UI state pass, not just the list: the
+    ///     Convert/Render buttons, the worldzone sections and the selection all
+    ///     depend on what is now in the list.
+    /// </summary>
+    private void OnScanSessionChanged()
+    {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            DispatcherQueue.TryEnqueue(OnScanSessionChanged);
+            return;
+        }
+
+        _scan.FillSlice(Slice, _items);
+        if (InputPathText != null && _scan.SourcePath.Length > 0)
+            InputPathText.Text = _scan.SourcePath;
+        UpdateUiState();
     }
 
     private bool MatchesCurrentFilter(MeshFileEntry entry) =>
