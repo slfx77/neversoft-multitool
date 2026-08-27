@@ -261,6 +261,26 @@ public static class GbaSkaterModel
         return result;
     }
 
+    /// <summary>
+    ///     Which of the shared mesh's sub-objects this character actually wears:
+    ///     bit <c>i</c> draws sub-object <c>i</c> (roster record <c>+0x04</c>).
+    ///     All 15 characters share one mesh, so the parts they do NOT have —
+    ///     Muska's hood, the two female skaters' ponytail, the leg style they
+    ///     didn't pick — are switched off here rather than authored away.
+    ///
+    ///     <para>Read from the data, three ways that cannot coincide: sub-object
+    ///     7 is the only EMPTY one (0 vertices) and is the only bit no character
+    ///     sets; the body (4) and the deck (6) are the only sub-objects every
+    ///     character sets; and sub-objects 1 and 2 occupy the same space at the
+    ///     feet, with every character taking exactly one of them.</para>
+    /// </summary>
+    public static uint GetPartMask(ReadOnlySpan<byte> rom, ModelInfo model, int character)
+    {
+        if (character < 0 || character >= model.CharacterCount)
+            return 0;
+        return ReadU32(rom, model.CharacterTableOffset + character * CharacterRecordSize + 4);
+    }
+
     /// <summary>The character's name string (record +0x00), for display.</summary>
     public static string? TryGetCharacterName(ReadOnlySpan<byte> rom, ModelInfo model, int character)
     {

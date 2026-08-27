@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Numerics;
 using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
@@ -71,7 +71,7 @@ public sealed class GbaSkaterAnimationTests(TestPaths paths)
         // The animated base mesh IS the static mesh: same triangles, same
         // topology, same positions. Only targets and a weights track are added.
         Assert.Equal(staticDocument.TriangleCount, animatedDocument.TriangleCount);
-        Assert.Equal(266, animatedDocument.TriangleCount);
+        Assert.Equal(234, animatedDocument.TriangleCount); // Spider-Man's part set
         var expected = staticDocument.Meshes.SelectMany(m => m.Primitives).ToList();
         var actual = animatedDocument.Meshes.SelectMany(m => m.Primitives).ToList();
         Assert.Equal(expected.Count, actual.Count);
@@ -106,8 +106,21 @@ public sealed class GbaSkaterAnimationTests(TestPaths paths)
         var animation = Assert.Single(document.Animations);
         var channel = Assert.IsType<ModelMorphChannel>(animation.MorphChannel);
 
-        // Targets are the clip's DISTINCT frames, not one per tick.
-        Assert.Equal(ticks.Distinct().Count(), channel.TargetCount);
+        // Targets are the clip's distinct POSES, not one per tick — and a frame
+        // whose pose IS the base contributes none, since an all-zero target is
+        // dropped on write and would shift every later target's index.
+        var basePose = GbaSkaterModel.ReadFrameVertices(rom, model, 0)
+            .SelectMany(sub => sub.Select(GbaModelGeometryWriter.ToGlb)).ToArray();
+        var moving = ticks.Distinct()
+            .Select(f => GbaSkaterModel.ReadFrameVertices(rom, model, f)
+                .SelectMany(sub => sub.Select(GbaModelGeometryWriter.ToGlb)).ToArray())
+            .Where(pose => !pose.SequenceEqual(basePose))
+            .Select(pose => string.Join(',', pose))
+            .Distinct()
+            .Count();
+        Assert.Equal(moving, channel.TargetCount);
+        Assert.True(channel.TargetCount < ticks.Distinct().Count(),
+            "clip 52 returns to the base pose, so it needs fewer targets than distinct frames");
         Assert.Equal(ticks.Length, channel.KeyCount);
         Assert.Empty(animation.Channels);
         for (var tick = 0; tick < ticks.Length; tick++)
@@ -127,18 +140,23 @@ public sealed class GbaSkaterAnimationTests(TestPaths paths)
 
         for (var tick = 0; tick < ticks.Length; tick++)
         {
+            // Exactly one target at full weight, or none at all — all-zero
+            // weights are how a tick shows the base pose.
             var applied = Enumerable.Range(0, channel.TargetCount)
                 .Where(t => channel.Weights[tick * channel.TargetCount + t] != 0f)
                 .ToArray();
-            var target = Assert.Single(applied);
-            Assert.Equal(1f, channel.Weights[tick * channel.TargetCount + target]);
+            Assert.True(applied.Length <= 1);
+            if (applied.Length == 1)
+                Assert.Equal(1f, channel.Weights[tick * channel.TargetCount + applied[0]]);
 
             var pose = GbaSkaterModel.ReadFrameVertices(rom, model, ticks[tick])
                 .SelectMany(sub => sub.Select(GbaModelGeometryWriter.ToGlb))
                 .ToHashSet();
             foreach (var primitive in mesh.Primitives)
             {
-                var deltas = primitive.MorphTargets![target].PositionDeltas;
+                var deltas = applied.Length == 1
+                    ? primitive.MorphTargets![applied[0]].PositionDeltas
+                    : new Vector3[primitive.Vertices.Length];
                 for (var v = 0; v < primitive.Vertices.Length; v++)
                     Assert.Contains(primitive.Vertices[v].Position + deltas[v], pose);
             }
@@ -172,7 +190,7 @@ public sealed class GbaSkaterAnimationTests(TestPaths paths)
 
         var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
         Assert.NotNull(glb);
-        Assert.Equal(266, triangles);
+        Assert.Equal(234, triangles); // Spider-Man's part set
         AssertKhronosClean(glb!);
 
         using var stream = new MemoryStream(glb!, writable: false);

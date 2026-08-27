@@ -1,4 +1,4 @@
-using NeversoftMultitool.Core.Formats.Gba;
+﻿using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Detection;
 
@@ -105,6 +105,45 @@ public sealed class GbaSkaterModelTests(TestPaths paths)
         Assert.Null(GbaSkaterModel.TryGetMaterialColors(rom, model, 0, 8));
     }
 
+    /// <summary>
+    ///     All 15 characters share one mesh, so each wears only the sub-objects
+    ///     its roster record names. Three facts fix the reading beyond doubt:
+    ///     the ONLY sub-object no character draws is the only empty one, the
+    ///     only two every character draws are the body and the deck, and
+    ///     sub-objects 1 and 2 occupy the same space at the feet with every
+    ///     character taking exactly one.
+    /// </summary>
+    [Fact]
+    public void EachCharacterWearsOnlyTheSubObjectsItsPartMaskNames()
+    {
+        var romPath = RomPath;
+        Assert.SkipWhen(romPath == null, "THPS2 GBA ROM sample not available");
+        var rom = File.ReadAllBytes(romPath!);
+        var model = GbaSkaterModel.TryLocate(rom)!;
+
+        var masks = Enumerable.Range(0, model.CharacterCount)
+            .Select(c => GbaSkaterModel.GetPartMask(rom, model, c))
+            .ToArray();
+        int Draws(int sub) => masks.Count(m => (m >> sub & 1) != 0);
+
+        Assert.Equal(0, Draws(7));   // the empty sub-object, worn by nobody
+        Assert.Equal(15, Draws(4));  // the body
+        Assert.Equal(15, Draws(6));  // the deck
+        Assert.All(masks, m =>
+            Assert.Equal(1, (int)(m >> 1 & 1) + (int)(m >> 2 & 1))); // one leg style each
+
+        // Sub-object 5 is a flat plane behind the head, worn by exactly the two
+        // female skaters: the ponytail. Sub-object 0 sits on top of the head and
+        // four characters wear it, Muska among them: the hood.
+        var ponytail = Enumerable.Range(0, model.CharacterCount)
+            .Where(c => (masks[c] >> 5 & 1) != 0)
+            .Select(c => GbaSkaterModel.TryGetCharacterName(rom, model, c))
+            .ToArray();
+        Assert.Equal(["Elissa Steamer", "Mindy"], ponytail);
+        Assert.Equal(4, Draws(0));
+        Assert.NotEqual(0u, masks[8] & 1); // Chad Muska
+    }
+
     [Fact]
     public void CarvedCharacterSuffixRoutesToTheMeshPipeline()
     {
@@ -128,7 +167,10 @@ public sealed class GbaSkaterModelTests(TestPaths paths)
         var document = ModelDocument.CreateNative("13_spider_man", ModelSourceKind.GbaModel, native);
         GbaModelGeometryWriter.Populate(document, native);
 
-        Assert.Equal(266, document.TriangleCount);
+        // Spider-Man's own part set: the shared mesh's 266 triangles minus
+        // the sub-objects his roster mask leaves off (hood, ponytail, the
+        // other leg style).
+        Assert.Equal(234, document.TriangleCount);
         Assert.True(document.Materials.Count > 10); // one per used material ramp
         Assert.All(document.Materials, m => Assert.StartsWith("Spider-Man_m", m.Name));
     }

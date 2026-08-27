@@ -31,7 +31,13 @@ internal static class GbaModelGeometryWriter
         var model = GbaSkaterModel.TryLocate(rom)
                     ?? throw new InvalidDataException("This ROM does not carry the skater model complex");
 
-        var faces = GbaSkaterModel.ReadFaces(rom, model);
+        // All 15 characters share one mesh, so the parts this one does not wear
+        // (Muska's hood, the female skaters' ponytail, the leg style they did
+        // not pick) are switched off by the roster record's part mask.
+        var partMask = GbaSkaterModel.GetPartMask(rom, model, native.CharacterIndex);
+        var faces = GbaSkaterModel.ReadFaces(rom, model)
+            .Where(face => (partMask >> face.SubObject & 1) != 0)
+            .ToList();
         var verts = GbaSkaterModel.ReadFrameVertices(rom, model, StaticFrame);
         var colors = GbaSkaterModel.TryGetMaterialColors(rom, model, native.CharacterIndex, native.Outfit)
                      ?? throw new InvalidDataException("The character's colour stream does not decode");
