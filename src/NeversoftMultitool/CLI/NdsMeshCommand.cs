@@ -101,6 +101,8 @@ public static class NdsMeshCommand
         var clipSource = animations ? NdsClipSource.Build(container) : null;
         if (levels)
             return ExportLevels(container, catalog, output, verbose, cancellationToken);
+
+        var naming = NdsExportNaming.Build(container);
         var converted = 0;
         var empty = 0;
         var triangles = 0;
@@ -114,7 +116,7 @@ public static class NdsMeshCommand
             if (limit > 0 && converted >= limit)
                 break;
 
-            var model = TryBuild(container, entry, catalog, clipSource);
+            var model = TryBuild(container, entry, catalog, clipSource, naming);
             if (model == null)
                 continue;
             if (model.Animations.Count > 0)
@@ -170,6 +172,11 @@ public static class NdsMeshCommand
         var manifests = container.Parent != null
             ? NdsCartManifests.Read(container.Parent, container)
             : new Dictionary<uint, NdsModelSetManifest>();
+        // The cart also NAMES each set, because a set's id is the CRC of its name.
+        // That supersedes the size measurement below wherever it speaks.
+        var setNames = container.Parent != null
+            ? NdsCartManifests.ReadSetNames(container.Parent, container)
+            : new Dictionary<uint, string>();
         var exported = 0;
         var worlds = 0;
         var pieces = 0;
@@ -199,10 +206,20 @@ public static class NdsMeshCommand
                     parsed.Add((idB, entry, data, geometry));
             }
 
-            // A model set holds a level OR a many-part model — the container spells
-            // both the same way, so the pieces have to say which. See NdsModelSetBounds.
-            var world = NdsModelSetBounds.IsWorldScale(parsed.Select(p => p.Geometry));
-            var name = $"{(world ? "level" : "set")}_{idA:x8}";
+            // A model set holds a level OR a many-part model, and the container
+            // spells both the same way. The cart's own name settles it outright —
+            // Level_Alcatraz_Visual against skate_s — and the size measurement in
+            // NdsModelSetBounds stays as the answer for a bare .gob, where there is
+            // no code to read a name out of. The name is also the better rule where
+            // they part: Proving Ground's front end is a real scene only 78 units
+            // across, which no size test can see.
+            setNames.TryGetValue(idA, out var setName);
+            var world = setName != null
+                ? NdsSetNames.IsLevel(setName)
+                : NdsModelSetBounds.IsWorldScale(parsed.Select(p => p.Geometry));
+            var name = setName != null
+                ? NdsSetNames.ToStem(setName)
+                : $"{(world ? "level" : "set")}_{idA:x8}";
             var document = new ModelDocument { Name = name, SourceKind = ModelSourceKind.Generic };
             var added = 0;
             var pieceOf = new Dictionary<ModelPrimitive, int>();
@@ -271,7 +288,7 @@ public static class NdsMeshCommand
     /// <summary>Reads one container entry and builds a model, or null if it is not geometry.</summary>
     private static ModelDocument? TryBuild(
         IArchiveFileSystem container, ArchiveEntry entry, NdsTextureCatalog catalog,
-        NdsClipSource? clipSource = null)
+        NdsClipSource? clipSource = null, NdsExportNaming? naming = null)
     {
         byte[] data;
         try
@@ -288,7 +305,7 @@ public static class NdsMeshCommand
 
         var groups = NdsGxInterpreter.Run(data, geometry);
         var textures = catalog.ResolveFor(entry, groups);
-        var name = Path.GetFileNameWithoutExtension(entry.Name);
+        var name = naming?.For(entry) ?? Path.GetFileNameWithoutExtension(entry.Name);
 
         var clips = clipSource?.ClipsFor(entry) ?? [];
         if (clips.Count > 0)
@@ -552,5 +569,63 @@ internal sealed class NdsTextureCatalog
         {
             return null;
         }
+    }
+}
+
+/// <summary>
+///     Turns a container entry into the name the studio gave it.
+///
+///     A model set's id is the CRC-32 of its authored name, so with the cart open
+///     every set can be named (<see cref="NdsSetNames" />), and the ARM9 manifests
+///     additionally name each piece inside a set. That makes an export stem readable
+///     instead of two hex ids: a one-piece entity set — the collectibles, the
+///     pedestrians, the pros — is simply <c>skate_s</c> or <c>videotape</c>, and a
+///     piece of a bigger set is <c>&lt;set&gt;__&lt;piece&gt;</c>.
+///
+///     Falls back to the entry's own filename whenever a name is unavailable, which
+///     is always the case for a bare extracted <c>.gob</c>: it carries no code.
+/// </summary>
+internal sealed class NdsExportNaming
+{
+    private readonly IReadOnlyDictionary<uint, string> _sets;
+    private readonly IReadOnlyDictionary<uint, NdsModelSetManifest> _manifests;
+
+    private NdsExportNaming(
+        IReadOnlyDictionary<uint, string> sets,
+        IReadOnlyDictionary<uint, NdsModelSetManifest> manifests)
+    {
+        _sets = sets;
+        _manifests = manifests;
+    }
+
+    public static NdsExportNaming Build(IArchiveFileSystem container)
+    {
+        var cart = container.Parent;
+        return cart == null
+            ? new NdsExportNaming(
+                new Dictionary<uint, string>(), new Dictionary<uint, NdsModelSetManifest>())
+            : new NdsExportNaming(
+                NdsCartManifests.ReadSetNames(cart, container),
+                NdsCartManifests.Read(cart, container));
+    }
+
+    /// <summary>The export stem for one geometry entry, or null to keep the filename.</summary>
+    public string? For(ArchiveEntry entry)
+    {
+        if (!NdsModelSet.TryParseGeometryName(GobNames.TryResolve(entry.Crc), out var idA, out var idB))
+            return null;
+        if (!_sets.TryGetValue(idA, out var set))
+            return null;
+
+        var stem = NdsSetNames.ToStem(set);
+        // An entity type is its own one-piece set, keyed by the same id twice, so its
+        // set name IS the model's name and a piece suffix would only repeat it.
+        if (idA == idB)
+            return stem;
+
+        var piece = _manifests.TryGetValue(idA, out var manifest)
+            ? manifest.Pieces.FirstOrDefault(p => p.IdB == idB)?.Name
+            : null;
+        return piece == null ? $"{stem}__{idB:x8}" : $"{stem}__{NdsSetNames.ToStem(piece)}";
     }
 }

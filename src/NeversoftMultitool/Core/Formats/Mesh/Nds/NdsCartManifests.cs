@@ -32,6 +32,30 @@ public static class NdsCartManifests
         if (geometry.Count == 0)
             return new Dictionary<uint, NdsModelSetManifest>();
 
+        return NdsModelSetManifest.Locate(CodeRegions(cart), geometry)
+            .ToDictionary(m => m.IdA);
+    }
+
+    /// <summary>
+    ///     Recovers each model set's authored name from the same code images, by
+    ///     re-hashing the strings they hold — see <see cref="NdsSetNames" />. Empty
+    ///     for anything that is not a cart.
+    /// </summary>
+    /// <param name="cart">The opened <c>.nds</c>.</param>
+    /// <param name="container">The cart's opened GOB — the ids to name.</param>
+    public static IReadOnlyDictionary<uint, string> ReadSetNames(
+        IArchiveFileSystem cart, IArchiveFileSystem container)
+    {
+        var geometry = GroupGeometry(container);
+        return geometry.Count == 0
+            ? new Dictionary<uint, string>()
+            : NdsSetNames.Harvest(CodeRegions(cart), geometry.Keys);
+    }
+
+    /// <summary>ARM9 and every ARM9 overlay, as raw images.</summary>
+    private static List<(string Name, uint VirtualBase, byte[] Data)> CodeRegions(
+        IArchiveFileSystem cart)
+    {
         var regions = new List<(string, uint, byte[])>();
         foreach (var entry in cart.Entries)
         {
@@ -51,12 +75,11 @@ public static class NdsCartManifests
             }
             catch (Exception ex) when (ex is InvalidDataException or IOException or EndOfStreamException)
             {
-                // A region that will not read simply contributes no manifests.
+                // A region that will not read simply contributes nothing.
             }
         }
 
-        return NdsModelSetManifest.Locate(regions, geometry)
-            .ToDictionary(m => m.IdA);
+        return regions;
     }
 
     /// <summary>idA to the idBs of the geometry files that share it.</summary>
