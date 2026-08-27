@@ -81,6 +81,29 @@ public class MeshFileEntry : BaseFileEntry
 
     internal bool IsPlacedLevel => HasPlacedPsxCompanion;
 
+    /// <summary>
+    ///     This row's scan facts, projected for <see cref="MeshLevelPolicy" />.
+    ///     The rule lives in Core because App code is excluded from the
+    ///     cross-platform target and cannot be covered by tests.
+    /// </summary>
+    internal MeshLevelFacts LevelFacts => new(
+        FileName,
+        FilePath,
+        RelativePath,
+        IsPsx,
+        IsN64Model,
+        IsPs2Geom,
+        PsxIsSuperModel,
+        PsxFormatRevision,
+        Ps2SubFormat,
+        HasPlacedPsxCompanion,
+        HasSupportedLevelObjectCompanion,
+        N64MaxBoundsRadius,
+        ObjectCount);
+
+    /// <summary>True when this row is level-scale content (see <see cref="MeshLevelPolicy" />).</summary>
+    internal bool IsLevelContent => MeshLevelPolicy.IsLevelContent(LevelFacts);
+
     internal bool IsPsx => Format == "PSX";
     internal bool IsN64Model => Format == "N64";
     internal bool IsGbaLevel => Format == "GBA Level";

@@ -20,30 +20,6 @@ namespace NeversoftMultitool;
 /// </summary>
 internal sealed class MeshConverterTabPreview : IDisposable
 {
-    // Explicit player-scale hints keep walk height independent of a level's
-    // bounding sphere. SM2:EE's player is 90.861 units tall, so 82 remains the
-    // observed-correct eye. THAW's skater is 73 units tall, yielding 66. The
-    // older Apocalypse v3 level space needs the lower empirically requested
-    // height while retaining a stable header-based classification.
-    //
-    // THPS settled on the bench anthropometry after two rounds of user
-    // feedback: 58 and then 70 both read as too short beside skny's park
-    // benches (eye level with the backrest). The authored bench legs run
-    // ground-to-seat over 28.444 units ≈ 0.45 m, giving ~63 units/m, so a
-    // 1.6 m eye sits near 100. The old "giant at 82" report (THPS2 DC) is
-    // superseded by the two direct bench comparisons — trust the furniture.
-    // A platform-scale explanation was ruled out by measurement: THPS2 PSX
-    // and DC skny have identical extents (21655.6 x 5059.1 x 32914.2) and
-    // identical 28.444-unit bench legs.
-    private const double PsxLevelWalkEyeHeight = 82d;
-    private const double ApocalypseLevelWalkEyeHeight = 56d;
-    private const double ThpsLevelWalkEyeHeight = 100d;
-    private const double ThawWorldzoneWalkEyeHeight = 66d;
-
-    // GBA levels export at GbaLevelGeometryWriter.Scale (16 GLB units per world
-    // unit); a skater's eye at ~1.4 world units gives 22.
-    private const double GbaLevelWalkEyeHeight = 22d;
-
     private readonly ModelViewerControl _viewer;
     private CancellationTokenSource? _previewCts;
     private string? _previewSourcePath;
@@ -91,78 +67,11 @@ internal sealed class MeshConverterTabPreview : IDisposable
     }
 
     /// <summary>
-    ///     Identifies level-scale content for the viewer's default camera mode
-    ///     (levels start in Fly, everything else in Orbit) and walk-height
-    ///     tuning. Worldzones, Apocalypse level files, RW BSP worlds, scene
-    ///     files, placed DDM levels, _g.psx level geometry, and PSX levels the
-    ///     companion resolver recognizes (THPS bare-stem levels with sibling
-    ///     _o.psx+_t.trg, Apocalypse chunk primaries) qualify.
+    ///     Level-scale content selects the viewer's default camera mode (levels
+    ///     start in Fly, everything else in Orbit) and walk-height tuning. The
+    ///     rule itself lives in <see cref="MeshLevelPolicy" /> so it is testable.
     /// </summary>
-    internal static bool IsLevelModel(MeshFileEntry entry)
-    {
-        // Carved N64 bundles: bounds.bin's largest per-mesh radius separates
-        // world content (level geometry AND level object banks, both authored in
-        // world space) from characters and props, with an empty band between the
-        // two classes. Precision 1.000 over 328 PS1-Rosetta-labelled bundles.
-        if (entry.IsN64Model)
-            return N64BundleClassifier.IsWorldScale(entry.N64MaxBoundsRadius);
-
-        if (entry.Ps2SubFormat == Ps2SceneSubFormat.PakWorldzone)
-            return true;
-
-        // Supers are animated characters by definition (the anim-chunk flag),
-        // never levels — Apocalypse's war/thebeast/bruce are v3 supers.
-        if (entry.IsPsx && !entry.PsxIsSuperModel &&
-            entry.PsxFormatRevision == PsxMeshFormatRevision.ApocalypseV3)
-            return true;
-
-        // THPS1/THPS2 bare-stem levels carry no _g suffix; the scanner's
-        // corpus-proven level-companion resolution is the reliable signal.
-        if (entry.IsPsx && entry.HasSupportedLevelObjectCompanion)
-            return true;
-
-        var name = entry.FileName;
-        if (name.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase) ||
-            name.EndsWith(".scn.xbx", StringComparison.OrdinalIgnoreCase) ||
-            name.EndsWith(".scn.wpc", StringComparison.OrdinalIgnoreCase) ||
-            name.EndsWith(".scn.ngc", StringComparison.OrdinalIgnoreCase) ||
-            // Carved GBA level records are levels by definition.
-            name.EndsWith(MeshTypeDetector.GbaLevelSuffix, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        // Only PLACED DDMs are levels; a standalone DDM with no PSX layout
-        // companion is a character/prop model (THPS2X skaters, items).
-        if (name.EndsWith(".ddm", StringComparison.OrdinalIgnoreCase))
-            return entry.HasPlacedPsxCompanion;
-
-        // THPS4/THUG whole-level geoms ship under Levels/<Stem>/ (both on
-        // disc and inside the scene PREs); prop/vehicle geoms live elsewhere.
-        if (entry.IsPs2Geom && PathContainsLevelsSegment(entry))
-            return true;
-
-        return name.EndsWith("_g.psx", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool PathContainsLevelsSegment(MeshFileEntry entry)
-    {
-        return ContainsLevelsSegment(entry.RelativePath) || ContainsLevelsSegment(entry.FilePath);
-
-        static bool ContainsLevelsSegment(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return false;
-            var parts = path.Split(['/', '\\'], StringSplitOptions.None);
-            // The last part is the file name; only directory segments count.
-            for (var i = 0; i < parts.Length - 1; i++)
-            {
-                if (string.Equals(parts[i], "Levels", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
-        }
-    }
+    internal static bool IsLevelModel(MeshFileEntry entry) => entry.IsLevelContent;
 
     public async Task<IReadOnlyList<ModelVisibilityGroup>?> LoadPreviewAsync(
         MeshFileEntry entry,
@@ -315,43 +224,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
         }
     }
 
-    private static double? ResolveWalkEyeHeight(MeshFileEntry entry, bool isLevel)
-    {
-        if (!isLevel) return null;
-        if (entry.IsPakWorldzone) return ThawWorldzoneWalkEyeHeight;
-        if (entry.FileName.EndsWith(MeshTypeDetector.GbaLevelSuffix, StringComparison.OrdinalIgnoreCase))
-            return GbaLevelWalkEyeHeight;
-
-        // N64 bundles are emitted at k / ScaleDivisor with k = 1 for non-supers,
-        // which IS the PS1 translation divisor — the same level exports at the
-        // same world scale on both platforms, so the PS1 eye heights transfer
-        // unchanged. Only level GEOMETRY gets one: an object bank flies but has
-        // no floor to stand on. An unnamed bundle falls back to the THPS eye.
-        if (entry.IsN64Model)
-        {
-            if (!N64BundleClassifier.IsLevel(entry.N64MaxBoundsRadius, entry.ObjectCount))
-                return null;
-
-            return entry.FileName.EndsWith("_g.psx.n64", StringComparison.OrdinalIgnoreCase)
-                ? PsxLevelWalkEyeHeight
-                : ThpsLevelWalkEyeHeight;
-        }
-
-        if (!entry.IsPsx) return null;
-        if (entry.PsxFormatRevision == PsxMeshFormatRevision.ApocalypseV3)
-            return ApocalypseLevelWalkEyeHeight;
-
-        // THPS1/THPS2 levels are bare-stem (no _g suffix) and recognized via
-        // their level-object companions; Spider-Man/SM2:EE levels keep the
-        // taller superhero eye.
-        if (entry.HasSupportedLevelObjectCompanion &&
-            !entry.FileName.EndsWith("_g.psx", StringComparison.OrdinalIgnoreCase))
-        {
-            return ThpsLevelWalkEyeHeight;
-        }
-
-        return PsxLevelWalkEyeHeight;
-    }
+    private static double? ResolveWalkEyeHeight(MeshFileEntry entry, bool isLevel) =>
+        MeshLevelPolicy.ResolveWalkEyeHeight(entry.LevelFacts, isLevel);
 
     public async Task ClearAsync()
     {
