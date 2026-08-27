@@ -16,5 +16,12 @@ internal enum TextureFileFormat
     Fnt,
 
     /// <summary>Full-screen BIOS-LZ77 images scanned from a GBA ROM (one row per screen).</summary>
-    GbaImage
+    GbaImage,
+
+    /// <summary>
+    ///     A Vicarious Visions DS texture bank (one row per record). The pixels live
+    ///     in sibling container entries the bank names, so a row only resolves while
+    ///     the cart or its GOB is open.
+    /// </summary>
+    NdsTextureBank
 }

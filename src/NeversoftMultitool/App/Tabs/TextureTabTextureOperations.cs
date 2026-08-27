@@ -4,6 +4,7 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Font;
 using NeversoftMultitool.Core.Formats.Texture.Gba;
 using NeversoftMultitool.Core.Formats.Texture.N64;
+using NeversoftMultitool.Core.Formats.Texture.Nds;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
@@ -33,10 +34,18 @@ internal static class TextureTabTextureOperations
     private static readonly string[] XboxImgExtensions = [".img.xbx", ".img.wpc"];
     private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".img.ps2", ".tex", ".img"];
 
+    // A DS texture bank is named by the loader's own template. Keying on the whole
+    // suffix rather than the bare .bin every DS asset carries costs nothing: every
+    // content-valid bank in all three carts has this name — 94/94, 46/46 and 77/77 —
+    // so admitting bare .bin would add ~13,000 rejected rows per cart for no gain.
+    private const string NdsTextureBankSuffix = ".textureinfo.bin";
+
     public static bool IsTextureFile(string path)
     {
         var name = Path.GetFileName(path);
         if (OrdinalFileName.HasAnySuffix(name, CompoundTextureExtensions))
+            return true;
+        if (OrdinalFileName.HasSuffix(name, NdsTextureBankSuffix))
             return true;
 
         var ext = Path.GetExtension(path);
@@ -55,6 +64,8 @@ internal static class TextureTabTextureOperations
         // Must precede the PSX fallthrough below, which would otherwise claim .fnt.
         if (OrdinalFileName.HasSuffix(fileName, ".fnt"))
             return TextureFileFormat.Fnt;
+        if (OrdinalFileName.HasSuffix(fileName, NdsTextureBankSuffix))
+            return TextureFileFormat.NdsTextureBank;
         if (OrdinalFileName.HasSuffix(fileName, ".gba"))
             return TextureFileFormat.GbaImage;
         if (OrdinalFileName.HasAnySuffix(fileName, NgcTexExtensions))
@@ -85,6 +96,8 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.N64Tex => N64TexFile.IsN64Texture(data) ? 1 : 0,
             TextureFileFormat.Fnt => TryParseFnt(data)?.Glyphs.Length ?? 0,
             TextureFileFormat.GbaImage => GbaRomImages.ScanFullScreenImages(data).Count,
+            TextureFileFormat.NdsTextureBank =>
+                NdsTextureCompanions.TryParseBank(source, data, out var nds, out _) ? nds.Count : 0,
             _ => PsxLibrary.EnumerateTextures(data).Count
         };
     }
@@ -102,6 +115,7 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.N64Tex => BuildN64Entries(data, parent),
             TextureFileFormat.Fnt => BuildFntEntries(data, parent),
             TextureFileFormat.GbaImage => BuildGbaEntries(data, parent),
+            TextureFileFormat.NdsTextureBank => BuildNdsEntries(source, data, parent),
             _ => BuildPsxEntries(data, parent)
         };
     }
@@ -125,6 +139,8 @@ internal static class TextureTabTextureOperations
             TextureFileFormat.Pvr => ExtractPvr(data, outputDir, stem, createSubDirs),
             TextureFileFormat.N64Tex => ExtractN64Texture(data, outputDir, stem, createSubDirs),
             TextureFileFormat.GbaImage => ExtractGbaImages(data, outputDir, stem),
+            TextureFileFormat.NdsTextureBank =>
+                ExtractNdsTextures(entry.Source, data, outputDir, stem),
             // A font is one packed atlas plus one metrics manifest rather than a PNG per glyph,
             // and .fnt is a simple extension the compound-suffix stripper leaves intact.
             TextureFileFormat.Fnt => ExtractFnt(
@@ -163,6 +179,20 @@ internal static class TextureTabTextureOperations
                 // A record remains one selectable texture. Preview its
                 // authored level zero; extraction writes any stored mips.
                 return texture != null ? (texture.Rgba, texture.Width, texture.Height) : null;
+            }
+            case TextureFileFormat.NdsTextureBank:
+            {
+                if (!NdsTextureCompanions.TryParseBank(source, data, out var bank, out var texels)
+                    || textureIndex < 0 || textureIndex >= bank.Count)
+                {
+                    return null;
+                }
+
+                var record = bank[textureIndex];
+                var pixels = texels(record.PixelId);
+                return pixels == null
+                    ? null
+                    : (NdsTextureDecoder.Decode(record, pixels), record.Width, record.Height);
             }
             case TextureFileFormat.Fnt:
             {
@@ -276,6 +306,60 @@ internal static class TextureTabTextureOperations
     ///     records) beats the file stem, and psxtxt_&lt;id&gt; names carry the PS1
     ///     cross-platform texture id.
     /// </summary>
+    /// <summary>
+    ///     One row per bank record. The pixels are a sibling container entry, so a
+    ///     record whose blob is missing is dropped rather than shown as a broken row —
+    ///     which is also the gate that keeps a look-alike out (see NdsTextureCompanions).
+    /// </summary>
+    private static List<PsxTextureEntry> BuildNdsEntries(
+        AssetSource source, byte[] data, PsxFileEntry parent)
+    {
+        if (!NdsTextureCompanions.TryParseBank(source, data, out var bank, out _))
+            return [];
+
+        var rows = new List<PsxTextureEntry>(bank.Count);
+        for (var i = 0; i < bank.Count; i++)
+        {
+            var record = bank[i];
+            rows.Add(new PsxTextureEntry
+            {
+                Parent = parent,
+                NameHash = record.PixelId,
+                Width = record.Width,
+                Height = record.Height,
+                PaletteType = $"DS {record.Format}",
+                Index = i,
+                ResolvedName = $"{i:D3}_{record.PixelId:x8}"
+            });
+        }
+
+        return rows;
+    }
+
+    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractNdsTextures(
+        AssetSource source, byte[] data, string outputDir, string stem)
+    {
+        if (!NdsTextureCompanions.TryParseBank(source, data, out var bank, out var texels))
+            return (0, 0, false, false);
+
+        Directory.CreateDirectory(outputDir);
+        var written = 0;
+        for (var i = 0; i < bank.Count; i++)
+        {
+            var record = bank[i];
+            var pixels = texels(record.PixelId);
+            if (pixels == null)
+                continue;
+            // Same names the nds-texture command writes, so both surfaces agree.
+            var path = Path.Combine(outputDir, $"{stem}_{i:D3}_{record.PixelId:x8}.png");
+            ImageWriter.WritePng(path, record.Width, record.Height,
+                NdsTextureDecoder.Decode(record, pixels));
+            written++;
+        }
+
+        return (bank.Count, written, false, written > 0);
+    }
+
     private static List<PsxTextureEntry> BuildN64Entries(byte[] data, PsxFileEntry parent)
     {
         var texture = TryDecodeN64(data);

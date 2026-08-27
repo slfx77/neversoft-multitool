@@ -35,6 +35,17 @@ internal static class FormatProbeTexture
         if (OrdinalFileName.HasAnySuffix(name, N64TexSuffixes))
             return ProbeN64TexFile(filePath);
 
+        // A DS bank carries no pixels of its own: the records name sibling container
+        // entries, so a loose file cannot be decoded and the probe says why rather
+        // than reporting an unrecognised .bin.
+        if (OrdinalFileName.HasSuffix(name, ".textureinfo.bin"))
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                "DS texture bank",
+                "Open the cart (.nds) or its .gob — the pixels are separate container entries");
+        }
+
         if (OrdinalFileName.HasAnySuffix(name, CrossPlatformTexSuffixes))
         {
             return new FormatProbe.FormatProbeResult(
