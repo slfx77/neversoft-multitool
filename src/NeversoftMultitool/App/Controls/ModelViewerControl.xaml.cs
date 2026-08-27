@@ -13,12 +13,13 @@ namespace NeversoftMultitool;
 ///     plus an animation transport (play/pause/seek). Animated GLBs autoplay
 ///     their first clip; the transport hides for static models.
 /// </summary>
-public sealed partial class ModelViewerControl : UserControl
+public sealed partial class ModelViewerControl : UserControl, IDisposable
 {
     private const string GlyphPlay = "\uE768";
     private const string GlyphPause = "\uE769";
 
     private string _controlMode = "fly";
+    private bool _disposed;
     private double _duration;
     private Task? _initializationTask;
     private bool _isPlaying;
@@ -43,6 +44,45 @@ public sealed partial class ModelViewerControl : UserControl
         // mid-InitializeComponent against not-yet-created elements.
         ProjectionCombo.SelectedIndex = (int)ViewerProjection.Perspective;
         UpdateModeUi("fly");
+        Unloaded += ModelViewerControl_Unloaded;
+    }
+
+    /// <summary>
+    ///     Tears the WebView2 down. Each live viewer owns a browser process that
+    ///     outlives the window unless it is closed explicitly, so a second viewer
+    ///     (the Levels tab) would otherwise leave a second orphan behind.
+    /// </summary>
+    /// <remarks>
+    ///     This bounds process lifetime at teardown; it does not reduce steady-state
+    ///     memory while the viewer is up.
+    /// </remarks>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Unloaded -= ModelViewerControl_Unloaded;
+
+        // Unhook before Close so a message arriving mid-teardown can't run
+        // handlers against a control that is already gone.
+        if (_webMessageHooked && ModelWebView.CoreWebView2 != null)
+            ModelWebView.CoreWebView2.WebMessageReceived -= OnWebMessageReceived;
+        _webMessageHooked = false;
+
+        // Deliberately NOT cancelling _pageReady: an init still waiting on it
+        // would complete into SetError against a dying control.
+        try
+        {
+            ModelWebView.Close();
+        }
+        catch
+        {
+            // Already torn down by the framework.
+        }
+    }
+
+    private void ModelViewerControl_Unloaded(object sender, RoutedEventArgs e)
+    {
+        Dispose();
     }
 
     /// <summary>The most recently loaded GLB, for render/export reuse.</summary>
@@ -69,7 +109,10 @@ public sealed partial class ModelViewerControl : UserControl
 
     public async Task InitializeAsync()
     {
-        if (_webViewInitialized) return;
+        // _disposed must be tested too: _initializationTask is cleared only on
+        // failure, so after a dispose a re-init would return instantly with
+        // _webViewInitialized still false and every later script silently no-op.
+        if (_disposed || _webViewInitialized) return;
 
         var initialization = _initializationTask ??= InitializeCoreAsync();
         await initialization;
@@ -484,7 +527,7 @@ public sealed partial class ModelViewerControl : UserControl
 
     private async Task ExecuteScriptSafeAsync(string script)
     {
-        if (!_webViewInitialized) return;
+        if (_disposed || !_webViewInitialized) return;
 
         try
         {
