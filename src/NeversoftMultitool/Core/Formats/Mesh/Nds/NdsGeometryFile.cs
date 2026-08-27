@@ -128,6 +128,20 @@ public sealed class NdsGeometryFile
     public Vector3 DeclaredCentre => new(Fixed(10), Fixed(11), Fixed(12));
 
     /// <summary>
+    ///     True when the header carries the authoring tool's boilerplate box instead
+    ///     of a measured one: words 2/3/4/6/7/8 — the off-diagonal of the 3x4 block
+    ///     the box occupies, zero in a real model — hold a fixed non-zero pattern, and
+    ///     the "extents" beside it are nonsense (one axis around 65,000 units, tens of
+    ///     times a whole level). Every such file in all three carts decodes to ZERO
+    ///     vertices — 102 Sk8land, 309 Downhill Jam, 440 Proving Ground, 851/851, a
+    ///     perfect correlation both ways — so this is what an authored-empty model
+    ///     looks like rather than a second box layout. Keep its box out of any bounds
+    ///     oracle or level extent.
+    /// </summary>
+    public bool HasBoilerplateBox =>
+        (Header[2] | Header[3] | Header[4] | Header[6] | Header[7] | Header[8]) != 0;
+
+    /// <summary>
     ///     True when this file is a CAMERA rather than a model — it carries no
     ///     geometry, and the header block that would hold a bounding box holds
     ///     something else.

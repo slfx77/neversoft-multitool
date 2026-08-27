@@ -49,6 +49,9 @@ public static class NdsModelSet
                && uint.TryParse(body[9..], NumberStyles.HexNumber, null, out idB);
     }
 
+    /// <summary>The container name of one geometry file in a set.</summary>
+    public static string GeometryName(uint idA, uint idB) => $".\\{idA:x8}.{idB:x8}.geometry.bin";
+
     /// <summary>The name of the texture bank belonging to the model set keyed by <paramref name="idA" />.</summary>
     public static string TextureBankName(uint idA) => $".\\{idA:x8}.textureinfo.bin";
 

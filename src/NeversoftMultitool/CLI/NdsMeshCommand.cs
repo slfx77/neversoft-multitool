@@ -6,6 +6,7 @@ using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Gob;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using System.Globalization;
+using System.Numerics;
 using NeversoftMultitool.Core.Formats.Mesh.Nds;
 using NeversoftMultitool.Core.Formats.Texture.Nds;
 using Spectre.Console;
@@ -174,11 +175,11 @@ public static class NdsMeshCommand
             : new Dictionary<uint, NdsModelSetManifest>();
         // The cart also NAMES each set, because a set's id is the CRC of its name.
         // That supersedes the size measurement below wherever it speaks.
-        var setNames = container.Parent != null
-            ? NdsCartManifests.ReadSetNames(container.Parent, container)
-            : new Dictionary<uint, string>();
+        var naming = NdsModelNaming.For(container);
+        var setNames = naming.Sets;
         var exported = 0;
         var worlds = 0;
+        var entities = 0;
         var pieces = 0;
         var triangles = 0;
         var authored = 0;
@@ -245,6 +246,9 @@ public static class NdsMeshCommand
                 continue;
 
             var liftedFaces = NdsLevelOverlayResolver.Apply(document, pieceOf);
+            var placed = world && setName != null
+                ? NdsEntityPlacer.Place(document, container, catalog, setName, naming)
+                : 0;
 
             var result = ModelExportService.Export(document, new MeshExportRequest
             {
@@ -256,16 +260,20 @@ public static class NdsMeshCommand
             if (world)
                 worlds++;
             pieces += added;
+            entities += placed;
             triangles += document.TriangleCount;
             if (verbose)
             {
                 AnsiConsole.MarkupLine(
                     $"  {name} [grey]{added} pieces, {document.TriangleCount} tris, "
-                    + $"{liftedFaces} decals lifted[/]"
+                    + $"{liftedFaces} decals lifted"
+                    + (placed > 0 ? $", {placed} entities placed" : "") + "[/]"
                     + (result.OutputPaths.Count > 0 ? "" : " [red]export failed[/]"));
             }
         }
 
+        if (entities > 0)
+            AnsiConsole.MarkupLine($"Placed [green]{entities}[/] gameplay entities.");
         AnsiConsole.MarkupLine(
             $"Composited [green]{exported}[/] model sets — [green]{worlds}[/] world-scale "
             + $"([green]{pieces}[/] pieces, [green]{triangles}[/] triangles"
@@ -576,6 +584,119 @@ internal sealed class NdsTextureCatalog
         try
         {
             return _container.ReadEntry(entry);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+        {
+            return null;
+        }
+    }
+}
+
+/// <summary>
+///     Places a level's gameplay entities — the S-K-A-T-E letters, the trick orbs,
+///     the pedestrians and props — into its composited document.
+///
+///     A level's <c>.prp</c> names each entity by its model set's authored name and
+///     gives it a world position; the set is a one-piece model whose two ids are
+///     equal, so drawing it is one more geometry file transformed into place. The
+///     rotation the record also carries is NOT applied — it is degrees, but the axis
+///     is unestablished, and a wrong axis reads worse than none.
+/// </summary>
+internal static class NdsEntityPlacer
+{
+    public static int Place(
+        ModelDocument document,
+        IArchiveFileSystem container,
+        NdsTextureCatalog catalog,
+        string levelSetName,
+        NdsModelNames naming)
+    {
+        var dataName = NdsLevelEntities.DataFileFor(levelSetName);
+        if (dataName == null)
+            return 0;
+        var dataEntry = container.FindByPath(dataName);
+        if (dataEntry == null)
+            return 0;
+
+        byte[] data;
+        try
+        {
+            data = container.ReadEntry(dataEntry);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+        {
+            return 0;
+        }
+
+        var placements = NdsLevelEntities.Parse(data, NdsModelSetIds(container));
+        if (placements.Count == 0)
+            return 0;
+
+        var placed = 0;
+        var cache = new Dictionary<string, (ArchiveEntry Entry, byte[] Data, NdsGeometryFile File)?>();
+        foreach (var placement in placements)
+        {
+            if (!cache.TryGetValue(placement.ModelName, out var model))
+                cache[placement.ModelName] = model = LoadEntity(container, placement.SetId);
+            if (model == null)
+                continue;
+
+            var (entry, bytes, geometry) = model.Value;
+            var groups = NdsGxInterpreter.Run(bytes, geometry);
+            var before = document.Meshes.Count;
+            NdsGeometryWriter.PopulateNdsGeometry(
+                document, geometry, groups, catalog.ResolveFor(entry, groups),
+                namePrefix: $"entity_{placement.ModelName}_{placed:D3}_");
+
+            // The writer emits in the file's own space; the placement moves it,
+            // through the same Z-up to Y-up basis the writer uses for positions.
+            var offset = new Vector3(placement.Position.X, placement.Position.Z, -placement.Position.Y);
+            for (var m = before; m < document.Meshes.Count; m++)
+            foreach (var primitive in document.Meshes[m].Primitives)
+            {
+                for (var v = 0; v < primitive.Vertices.Length; v++)
+                {
+                    primitive.Vertices[v] = primitive.Vertices[v] with
+                    {
+                        Position = primitive.Vertices[v].Position + offset
+                    };
+                }
+            }
+
+            placed++;
+        }
+
+        return placed;
+    }
+
+    /// <summary>Every model-set id the container holds.</summary>
+    private static HashSet<uint> NdsModelSetIds(IArchiveFileSystem container)
+    {
+        var ids = new HashSet<uint>();
+        foreach (var entry in container.Entries)
+        {
+            if (NdsModelSet.TryParseGeometryName(GobNames.TryResolve(entry.Crc), out var idA, out _))
+                ids.Add(idA);
+        }
+
+        return ids;
+    }
+
+    private static (ArchiveEntry, byte[], NdsGeometryFile)? LoadEntity(
+        IArchiveFileSystem container, uint idA)
+    {
+        // A gameplay entity is its own one-piece set, keyed by the same id twice.
+        var entry = container.FindByPath(
+            NdsModelSet.GeometryName(idA, idA)[2..]);
+        if (entry == null)
+            return null;
+
+        try
+        {
+            var bytes = container.ReadEntry(entry);
+            return NdsGeometryFile.TryParseValidated(bytes, out var geometry)
+                ? (entry, bytes, geometry)
+                : null;
         }
         catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
         {

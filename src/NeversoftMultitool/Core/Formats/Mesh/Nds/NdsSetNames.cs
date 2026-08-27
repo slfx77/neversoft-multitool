@@ -149,13 +149,13 @@ public static class NdsSetNames
     }
 
     /// <summary>
-    ///     CRC-32 of the name exactly as authored. This deliberately does NOT
+    ///     CRC-32 of the name exactly as authored — the id its model set carries. This deliberately does NOT
     ///     lowercase, unlike <see cref="Gob.GobNames.Hash" />: the container keys a
     ///     FILENAME by its lowercased spelling, but a model-set id is the hash of the
     ///     name's own casing. Measured — case-sensitive names 116 of the 116 entity
     ///     types, lowercased only the 100 that were already lowercase.
     /// </summary>
-    private static uint Hash(string name)
+    public static uint Hash(string name)
     {
         return Crc32.HashToUInt32(Encoding.ASCII.GetBytes(name));
     }
