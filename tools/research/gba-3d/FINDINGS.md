@@ -604,6 +604,55 @@ Deferred: the u16 normal encoding (lit shading), the 0x80 face flag (wheels),
 and the 0x744C98 sibling mesh. (Animation export and clip naming shipped the
 same day — see below.)
 
+## SHIPPED (2026-08-26): each skater wears only its own parts
+
+**The roster record's u32 at `+0x04` is a sub-object visibility mask** — bit `i`
+draws sub-object `i`. All 15 characters share one mesh, so before this every
+export drew every part: Tony Hawk came out wearing Muska's hood *and* a
+ponytail, and both leg styles at once (a user report).
+
+Three independent facts fix the reading beyond coincidence:
+- the ONLY sub-object no character draws is **sub-object 7, the only EMPTY one**
+  (0 vertices);
+- the only two every character draws are the **body (4)** and the **deck (6)**;
+- **sub-objects 1 and 2 occupy the same space at the feet** and every character
+  takes exactly one — two leg styles, 9 characters vs 6.
+
+It then explains both reported defects unprompted: **sub-object 5** is a flat
+3-vertex plane behind the head worn by exactly **Elissa Steamer and Mindy**, the
+two female skaters — the ponytail; **sub-object 0** sits on top of the head and
+is worn by four characters **including Chad Muska** — the hood. Triangle counts
+now vary per character (Spider-Man 234, Muska 242) where they were a uniform
+266.
+
+## OPEN: per-face shading (the u16 normals)
+
+Characters export one flat colour per material — the **mid shade (index 6) of
+that material's 12-step ramp**, which runs dark→bright (e.g. Spider-Man's red
+(64,0,8) → (248,8,32)). The engine instead picks a shade per face from the
+lighting, so the export reads flatter and duller than the game (user report).
+Matching it needs the u16 normal block, which is **not decoded**. What IS
+established:
+
+- The face record's `n0/n1/n2` really do index the per-sub-object u16 arrays:
+  **the maximum index used equals `normCount−1` for every sub-object**.
+- The values are **per-frame** (0 of 159 identical between frames 0 and 2000).
+- **Index → direction is an exact function**: on the deck (26 vertices but only
+  8 normals) each index groups faces with *zero* geometric spread — e.g. index 0
+  = (0,0,1), index 3 = (0,0,−1).
+- The top 3 bits are an **antipodal code**: `c` and `7−c` are exactly opposite
+  directions (0↔7 = ±z, 1↔6 = ±x, 5↔2 the ±(0,∓0.45,∓0.89) pair).
+- **Refuted encodings**: 5/5/5 signed in all six axis orders (best mean dot
+  0.21), byte-pair spherical in four conventions (best −0.12), signed-byte xy
+  with derived z (−0.06). None is the scheme.
+- A **2,180-entry empirical `u16 → direction` map** can be harvested from
+  flat-shaded faces alone, if a table-driven decode is ever preferred to
+  cracking the encoding.
+
+Note that even a decoded normal is only half of it: the shade-selection rule and
+the light direction are equally unknown, and this repo does not invent lighting
+rigs (the PSX precedent exposes only rigs the binaries name).
+
 ## SHIPPED (2026-08-26): animation export — all 221 clips, as MORPH TARGETS
 
 The engine is a pure **morph player**: each frame stores the complete posed
