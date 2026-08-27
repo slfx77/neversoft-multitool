@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Gob;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Texture.Nds;
@@ -63,6 +64,47 @@ public static class NdsModelCompanions
         ArgumentNullException.ThrowIfNull(source);
         // The container resolves the name; a loose file keeps it as its filename.
         return NdsModelSet.TryParseGeometryName(NameOf(source), out idA, out idB);
+    }
+
+    /// <summary>
+    ///     The model's clip library, in index order. Sk8land spells clips
+    ///     <c>.\&lt;idA&gt;.&lt;idB&gt;.&lt;n&gt;.animation.bin</c> and the run is
+    ///     CONTIGUOUS from 0, so enumeration is asking for the next one until it is
+    ///     not there — no container index, and a hole cannot silently truncate a
+    ///     library because there are none.
+    ///
+    ///     Downhill Jam and Proving Ground spell animation differently and are not
+    ///     reached here; they return nothing rather than a wrong clip.
+    /// </summary>
+    public static IReadOnlyList<(int Index, NdsAnimationFile Clip)> ReadClips(
+        AssetSource source, int limit = 512)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (!TryReadSetIds(source, out var idA, out var idB))
+            return [];
+
+        var clips = new List<(int, NdsAnimationFile)>();
+        for (var n = 0; n < limit; n++)
+        {
+            byte[]? data;
+            try
+            {
+                data = source.TryReadCompanion(NdsModelSet.ClipName(idA, idB, n)[2..]);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IOException
+                                       or EndOfStreamException or NotSupportedException)
+            {
+                break;
+            }
+
+            if (data == null)
+                break;
+            if (!NdsAnimationFile.TryParse(data, out var clip))
+                break;
+            clips.Add((n, clip));
+        }
+
+        return clips;
     }
 
     private static string NameOf(AssetSource source)

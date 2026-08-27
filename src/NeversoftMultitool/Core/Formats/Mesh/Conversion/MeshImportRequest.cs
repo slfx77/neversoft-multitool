@@ -144,4 +144,14 @@ public sealed class MeshImportRequest
     ///     upstream and preserve it through the parser.
     /// </summary>
     public Ps2Skeleton? PreparedSkeleton { get; init; }
+
+    /// <summary>
+    ///     Which of a DS model's clips to bake, by their index in its own library.
+    ///     Kept separate from the N64 and GBA lists so null and empty never acquire
+    ///     overloaded meanings across platforms.
+    /// </summary>
+    public IReadOnlyList<int>? NdsAnimationIndices { get; init; }
+
+    /// <summary>Bake every applicable clip the model's library holds.</summary>
+    public bool IncludeAllNdsAnimations { get; init; }
 }

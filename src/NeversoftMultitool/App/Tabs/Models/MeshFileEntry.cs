@@ -86,6 +86,9 @@ public class MeshFileEntry : BaseFileEntry
     internal bool IsGbaLevel => Format == "GBA Level";
     internal bool IsGbaModel => Format == "GBA Character";
     internal bool IsNdsGeometry => Format == "DS";
+
+    /// <summary>Set by the scanner when the model's clip library is non-empty.</summary>
+    internal bool NdsHasClips { get; init; }
     internal bool IsRwDff => Format == "RW DFF";
     internal bool IsRwBsp => Format == "RW BSP";
     internal bool IsCol => Format == "COL";
@@ -110,7 +113,8 @@ public class MeshFileEntry : BaseFileEntry
         // Every GBA character shares the one skater mesh, so the ROM's clips
         // always match the rig; discovery still fails closed on a ROM that
         // carries no model complex.
-        || IsGbaModel;
+        || IsGbaModel
+        || (IsNdsGeometry && NdsHasClips);
 
     internal bool IsPs2Scene => Format is "PS2 (THPS4)" or "PS2 (THUG)"
         or "PS2 (THUG2)" or "PS2 (THAW)" or "PS2 (pre-compiled)";

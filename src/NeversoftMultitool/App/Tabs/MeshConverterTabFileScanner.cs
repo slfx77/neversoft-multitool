@@ -642,6 +642,7 @@ internal static class MeshConverterTabFileScanner
                 ObjectCount = geometry.JointCount,
                 MeshCount = groups.Count,
                 TriangleCount = triangles,
+                NdsHasClips = NdsModelCompanions.ReadClips(source, limit: 1).Count > 0,
                 Source = source
             };
         }

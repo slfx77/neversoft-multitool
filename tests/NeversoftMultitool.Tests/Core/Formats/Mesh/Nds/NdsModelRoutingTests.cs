@@ -38,6 +38,60 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
     }
 
     /// <summary>
+    ///     The animation route a GUI selection takes: the clips are companion files
+    ///     the loader names from the model's own two ids, so a per-entry caller
+    ///     enumerates them by asking rather than by indexing the container.
+    /// </summary>
+    [CorpusFact]
+    public void RealCart_ASelectionOfClipsBakesThroughTheParser()
+    {
+        var romPath = paths.FindSampleFile(
+            "Tony Hawk's American Sk8land (2005-11-15, DS - Final)",
+            "Tony Hawk's American Sk8land (USA).nds");
+        Assert.SkipWhen(romPath == null, "Sk8land ROM sample not available");
+
+        var cart = ArchiveAssetBackend.TryOpen(romPath!);
+        var backend = cart!.TryOpenNested(
+            cart.FileSystem.FindByPath("vvobj/generated/gob/main.gob")!);
+        // proMullen — the skater, whose set ships the 225-clip library.
+        var entry = backend!.FileSystem.FindByPath("a4754788.8568a2d5.geometry.bin");
+        Assert.NotNull(entry);
+        var source = new ArchiveAssetSource(backend, entry!);
+
+        var clips = NeversoftMultitool.Core.Formats.Mesh.Nds.NdsModelCompanions.ReadClips(source);
+        Assert.Equal(225, clips.Count);
+        // Contiguous from zero — the property that makes "ask for the next one"
+        // a complete enumeration rather than a truncation.
+        Assert.Equal(Enumerable.Range(0, 225), clips.Select(c => c.Index));
+
+        var parser = new MeshModelParser();
+        ModelDocument Parse(IReadOnlyList<int>? indices) => parser.Parse(new MeshImportRequest
+        {
+            Source = source,
+            FileName = entry!.Name,
+            SourceKind = ModelSourceKind.NdsModel,
+            OutputStem = "skater",
+            NdsAnimationIndices = indices
+        });
+
+        // No selection: the static document.
+        var stat = Parse(null);
+        Assert.Empty(stat.Animations);
+        Assert.True(stat.TriangleCount > 0);
+
+        // A selection of three bakes exactly three, and does not disturb the mesh.
+        var picked = Parse([0, 7, 42]);
+        Assert.Equal(3, picked.Animations.Count);
+        Assert.Equal(stat.TriangleCount, picked.TriangleCount);
+
+        // An index the library does not hold is ignored, not invented, and the
+        // document falls back to static rather than erroring.
+        var none = Parse([9999]);
+        Assert.Empty(none.Animations);
+        Assert.Equal(stat.TriangleCount, none.TriangleCount);
+    }
+
+    /// <summary>
     ///     The naming a GUI row and the CLI share. An entity is a one-piece set, so
     ///     its set name IS its name; a level piece takes the set plus the artist's
     ///     own object name from the manifest.

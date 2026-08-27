@@ -9,6 +9,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
+using NeversoftMultitool.Core.Formats.Mesh.Nds;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 
@@ -86,6 +87,9 @@ internal static class CharacterAnimationConverter
         if (character.IsGbaModel)
             return BuildGba(character, animations);
 
+        if (character.IsNdsGeometry)
+            return BuildNds(character, animations);
+
         if (character.IsPsx && character.PsxIsSuperModel)
             return BuildPsx(character, animations, visibilityOverrides, oneShot);
 
@@ -132,6 +136,16 @@ internal static class CharacterAnimationConverter
                 var rom = character.Source.TryReadCompanion(GbaLevelCarver.RomEntryName);
                 var model = rom == null ? null : GbaSkaterModel.TryLocate(rom);
                 return model?.VertCounts.Sum(count => count);
+            }
+
+            if (character.IsNdsGeometry)
+            {
+                // The DS engine has no skeleton: bones are the matrices the display
+                // list actually uses, identified by provenance in the writer.
+                var data = character.Source.ReadBytes();
+                return NdsGeometryFile.TryParseValidated(data, out var geometry)
+                    ? NdsGxInterpreter.RunInterpreter(data, geometry).UsedMatrices.Count
+                    : null;
             }
         }
         catch
@@ -220,6 +234,49 @@ internal static class CharacterAnimationConverter
         return indices.Count == 0
             ? new DocumentResult(null, "No GBA animation clips were selected.")
             : BuildGbaClip(character, indices[0]);
+    }
+
+    /// <summary>
+    ///     The DS clips a probe selection names, in pane order.
+    /// </summary>
+    public static IReadOnlyList<int> NdsClipIndices(
+        MeshFileEntry character, IReadOnlyList<AnimationProbe> animations)
+    {
+        return animations
+            .Select(static probe => probe.Source)
+            .OfType<NdsAnimationSource>()
+            .Where(source => ReferenceEquals(source.ModelSource, character.Source))
+            .Select(static source => source.ClipIndex)
+            .Distinct()
+            .ToArray();
+    }
+
+    /// <summary>
+    ///     Builds a DS model carrying the selected clips. Unlike GBA morph targets,
+    ///     DS clips are ordinary skinned tracks over the display list's matrices, so
+    ///     several fit in one document.
+    /// </summary>
+    private static DocumentResult BuildNds(
+        MeshFileEntry character,
+        IReadOnlyList<AnimationProbe> animations)
+    {
+        var indices = NdsClipIndices(character, animations);
+        if (indices.Count == 0)
+            return new DocumentResult(null, "No DS animation clips were selected.");
+
+        var fileName = Path.GetFileName(character.Source.FileSystemPath ?? character.FileName);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = character.Source,
+            FileName = fileName,
+            OutputStem = MeshTypeDetector.GetStem(fileName),
+            SourceKind = ModelSourceKind.NdsModel,
+            NdsAnimationIndices = indices
+        });
+
+        return document.Animations.Count == 0
+            ? new DocumentResult(null, "The selected DS clips do not apply to this model.")
+            : new DocumentResult(document, null);
     }
 
     private static DocumentResult BuildPs2Scene(

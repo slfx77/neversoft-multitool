@@ -46,6 +46,12 @@ internal static class AnimationDiscovery
             return GbaEmbeddedAnimationDiscovery.CreateProbes(skinSource);
         }
 
+        if (IsNdsCharacter(skinSource))
+        {
+            ct.ThrowIfCancellationRequested();
+            return NdsEmbeddedAnimationDiscovery.CreateProbes(skinSource);
+        }
+
         if (IsPsxCharacter(skinSource))
             return FindForPsxCharacter(skinSource, ct);
 
@@ -162,6 +168,12 @@ internal static class AnimationDiscovery
     {
         return source.EntryName.EndsWith(
             MeshTypeDetector.GbaModelSuffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsNdsCharacter(AssetSource source)
+    {
+        return source.EntryName.EndsWith(
+            MeshTypeDetector.NdsGeometrySuffix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPsxCharacter(AssetSource source)

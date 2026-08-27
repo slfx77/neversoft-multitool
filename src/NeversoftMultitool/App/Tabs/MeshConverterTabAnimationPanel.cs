@@ -505,8 +505,10 @@ internal sealed class MeshConverterTabAnimationPanel(
 
     /// <summary>Characters whose clips live only inside their own source, so an
     ///     external animation folder or archive can never apply to them.</summary>
+    // A DS model's clips are container files the loader names from the model's own
+    // two ids, so like the N64 and GBA routes there is no external bank to add.
     private static bool IsEmbeddedOnly(MeshFileEntry character)
-        => character.IsN64Model || character.IsGbaModel;
+        => character.IsN64Model || character.IsGbaModel || character.IsNdsGeometry;
 
     private void ApplyOperationControlState(bool operationActive)
     {

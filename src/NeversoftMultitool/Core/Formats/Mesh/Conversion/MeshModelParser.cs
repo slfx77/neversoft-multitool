@@ -194,8 +194,35 @@ public sealed class MeshModelParser : IModelParser
             Name = request.OutputStem,
             SourceKind = ModelSourceKind.NdsModel
         };
+
+        // Fail-closed, as the command does: an inapplicable or undecodable selection
+        // leaves the static document exactly as it would have been.
+        var selected = SelectNdsClips(request);
+        if (selected.Count > 0
+            && NdsAnimatedModelWriter.TryPopulate(document, data, geometry, selected, textures) > 0)
+        {
+            return document;
+        }
+
         NdsGeometryWriter.PopulateNdsGeometry(document, geometry, groups, textures);
         return document;
+    }
+
+    private static List<(string Name, Animation.NdsAnimationFile Clip)> SelectNdsClips(
+        MeshImportRequest request)
+    {
+        var wanted = request.NdsAnimationIndices;
+        if (!request.IncludeAllNdsAnimations && (wanted == null || wanted.Count == 0))
+            return [];
+
+        var picked = new List<(string, Animation.NdsAnimationFile)>();
+        foreach (var (index, clip) in Nds.NdsModelCompanions.ReadClips(request.Source))
+        {
+            if (request.IncludeAllNdsAnimations || wanted!.Contains(index))
+                picked.Add(($"anim_{index}", clip));
+        }
+
+        return picked;
     }
 
     /// <summary>
