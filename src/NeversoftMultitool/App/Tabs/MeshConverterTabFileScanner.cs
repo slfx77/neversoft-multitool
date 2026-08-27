@@ -9,6 +9,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
+using NeversoftMultitool.Core.Formats.Mesh.Nds;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
@@ -91,6 +92,12 @@ internal static class MeshConverterTabFileScanner
         Parallel.ForEach(buckets.GbaModelFiles, parallelOptions, file =>
         {
             AddIfNotNull(results, ScanGbaModelFile(new FileSystemAssetSource(file), file, inputDir));
+            Report();
+        });
+
+        Parallel.ForEach(buckets.NdsGeometryFiles, parallelOptions, file =>
+        {
+            AddIfNotNull(results, ScanNdsGeometryFile(new FileSystemAssetSource(file), file, inputDir));
             Report();
         });
 
@@ -401,6 +408,7 @@ internal static class MeshConverterTabFileScanner
             MeshFileKind.N64Model => ScanN64ModelFile(source, displayPath, rootDir),
             MeshFileKind.GbaLevel => ScanGbaLevelFile(source, displayPath, rootDir),
             MeshFileKind.GbaModel => ScanGbaModelFile(source, displayPath, rootDir),
+            MeshFileKind.NdsGeometry => ScanNdsGeometryFile(source, displayPath, rootDir),
             MeshFileKind.Psx => ScanPsxFile(source, displayPath, rootDir),
             _ => null
         };
@@ -438,6 +446,9 @@ internal static class MeshConverterTabFileScanner
                     break;
                 case MeshFileKind.GbaModel:
                     buckets.GbaModelFiles.Add(file);
+                    break;
+                case MeshFileKind.NdsGeometry:
+                    buckets.NdsGeometryFiles.Add(file);
                     break;
                 case MeshFileKind.Psx:
                     buckets.PsxFiles.Add(file);
@@ -592,6 +603,43 @@ internal static class MeshConverterTabFileScanner
                 Format = format,
                 ObjectCount = objectCount,
                 MeshCount = meshCount,
+                Source = source
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     One Vicarious Visions DS model. The row's counts come from running the
+    ///     display list, because a DS geometry file declares no mesh or object count
+    ///     of its own — the GX pipeline is what says how much is in there.
+    /// </summary>
+    private static MeshFileEntry? ScanNdsGeometryFile(
+        AssetSource source, string displayPath, string rootDir)
+    {
+        try
+        {
+            var data = source.ReadBytes();
+            if (!NdsGeometryFile.TryParseValidated(data, out var geometry))
+                return null;
+
+            var groups = NdsGxInterpreter.Run(data, geometry);
+            var triangles = groups.Sum(g => g.Indices.Count / 3);
+            if (triangles == 0)
+                return null;
+
+            return new MeshFileEntry
+            {
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                RelativePath = MakeRelativePath(displayPath, rootDir),
+                Format = "DS",
+                ObjectCount = geometry.JointCount,
+                MeshCount = groups.Count,
+                TriangleCount = triangles,
                 Source = source
             };
         }
@@ -956,6 +1004,7 @@ internal static class MeshConverterTabFileScanner
         public List<string> N64ModelFiles { get; } = [];
         public List<string> GbaLevelFiles { get; } = [];
         public List<string> GbaModelFiles { get; } = [];
+        public List<string> NdsGeometryFiles { get; } = [];
         public List<string> PsxFiles { get; } = [];
         public List<string> RwBspFiles { get; } = [];
         public List<string> RwDffFiles { get; } = [];

@@ -42,6 +42,9 @@ public enum MeshFileKind
     /// <summary>Character record carved from a Vicarious Visions GBA ROM (<c>models/NN_&lt;name&gt;.chr.gba</c>).</summary>
     GbaModel,
 
+    /// <summary>Vicarious Visions DS geometry (<c>&lt;idA&gt;.&lt;idB&gt;.geometry.bin</c> in a GOB).</summary>
+    NdsGeometry,
+
     /// <summary>RenderWare clump (<c>.skn</c>, <c>.dff</c>).</summary>
     RenderWareDff,
 

@@ -34,6 +34,22 @@ public static class MeshTypeDetector
     /// </summary>
     public const string GbaModelSuffix = ".chr.gba";
 
+    /// <summary>
+    ///     Vicarious Visions DS geometry. The loader composes the name
+    ///     <c>.\%08x.%08x.geometry.bin</c>, so a named container entry ends in this
+    ///     and is trusted by name like an N64 bundle or a GBA record.
+    ///
+    ///     A DS file whose name was never recovered extracts as <c>&lt;crc&gt;.bin</c>,
+    ///     which every DS asset also is — so a name-only gate would need a content
+    ///     probe over the whole container to reach those. It does not have to:
+    ///     Sk8land names all 1,167 of its geometry files, and of the 79 and 312 that
+    ///     Downhill Jam and Proving Ground leave unnamed, **not one carries a single
+    ///     vertex** (0/79 and 0/312 measured through the GX pipeline). The name-only
+    ///     gate therefore loses no convertible model, which is why the per-entry
+    ///     route reproduces the command's corpus totals exactly.
+    /// </summary>
+    public const string NdsGeometrySuffix = ".geometry.bin";
+
     private static readonly string[] XboxSceneSuffixes =
     [
         ".skin.xbx", ".mdl.xbx", ".scn.xbx",
@@ -64,6 +80,7 @@ public static class MeshTypeDetector
         N64ModelSuffix,
         GbaLevelSuffix,
         GbaModelSuffix,
+        NdsGeometrySuffix,
         ".ddm",
         ".psx",
         .. RenderWareDffSuffixes,
@@ -151,6 +168,7 @@ public static class MeshTypeDetector
             N64ModelSuffix => new MeshFileRoute(MeshFileKind.N64Model, suffix, DisplayFormat: "N64 Model"),
             GbaLevelSuffix => new MeshFileRoute(MeshFileKind.GbaLevel, suffix, DisplayFormat: "GBA Level"),
             GbaModelSuffix => new MeshFileRoute(MeshFileKind.GbaModel, suffix, DisplayFormat: "GBA Character"),
+            NdsGeometrySuffix => new MeshFileRoute(MeshFileKind.NdsGeometry, suffix, DisplayFormat: "DS Model"),
             ".ddm" => new MeshFileRoute(MeshFileKind.Ddm, suffix, DisplayFormat: "DDM Mesh"),
             ".psx" => new MeshFileRoute(MeshFileKind.Psx, suffix, RequiresContentProbe: true),
             ".bsp" => new MeshFileRoute(MeshFileKind.RenderWareBsp, suffix, RequiresContentProbe: true),
@@ -255,6 +273,7 @@ public static class MeshTypeDetector
             MeshFileKind.Ps2Worldzone => ModelSourceKind.Ps2Worldzone,
             MeshFileKind.XbxScene => ModelSourceKind.XbxScene,
             MeshFileKind.Ddm => ModelSourceKind.Ddm,
+            MeshFileKind.NdsGeometry => ModelSourceKind.NdsModel,
             MeshFileKind.Psx => ModelSourceKind.Psx,
             MeshFileKind.N64Model => ModelSourceKind.N64Model,
             MeshFileKind.GbaLevel => ModelSourceKind.GbaLevel,

@@ -85,6 +85,7 @@ public class MeshFileEntry : BaseFileEntry
     internal bool IsN64Model => Format == "N64";
     internal bool IsGbaLevel => Format == "GBA Level";
     internal bool IsGbaModel => Format == "GBA Character";
+    internal bool IsNdsGeometry => Format == "DS";
     internal bool IsRwDff => Format == "RW DFF";
     internal bool IsRwBsp => Format == "RW BSP";
     internal bool IsCol => Format == "COL";

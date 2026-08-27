@@ -32,5 +32,11 @@ public enum ModelSourceKind
     ///     3D morph-target skater mesh coloured by this character's outfit ramps,
     ///     resolved against the <c>rom.gbarom</c> companion.
     /// </summary>
-    GbaModel
+    GbaModel,
+
+    /// <summary>
+    ///     A Vicarious Visions DS model: one packed Nintendo GX display list from a
+    ///     cart's GOB container, textured from the bank its model set names.
+    /// </summary>
+    NdsModel
 }

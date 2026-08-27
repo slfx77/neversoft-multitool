@@ -40,6 +40,7 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.N64Model => ParseN64Model(request),
             ModelSourceKind.GbaLevel => ParseGbaLevel(request),
             ModelSourceKind.GbaModel => ParseGbaModel(request),
+            ModelSourceKind.NdsModel => ParseNdsModel(request),
             _ => throw new NotSupportedException($"Unsupported mesh source kind: {request.SourceKind}")
         };
     }
@@ -163,6 +164,37 @@ public sealed class MeshModelParser : IModelParser
             request.N64AnimationIndices,
             request.IncludeAllN64Animations,
             request.N64AnimationOneShot);
+        return document;
+    }
+
+    /// <summary>
+    ///     One Vicarious Visions DS model: a packed Nintendo GX display list, run
+    ///     through the hardware's own pipeline and textured from the bank its model
+    ///     set names. Both halves come from the container the entry lives in, so this
+    ///     works for a GUI row and the generic <c>mesh</c> command alike; see
+    ///     <see cref="Nds.NdsModelCompanions" /> for what a per-entry caller can and
+    ///     cannot reach.
+    /// </summary>
+    private static ModelDocument ParseNdsModel(MeshImportRequest request)
+    {
+        var data = request.Source.ReadBytes();
+        if (!Nds.NdsGeometryFile.TryParseValidated(data, out var geometry))
+        {
+            throw new InvalidOperationException(
+                "Not a readable DS geometry file (the display list did not consume its declared span)");
+        }
+
+        var groups = Nds.NdsGxInterpreter.Run(data, geometry);
+        var textures = Nds.NdsModelCompanions.TryReadSetIds(request.Source, out var idA, out _)
+            ? Nds.NdsModelCompanions.TryResolveTextures(request.Source, idA)
+            : null;
+
+        var document = new ModelDocument
+        {
+            Name = request.OutputStem,
+            SourceKind = ModelSourceKind.NdsModel
+        };
+        NdsGeometryWriter.PopulateNdsGeometry(document, geometry, groups, textures);
         return document;
     }
 
