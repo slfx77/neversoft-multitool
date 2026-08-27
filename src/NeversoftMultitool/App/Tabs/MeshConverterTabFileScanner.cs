@@ -633,7 +633,9 @@ internal static class MeshConverterTabFileScanner
 
             return new MeshFileEntry
             {
-                FileName = source.EntryName,
+                // A cart names its models; a loose file keeps its two hex ids,
+                // because the names live in code the container does not carry.
+                FileName = NdsRowName(source) ?? source.EntryName,
                 FilePath = displayPath,
                 RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = "DS",
@@ -647,6 +649,15 @@ internal static class MeshConverterTabFileScanner
         {
             return null;
         }
+    }
+
+    private static string? NdsRowName(AssetSource source)
+    {
+        if (source is not ArchiveAssetSource archive)
+            return null;
+        return NdsModelCompanions.TryReadSetIds(source, out var idA, out var idB)
+            ? NdsModelNaming.For(archive.Backend.FileSystem).StemFor(idA, idB)
+            : null;
     }
 
     private static MeshFileEntry? ScanN64ModelFile(AssetSource source, string displayPath, string rootDir)

@@ -102,7 +102,7 @@ public static class NdsMeshCommand
         if (levels)
             return ExportLevels(container, catalog, output, verbose, cancellationToken);
 
-        var naming = NdsExportNaming.Build(container);
+        var naming = NdsModelNaming.For(container);
         var converted = 0;
         var empty = 0;
         var triangles = 0;
@@ -285,10 +285,22 @@ public static class NdsMeshCommand
         return document;
     }
 
+    /// <summary>
+    ///     The export stem a cart's own names give an entry, or null to keep its
+    ///     filename (a bare .gob carries no code, so it has no names).
+    /// </summary>
+    private static string? StemFor(ArchiveEntry entry, NdsModelNames? naming)
+    {
+        return naming != null
+               && NdsModelSet.TryParseGeometryName(GobNames.TryResolve(entry.Crc), out var idA, out var idB)
+            ? naming.StemFor(idA, idB)
+            : null;
+    }
+
     /// <summary>Reads one container entry and builds a model, or null if it is not geometry.</summary>
     private static ModelDocument? TryBuild(
         IArchiveFileSystem container, ArchiveEntry entry, NdsTextureCatalog catalog,
-        NdsClipSource? clipSource = null, NdsExportNaming? naming = null)
+        NdsClipSource? clipSource = null, NdsModelNames? naming = null)
     {
         byte[] data;
         try
@@ -305,7 +317,7 @@ public static class NdsMeshCommand
 
         var groups = NdsGxInterpreter.Run(data, geometry);
         var textures = catalog.ResolveFor(entry, groups);
-        var name = naming?.For(entry) ?? Path.GetFileNameWithoutExtension(entry.Name);
+        var name = StemFor(entry, naming) ?? Path.GetFileNameWithoutExtension(entry.Name);
 
         var clips = clipSource?.ClipsFor(entry) ?? [];
         if (clips.Count > 0)
@@ -569,63 +581,5 @@ internal sealed class NdsTextureCatalog
         {
             return null;
         }
-    }
-}
-
-/// <summary>
-///     Turns a container entry into the name the studio gave it.
-///
-///     A model set's id is the CRC-32 of its authored name, so with the cart open
-///     every set can be named (<see cref="NdsSetNames" />), and the ARM9 manifests
-///     additionally name each piece inside a set. That makes an export stem readable
-///     instead of two hex ids: a one-piece entity set — the collectibles, the
-///     pedestrians, the pros — is simply <c>skate_s</c> or <c>videotape</c>, and a
-///     piece of a bigger set is <c>&lt;set&gt;__&lt;piece&gt;</c>.
-///
-///     Falls back to the entry's own filename whenever a name is unavailable, which
-///     is always the case for a bare extracted <c>.gob</c>: it carries no code.
-/// </summary>
-internal sealed class NdsExportNaming
-{
-    private readonly IReadOnlyDictionary<uint, string> _sets;
-    private readonly IReadOnlyDictionary<uint, NdsModelSetManifest> _manifests;
-
-    private NdsExportNaming(
-        IReadOnlyDictionary<uint, string> sets,
-        IReadOnlyDictionary<uint, NdsModelSetManifest> manifests)
-    {
-        _sets = sets;
-        _manifests = manifests;
-    }
-
-    public static NdsExportNaming Build(IArchiveFileSystem container)
-    {
-        var cart = container.Parent;
-        return cart == null
-            ? new NdsExportNaming(
-                new Dictionary<uint, string>(), new Dictionary<uint, NdsModelSetManifest>())
-            : new NdsExportNaming(
-                NdsCartManifests.ReadSetNames(cart, container),
-                NdsCartManifests.Read(cart, container));
-    }
-
-    /// <summary>The export stem for one geometry entry, or null to keep the filename.</summary>
-    public string? For(ArchiveEntry entry)
-    {
-        if (!NdsModelSet.TryParseGeometryName(GobNames.TryResolve(entry.Crc), out var idA, out var idB))
-            return null;
-        if (!_sets.TryGetValue(idA, out var set))
-            return null;
-
-        var stem = NdsSetNames.ToStem(set);
-        // An entity type is its own one-piece set, keyed by the same id twice, so its
-        // set name IS the model's name and a piece suffix would only repeat it.
-        if (idA == idB)
-            return stem;
-
-        var piece = _manifests.TryGetValue(idA, out var manifest)
-            ? manifest.Pieces.FirstOrDefault(p => p.IdB == idB)?.Name
-            : null;
-        return piece == null ? $"{stem}__{idB:x8}" : $"{stem}__{NdsSetNames.ToStem(piece)}";
     }
 }

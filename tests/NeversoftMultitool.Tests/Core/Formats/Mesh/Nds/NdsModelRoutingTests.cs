@@ -38,6 +38,33 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
     }
 
     /// <summary>
+    ///     The naming a GUI row and the CLI share. An entity is a one-piece set, so
+    ///     its set name IS its name; a level piece takes the set plus the artist's
+    ///     own object name from the manifest.
+    /// </summary>
+    [CorpusFact]
+    public void RealCart_NamesAModelTheWayTheStudioDid()
+    {
+        var romPath = paths.FindSampleFile(
+            "Tony Hawk's American Sk8land (2005-11-15, DS - Final)",
+            "Tony Hawk's American Sk8land (USA).nds");
+        Assert.SkipWhen(romPath == null, "Sk8land ROM sample not available");
+
+        using var cart = ArchiveFileSystem.TryOpen(romPath!);
+        using var gob = cart!.TryOpenNested(cart.FindByPath("vvobj/generated/gob/main.gob")!);
+        var names = NeversoftMultitool.Core.Formats.Mesh.Nds.NdsModelNaming.For(gob!);
+
+        // CRC-32 of "skate_s"; an entity set carries the same id twice.
+        Assert.Equal("skate_s", names.StemFor(0xD8E3EBB1, 0xD8E3EBB1));
+        // A level piece: the set is named, and the manifest names the piece.
+        var alcatraz = names.Sets.First(s => s.Value == "Level_Alcatraz_Visual").Key;
+        var piece = names.StemFor(alcatraz, 0xD81B6ED9);
+        Assert.Equal("Level_Alcatraz_Visual__RAILS_Section01_12", piece);
+        // Nothing is invented for a set the cart does not name.
+        Assert.Null(names.StemFor(0x12345678, 0x12345678));
+    }
+
+    /// <summary>
     ///     The GUI reaches a cart's models by WALKING it — enqueueing any entry it
     ///     cannot classify and asking whether it opens as a nested archive — not by
     ///     knowing where the GOB lives. This pins that the walk gets there, which is
