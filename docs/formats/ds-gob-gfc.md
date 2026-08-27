@@ -604,6 +604,50 @@ the classifier calls worlds, while the three manifests inside ARM9 itself — th
 skater, the icon run, and a four-piece set — are exactly the ones it rejects.
 Outputs are named `level_<idA>.glb` or `set_<idA>.glb` accordingly.
 
+### The cart names every model set
+
+A model set's `idA` is **CRC-32 of its authored name**, case-sensitive — not the
+lowercased CRC the container uses for filenames, and with no `.\` prefix or
+extension. So a name is never searched for: an ASCII string lying in ARM9 or an
+overlay is tested by re-hash and either **is** the set's name or is not.
+
+Every set in every cart is named that way:
+
+| Cart | model sets | named | ids with two candidate strings | impossible-name controls |
+| --- | --- | --- | --- | --- |
+| American Sk8land | 196 | **196** | 0 | 0 |
+| Downhill Jam | 124 | **124** | 0 | 0 |
+| Proving Ground | 160 | **160** | 0 | 0 |
+
+Corroborated from a source sharing no machinery with the hash: each
+`Level_<Name>_Visual` set pairs one-for-one with the `<Name>_Collision.prp`
+sitting beside it in the container — 8/8, 7/7, 8/8. The eighth is `Frontend_Visual`;
+the front end is a level like any other, with world geometry and its own collision
+file.
+
+That **supersedes** the size measurement of the previous section for deciding
+level-or-model. `NdsModelSetBounds` stays as the answer for a bare extracted
+`.gob`, which carries no code to read a name out of, and the single place the two
+rules part company shows why the name leads: Proving Ground's front end is a real
+scene whose whole span is 78 units, under the 93 the size rule needs. A compact
+scene is invisible to a size test; a name is not.
+
+What comes back is the studio's own vocabulary — the levels and their skies, the
+front end, and **the gameplay entities**: `skate_s` … `skate_e`, `videotape`,
+twelve `*_orb` trick pickups, the pedestrians (`cop`, `janitor`, `bum`) and the
+pro skaters (`proMullen`, `proTony`). Sk8land carries 116. An entity type is a
+**one-piece set whose two ids are equal**, so it needs no piece suffix and exports
+as `skate_s.glb`. Rendering them settles what they are: a 3D letter S, a VHS
+cassette, a crown, a card reading ACID.
+
+**Their placements are not resolved.** The per-level `Level_<Name>_Collision.prp`
+is the obvious home — 21 of them per cart, `{u32 'PFPF', u32 -1, u32 recordCount,
+u32 ?, u32 dataEnd}` followed by a monotone offset table whose first entry is
+exactly `0x14 + recordCount*4`, then variable-size records — but no entity id
+appears in any of them as a bare u32 (measured across every Sk8land level), so
+whatever names an entity there is an index or a second hash, and the record
+grammar has still to be read.
+
 ### The cart declares its model sets
 
 The container has no table of model sets — a set is only "the files sharing an
