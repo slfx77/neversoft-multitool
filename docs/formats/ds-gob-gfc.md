@@ -841,14 +841,44 @@ are byte-for-byte the same grammar. All **322 + 467** files parse exactly
 its declared end). One dialect difference: their last key lands on `frames-1`
 where Sk8land's lands on `frames`.
 
-What is missing is the BINDING. Their animation ids are a disjoint id
-population — no animation idA owns geometry, a texture bank, or anything else,
-so the clip-to-model link lives somewhere not yet read (a scene file or the
-code). The census join that bound texture banks was measured and does not
-transfer: joining on channel counts vs the geometry's joint-flag census leaves
-**306 of 322** DHJ and **458 of 467** PG animations ambiguous — many rigs share
-a census — so a unique-survivor rule has almost no coverage, and anything less
-would be a guess. Their clips parse and stay unexported.
+#### The binding — PROVEN (2026-08-26), not yet wired
+
+The clip-to-piece link is **declared by the cart**, in the same manifest tables
+that declare the model sets: each record's `AnimationId` word names the
+`.\<id>.animation.bin` the piece plays. `NdsManifestPiece.AnimationId` already
+parses it; nothing consumes it yet.
+
+It reads exactly as the doc comment there says. **Sk8land sets it on 0 of 876
+pieces** (that cart spells indexed clips per piece and leaves the word as a
+runtime cache slot, null on disc), while **DHJ sets it on all 1,091 pieces and
+PG on all 1,594**. Of the distinct ids, the ones that name a shipped file cover
+**240 of DHJ's 322** animation files and **373 of PG's 467** — a coverage that
+cannot arise by chance from a 32-bit space.
+
+The pairing is then confirmed against a source it shares no machinery with: the
+clip's channel counts versus the piece geometry's own joint-flag census, the
+same gate `NdsPoseScatter.CanApply` uses.
+
+| cart | manifest pairing passes | mis-paired control |
+|---|---|---|
+| Downhill Jam | **240 / 240 = 100%** | 125 / 240 = 52.1% |
+| Proving Ground | **373 / 373 = 100%** | 240 / 373 = 64.3% |
+
+The control matters because that census is weak on its own — this is the same
+ambiguity that defeated the earlier attempt to *derive* the binding by joining
+on it (306 of 322 DHJ and 458 of 467 PG animations have no unique survivor).
+Passing it 613 times out of 613 while a mis-pairing passes barely half the time
+is not something a wrong binding does: at the control's own rate, 240
+consecutive DHJ successes has probability ~10⁻⁶⁸.
+
+So the earlier conclusion — that the link "lives somewhere not yet read" and
+anything less than a unique-survivor rule "would be a guess" — is **superseded**.
+It was read; it simply was not connected. What remains is implementation:
+`NdsAnimationFile.TryParse` accepts the Sk8land header only, so the `comp`
+wrapper needs its own entry point, and the clip source needs to resolve by
+manifest id rather than by the indexed naming. Note the dialect difference
+already recorded above: their last key lands on `frames-1`, Sk8land's on
+`frames`.
 
 ## Audio — the standard part
 
