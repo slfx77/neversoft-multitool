@@ -819,6 +819,57 @@ documents. Verdict: **PROVEN**.
   single-distinct-frame clips: **the port ships those animations as static
   placeholders**, so this is a fact about the cart, not a mapping error.
 
+## OPEN (2026-08-27): rails are NOT in the collision grid — the entity table at `+0x150`
+
+A user report ("rails are visibly present in the texture but unmodeled") is
+confirmed and its cause identified. The collision heightfield is a **3-world-unit
+cell grid**; School II's handrails are pipes a few centimetres across, so they
+cannot be represented there at all. Overlaying the collision lattice on the art
+shows the staircase handrails crossing cells that carry only the generic ground
+material — the grid genuinely does not know about them. (A separate check ruled
+out under-sampling as the cause: raising the per-cell sampling from 5 to 33
+recovers at most 1.30 world units of missed peak height, on 253 cells of one
+material, and 0.000 on most materials. Rails are absent, not aliased.)
+
+**What was found instead.** Level-record field `+0x150` — previously unidentified
+— points at a per-level table: `{u32 count, count × 16-byte records}`. The count
+is exact: the gap to the next level's table is `4 + 16·count` for every level.
+Records are eight 16-bit fields. Measured facts, all nine levels, 491 records:
+
+- Fields 0 and 1 are **world X and Y at 48 raw units per collision cell**:
+  all 491 land inside their own level's grid, whose dimensions differ wildly
+  (31×19 up to 56×35), with the maximum always just under the grid edge.
+- Field 2 is **signed** (20 records are negative), so it is a coordinate, not a size.
+- Field 7 is **a multiple of 0x1000 in 491 of 491** records and takes only five
+  values — 0x0000, 0x2000, 0x3000, 0x8000, 0xC000 — i.e. a quantized orientation.
+- Field 6 is an id banded on **decimal thousands**: 0–36, then 1000–1037,
+  2000–2032, 3000–3019, 4000–4030, 5001–5033, 6000–6015. Ids ≥ 1000 almost always
+  occur **exactly twice per level, once with field 7 = 0x8000 and once with
+  0xC000**; ids < 40 use only 0x0000/0x2000/0x3000 and are often 0x30 or 0x24
+  cubes (the five identical 0x24 cubes with id 32 in the Hangar are a good
+  candidate for the SKATE letters).
+
+**What is NOT established**: the roles of fields 3, 4 and 5, and therefore what
+one record's geometry actually is. Two readings survive — a box size, or a
+second point — and the obvious oracle *failed*: testing "the object's base rests
+on the collision surface" across four raw-unit scales × three anchors
+(z = base / centre / top) never beat its own shuffled-ground control by more
+than 1.5×, topping out at 15% of entities within 0.25 world units.
+
+**A near-miss worth recording, because it is the trap this repo keeps hitting.**
+Drawing each id ≥ 1000 pair as a line between the two records puts a magenta
+segment straight down School II's staircase handrail, along its whole length —
+exactly the picture you would want. It is **not** proof: the staircase has two
+parallel handrails, so joining one endpoint of each produces the same convincing
+line. Across the whole level the same rendering also throws long segments across
+open ground where nothing exists. A coherent picture on the object you were
+looking for is not evidence when a wrong pairing would draw the same picture.
+
+**Next step**: read the field roles out of the ROM's own consumer rather than
+fitting them — locate the code that loads record `+0x150` (a BizHawk read-watch
+on the table address is the cheapest route, as it was for the art transform) and
+transcribe the walk. Do not emit rail geometry from a fitted layout.
+
 ## Next steps (in order)
 
 1. **Skater model follow-ups** — the u16 normal encoding, the 0x80 face flag,
