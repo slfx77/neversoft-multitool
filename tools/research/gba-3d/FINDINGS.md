@@ -625,6 +625,40 @@ is worn by four characters **including Chad Muska** — the hood. Triangle count
 now vary per character (Spider-Man 234, Muska 242) where they were a uniform
 266.
 
+## FIXED (2026-08-27): black slabs where the art draws nothing
+
+A user reported objects "missing / displaying black" in School II. The cause is
+structural: **the collision grid is a rectangle, the authored art is not.**
+School II has a deep notch between its two building wings; Rooftops is two
+separate buildings; the Pool is a small shape in a large canvas. Surface cells
+over those regions had no art to sample and emitted as flat black slabs.
+
+The art is the authority on where the level exists, so a cell it never draws is
+no longer emitted (`GbaLevelArtCoverage`). Measured on School II: 9.0% of the
+mesh's vertices sampled pure black, and they sat at a mean height of −3 against
+the level's own mean of +18 — low ground in the notch, not tall walls poking
+past the art.
+
+**Undrawn is pure black REACHABLE FROM THE CANVAS EDGE, not merely pure black.**
+That distinction is load-bearing: the drawn art contains black pixels of its own
+(20,178 in Rooftops, 1,497 in Warehouse), and dropping cells over those would
+punch holes in real geometry. The separation is clean — 99.991% of School II's
+black is border-reachable surround, and **no drawn pixel in any level is pure
+black** (the darkest sums to 8 of a possible 765). A quad is dropped only when
+**all four** corners are undrawn, so a cell straddling the art's edge keeps the
+level's rim rather than eroding it.
+
+Four of the nine levels have no undrawn pixel at all, so no mask is built and
+their geometry provably cannot change (the Hangar stays at exactly 14,739
+triangles). School II drops 57,783 → 52,245; the corpus total 267,544 → 257,569,
+all nine still Khronos-clean.
+
+Residue: a facade that extends below where the art draws it still shows a black
+strip (Rooftops' lower-left corner) — those quads have a drawn corner, so the
+all-four rule correctly declines to remove them. Trimming skirts by their lower
+edge alone was tried and reverted: it removed 324 triangles corpus-wide with no
+visible change, which is not enough to justify the rule.
+
 ## OPEN: per-face shading (the u16 normals)
 
 Characters export one flat colour per material — the **mid shade (index 6) of

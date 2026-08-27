@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Texture.Gba;
@@ -67,6 +67,11 @@ internal static class GbaLevelGeometryWriter
         var originX = ReadS32(rom, trueRecord + 0x64) / 256.0;
         var originY = ReadS32(rom, trueRecord + 0x68) / 256.0;
 
+        // The collision grid is a rectangle but the authored art is not — School II
+        // has a deep notch between its building wings — so cells the art never
+        // draws would emit as flat black slabs.
+        var undrawn = GbaLevelArtCoverage.BuildUndrawnMask(art.Rgba, art.Width, art.Height);
+
         var step = Sub + 1;
         var w = grid.Width;
         var h = grid.Height;
@@ -108,6 +113,8 @@ internal static class GbaLevelGeometryWriter
                 var b = SurfaceVertex(gx, gy, i + 1, j, values[j * step + i + 1], originX, originY, art);
                 var c = SurfaceVertex(gx, gy, i + 1, j + 1, values[(j + 1) * step + i + 1], originX, originY, art);
                 var d = SurfaceVertex(gx, gy, i, j + 1, values[(j + 1) * step + i], originX, originY, art);
+                if (IsUndrawnQuad(undrawn, art, a, b, c, d))
+                    continue;
                 AddQuad(vertices, indices, a, b, c, d);
             }
 
@@ -150,6 +157,8 @@ internal static class GbaLevelGeometryWriter
                     var b = SurfaceVertex(gx, gy, eb.I, eb.J, hi2, originX, originY, art);
                     var c = SurfaceVertex(gx, gy, eb.I, eb.J, lo2, originX, originY, art);
                     var d = SurfaceVertex(gx, gy, ea.I, ea.J, lo1, originX, originY, art);
+                    if (IsUndrawnQuad(undrawn, art, a, b, c, d))
+                        continue;
                     AddQuad(vertices, indices, a, b, c, d);
                 }
             }
@@ -176,6 +185,24 @@ internal static class GbaLevelGeometryWriter
             Vector3.UnitY,
             Vector4.One,
             new Vector2((float)u, (float)v));
+    }
+
+    /// <summary>
+    ///     True when the art draws nothing anywhere on this quad. Requiring ALL
+    ///     four corners to be undrawn keeps the boundary intact: a cell straddling
+    ///     the art's edge still has a drawn corner, so the level keeps its rim
+    ///     rather than eroding by a cell.
+    /// </summary>
+    private static bool IsUndrawnQuad(
+        bool[]? undrawn, GbaLevelImages.GbaLevelRender art,
+        ModelVertex a, ModelVertex b, ModelVertex c, ModelVertex d)
+    {
+        if (undrawn == null)
+            return false;
+        return GbaLevelArtCoverage.IsUndrawn(undrawn, art.Width, art.Height, a.TexCoord.X, a.TexCoord.Y)
+               && GbaLevelArtCoverage.IsUndrawn(undrawn, art.Width, art.Height, b.TexCoord.X, b.TexCoord.Y)
+               && GbaLevelArtCoverage.IsUndrawn(undrawn, art.Width, art.Height, c.TexCoord.X, c.TexCoord.Y)
+               && GbaLevelArtCoverage.IsUndrawn(undrawn, art.Width, art.Height, d.TexCoord.X, d.TexCoord.Y);
     }
 
     // Two triangles with a shared face normal computed from the quad's real geometry.

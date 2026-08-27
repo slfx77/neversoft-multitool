@@ -90,6 +90,59 @@ public sealed class GbaLevelCarverTests(TestPaths paths)
         Assert.Equal(MeshFileKind.None, MeshTypeDetector.DetectByName("Tony Hawk (USA).gba").Kind);
     }
 
+    /// <summary>
+    ///     A level's collision grid is a rectangle, but its authored art is not:
+    ///     School II has a deep notch between its building wings. Cells the art
+    ///     never draws used to emit as flat black slabs.
+    ///
+    ///     "Undrawn" is pure black REACHABLE FROM THE CANVAS EDGE, never merely
+    ///     pure black — the drawn art contains black pixels of its own, and
+    ///     dropping cells over those would punch holes in real geometry.
+    /// </summary>
+    [CorpusFact]
+    public void UndrawnArtRegionsAreNotEmittedAsBlackGeometry()
+    {
+        var romPath = RomPath;
+        Assert.SkipWhen(romPath == null, "THPS2 GBA ROM sample not available");
+        var rom = File.ReadAllBytes(romPath!);
+        var carve = GbaLevelCarver.Carve(rom);
+
+        // Six of the nine levels fill their canvas: no surround, so no mask and
+        // provably no change to what they emit.
+        var covered = 0;
+        var notched = 0;
+        foreach (var level in GbaLevelImages.FindLevels(rom))
+        {
+            var art = GbaLevelImages.RenderColourSurface(rom, level);
+            Assert.True(art.HasValue);
+            var render = art.Value;
+            if (GbaLevelArtCoverage.BuildUndrawnMask(render.Rgba, render.Width, render.Height) == null)
+                covered++;
+            else
+                notched++;
+        }
+
+        // Four levels' art has no undrawn pixel at all, so no mask is built and
+        // their geometry cannot change; the rest are only tested against it.
+        Assert.Equal(4, covered);
+        Assert.Equal(5, notched);
+
+        // School II keeps its level but loses the slabs over the notch.
+        var schoolRecord = GbaLevelCarver.FindRecordOffset(rom, carve[1].Data);
+        var native = new GbaLevelNativeSource(carve[1].Data, rom, schoolRecord, "School II", "");
+        var document = ModelDocument.CreateNative("1_school_ii", ModelSourceKind.GbaLevel, native);
+        GbaLevelGeometryWriter.Populate(document, native);
+        Assert.Equal(52245, document.TriangleCount);
+
+        // And a level whose art fills its canvas is untouched — the Hangar keeps
+        // exactly the geometry it had before any coverage test existed.
+        var hangarRecord = GbaLevelCarver.FindRecordOffset(rom, carve[0].Data);
+        var hangar = new GbaLevelNativeSource(carve[0].Data, rom, hangarRecord, "Hangar", "");
+        var hangarDocument = ModelDocument.CreateNative("0_hangar", ModelSourceKind.GbaLevel, hangar);
+        GbaLevelGeometryWriter.Populate(hangarDocument, hangar);
+        Assert.Equal(14739, hangarDocument.TriangleCount);
+    }
+
     [CorpusFact]
     public void ConvertsTheHangarToATexturedLevelModel()
     {
