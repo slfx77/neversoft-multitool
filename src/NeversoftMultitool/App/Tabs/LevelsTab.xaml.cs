@@ -2,9 +2,12 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core.BinaryIO;
+using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
+using NeversoftMultitool.Core.Rendering.Level2d;
 
 namespace NeversoftMultitool;
 
@@ -34,6 +37,17 @@ public sealed partial class LevelsTab : UserControl, IDisposable
     private readonly Dictionary<string, bool> _visibilityOverrides = new(StringComparer.Ordinal);
 
     private DebouncedAction? _filesFilterDebounce;
+
+    /// <summary>The 2D source for the selected level, or null when it has no picture.</summary>
+    private ILevel2dSource? _level2d;
+
+    private Level2dLayer _level2dLayer = Level2dLayer.Art;
+
+    /// <summary>Set while the code is driving the pickers, so their handlers stand down.</summary>
+    private bool _applyingViewMode;
+
+    /// <summary>The user's explicit choice, once made; null means "use the level's default".</summary>
+    private bool? _userChoseTwoDimensional;
     private string _filesFilterText = "";
     private MeshConverterTabPreview? _preview;
     private CancellationTokenSource? _scanCts;
@@ -56,6 +70,9 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         // Selected here rather than in XAML so SelectionChanged can't fire
         // mid-InitializeComponent against not-yet-created elements.
         PanelSelector.SelectedItem = ExportPanelItem;
+        _applyingViewMode = true;
+        ViewModeSelector.SelectedItem = View3dItem;
+        _applyingViewMode = false;
 
         // Kept alive by their Click subscriptions on the panel buttons.
         _ = new PanelCollapseController(
@@ -299,9 +316,19 @@ public sealed partial class LevelsTab : UserControl, IDisposable
 
     private void UpdateRenderButtons()
     {
+        if (ShowingTwoDimensional)
+        {
+            RenderPngButton.IsEnabled = _level2d != null;
+            RenderPngButton.Content = "Export image as PNG...";
+            RenderSettingsPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         var hasGlb = ModelViewer.LastGlbBytes is { Length: > 0 };
         var checkedCount = _items.Count(i => i.IsChecked);
         RenderPngButton.IsEnabled = hasGlb || checkedCount > 0;
+        RenderPngButton.Content = "Export render as PNG...";
+        RenderSettingsPanel.Visibility = Visibility.Visible;
     }
 
     /// <summary>
@@ -426,6 +453,138 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         await ReloadPreviewAsync(entry, preserveCamera: false);
     }
 
+    private bool ShowingTwoDimensional =>
+        ReferenceEquals(ViewModeSelector.SelectedItem, View2dItem);
+
+    private void ViewModeSelector_SelectionChanged(
+        SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        if (_applyingViewMode || ImageViewer == null || ModelViewer == null) return;
+        _userChoseTwoDimensional = ShowingTwoDimensional;
+        ApplyViewMode();
+    }
+
+    /// <summary>
+    ///     Show the surface the current mode selects and hide the other.
+    /// </summary>
+    /// <remarks>
+    ///     Focus moves with the surface: the 3D viewer owns WASD, F and P, and
+    ///     leaving focus on a hidden WebView sends those keys nowhere the user can see.
+    /// </remarks>
+    private void ApplyViewMode()
+    {
+        var twoD = ShowingTwoDimensional;
+        LayerCombo.Visibility = twoD ? Visibility.Visible : Visibility.Collapsed;
+        ImageViewer.Visibility = twoD ? Visibility.Visible : Visibility.Collapsed;
+        ModelViewer.Visibility = twoD ? Visibility.Collapsed : Visibility.Visible;
+
+        if (twoD)
+        {
+            RenderTwoDimensional();
+            ImageViewer.Focus(FocusState.Programmatic);
+        }
+        else
+        {
+            ModelViewer.Focus(FocusState.Programmatic);
+        }
+
+        UpdateRenderButtons();
+    }
+
+    /// <summary>
+    ///     Point the 2D surface at one level, and choose the opening mode.
+    /// </summary>
+    /// <remarks>
+    ///     The default is per format — a GBA level opens on the picture it was
+    ///     authored as — but the user's explicit choice wins for the rest of the
+    ///     session. It is deliberately NOT persisted: it is a way of looking at one
+    ///     level, not a preference about the app.
+    /// </remarks>
+    private void BindTwoDimensionalSource(MeshFileEntry? entry)
+    {
+        _level2d = TryCreateLevel2dSource(entry);
+
+        _applyingViewMode = true;
+        LayerCombo.Items.Clear();
+        if (_level2d != null)
+        {
+            foreach (var layer in _level2d.Layers)
+            {
+                LayerCombo.Items.Add(new ComboBoxItem
+                {
+                    Content = Level2dViewPolicy.LayerLabel(layer),
+                    Tag = layer
+                });
+            }
+
+            var index = _level2d.Layers.ToList().IndexOf(_level2dLayer);
+            LayerCombo.SelectedIndex = index >= 0 ? index : 0;
+            _level2dLayer = SelectedLayer();
+        }
+
+        var wantTwoD = _level2d != null
+                       && (_userChoseTwoDimensional
+                           ?? (entry != null && Level2dViewPolicy.DefaultsToTwoDimensional(entry.FileName)));
+        ViewModeSelector.SelectedItem = wantTwoD ? View2dItem : View3dItem;
+        View2dItem.IsEnabled = _level2d != null;
+        _applyingViewMode = false;
+
+        ApplyViewMode();
+    }
+
+    private static ILevel2dSource? TryCreateLevel2dSource(MeshFileEntry? entry)
+    {
+        if (entry == null || !Level2dViewPolicy.Supports(entry.FileName)) return null;
+
+        try
+        {
+            var rom = entry.Source.TryReadCompanion(GbaLevelCarver.RomEntryName);
+            return rom == null
+                ? null
+                : GbaLevel2dSource.TryCreate(entry.Source.ReadBytes(), rom, entry.FileName);
+        }
+        catch (Exception)
+        {
+            // A picture is an extra, never a reason to fail opening the level.
+            return null;
+        }
+    }
+
+    private Level2dLayer SelectedLayer() =>
+        (LayerCombo.SelectedItem as ComboBoxItem)?.Tag is Level2dLayer layer ? layer : Level2dLayer.Art;
+
+    private void LayerCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingViewMode || _level2d == null) return;
+        _level2dLayer = SelectedLayer();
+        RenderTwoDimensional();
+        UpdateRenderButtons();
+    }
+
+    private void RenderTwoDimensional()
+    {
+        if (_level2d == null)
+        {
+            ImageViewer.Clear();
+            return;
+        }
+
+        var render = _level2d.Render(_level2dLayer);
+        if (render == null)
+        {
+            ImageViewer.Clear();
+            MainWindow.Instance?.SetStatus(
+                $"{_level2d.DisplayName}: no {Level2dViewPolicy.LayerLabel(_level2dLayer)} to show.");
+            return;
+        }
+
+        ImageViewer.SetSource(
+            BitmapHelper.CreateFromRgba(render.Value.Width, render.Value.Height, render.Value.Rgba));
+        MainWindow.Instance?.SetStatus(
+            $"{_level2d.DisplayName} - {Level2dViewPolicy.LayerLabel(_level2dLayer)} "
+            + $"{render.Value.Width} x {render.Value.Height} px");
+    }
+
     private void ExportFormatCheckbox_Changed(object sender, RoutedEventArgs e)
     {
         if (ConvertButton == null) return;
@@ -493,6 +652,7 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         if (entry == null)
         {
             UpdateDisplaySettingsVisibility(null);
+            BindTwoDimensionalSource(null);
             await ModelViewer.SetLightingModeAsync("day");
             await Preview.ClearAsync();
             UpdateRenderButtons();
@@ -500,6 +660,7 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         }
 
         UpdateDisplaySettingsVisibility(entry);
+        BindTwoDimensionalSource(entry);
         await ModelViewer.SetLightingModeAsync(
             entry.IsPakWorldzone ? GetSelectedPreviewLightingMode() : "day");
         await Preview.InitializeAsync();
@@ -588,6 +749,12 @@ public sealed partial class LevelsTab : UserControl, IDisposable
 
     private async void RenderPng_Click(object sender, RoutedEventArgs e)
     {
+        if (ShowingTwoDimensional)
+        {
+            await ExportTwoDimensionalAsync();
+            return;
+        }
+
         var size = (int)RenderSizeBox.Value;
         var azimuth = (float)RenderAzimuthBox.Value;
         var elevation = (float)RenderElevationBox.Value;
@@ -641,5 +808,46 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         }
 
         await _batchRunner.RenderPngSingleAsync(glb, dir, saveStem, size, azimuth, elevation, false);
+    }
+
+    /// <summary>
+    ///     Write the 2D layer currently on screen, at its native resolution.
+    /// </summary>
+    /// <remarks>
+    ///     No scaling: the art has one true size and upscaling it would invent
+    ///     detail the cartridge never had. The checkerboard the preview draws behind
+    ///     transparency is a viewing aid and is not baked in.
+    /// </remarks>
+    private async Task ExportTwoDimensionalAsync()
+    {
+        if (_level2d == null) return;
+
+        var render = _level2d.Render(_level2dLayer);
+        if (render == null)
+        {
+            MainWindow.Instance?.SetStatus("Nothing to export in this view.");
+            return;
+        }
+
+        var stem = MeshConverterTabFileScanner.StripCompoundExtension(
+                       FilesListView.SelectedItem is MeshFileEntry entry
+                           ? entry.FileName
+                           : _level2d.DisplayName)
+                   + Level2dViewPolicy.LayerStemSuffix(_level2dLayer);
+
+        var target = await FilePickerHelper.PickSaveFileAsync(stem, ("PNG image", [".png"]));
+        if (target == null) return;
+
+        try
+        {
+            var image = render.Value;
+            await Task.Run(() => ImageWriter.WritePng(target, image.Width, image.Height, image.Rgba));
+            MainWindow.Instance?.SetStatus(
+                $"Wrote {image.Width} x {image.Height} px -> {Path.GetFileName(target)}");
+        }
+        catch (Exception ex)
+        {
+            MainWindow.Instance?.SetStatus($"Export failed: {ex.Message}");
+        }
     }
 }

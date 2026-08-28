@@ -251,37 +251,79 @@
         </Border>
       </Grid>
 
-      <!-- Centre: the view surface -->
+      <!-- Centre: the view surface. The 2D and 3D surfaces are stacked and
+           flipped by Visibility so switching keeps both alive; the 3D viewer
+           in particular is a WebView2 that must not be rebuilt per toggle. -->
       <Grid Grid.Column="2">
-        <local:ModelViewerControl x:Name="ModelViewer" />
-        <Button
-          x:Name="CollapseLeftPanelButton"
-          HorizontalAlignment="Left"
-          VerticalAlignment="Top"
-          Margin="4"
-          Padding="4,10"
-          MinWidth="0"
-          MinHeight="0"
-          Background="Transparent"
-          BorderThickness="0"
-          ToolTipService.ToolTip="Collapse the level list"
-          AutomationProperties.Name="Collapse level list">
-          <FontIcon Glyph="&#xE76B;" FontSize="12" />
-        </Button>
-        <Button
-          x:Name="CollapseRightPanelButton"
-          HorizontalAlignment="Right"
-          VerticalAlignment="Top"
-          Margin="4"
-          Padding="4,10"
-          MinWidth="0"
-          MinHeight="0"
-          Background="Transparent"
-          BorderThickness="0"
-          ToolTipService.ToolTip="Collapse the side panel"
-          AutomationProperties.Name="Collapse side panel">
-          <FontIcon Glyph="&#xE76C;" FontSize="12" />
-        </Button>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  The collapse chevrons anchor to the corners of this toolbar row, not
+              to the surface below it: the 3D viewer draws its own control strip
+              across the top of its area, and they would sit on top of it.  -->
+        <Grid Grid.Row="0"
+              Margin="0,0,0,8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+
+          <Button
+            x:Name="CollapseLeftPanelButton"
+            Grid.Column="0"
+            VerticalAlignment="Center"
+            Margin="0,0,8,0"
+            Padding="4,10"
+            MinWidth="0"
+            MinHeight="0"
+            Background="Transparent"
+            BorderThickness="0"
+            ToolTipService.ToolTip="Collapse the level list"
+            AutomationProperties.Name="Collapse level list">
+            <FontIcon Glyph="&#xE76B;" FontSize="12" />
+          </Button>
+
+          <StackPanel Grid.Column="1"
+                      Orientation="Horizontal"
+                      Spacing="8"
+                      VerticalAlignment="Center">
+            <SelectorBar x:Name="ViewModeSelector"
+                         SelectionChanged="ViewModeSelector_SelectionChanged">
+              <SelectorBarItem x:Name="View2dItem" Text="2D" />
+              <SelectorBarItem x:Name="View3dItem" Text="3D" />
+            </SelectorBar>
+            <ComboBox x:Name="LayerCombo"
+                      MinWidth="180"
+                      VerticalAlignment="Center"
+                      Visibility="Collapsed"
+                      SelectionChanged="LayerCombo_SelectionChanged"
+                      AutomationProperties.Name="Level image layer"
+                      ToolTipService.ToolTip="Which picture of the level to show. Artwork is what the game draws; the collision views show the surface the engine actually skates on." />
+          </StackPanel>
+
+          <Button
+            x:Name="CollapseRightPanelButton"
+            Grid.Column="2"
+            VerticalAlignment="Center"
+            Margin="8,0,0,0"
+            Padding="4,10"
+            MinWidth="0"
+            MinHeight="0"
+            Background="Transparent"
+            BorderThickness="0"
+            ToolTipService.ToolTip="Collapse the side panel"
+            AutomationProperties.Name="Collapse side panel">
+            <FontIcon Glyph="&#xE76C;" FontSize="12" />
+          </Button>
+        </Grid>
+
+        <Grid Grid.Row="1">
+          <local:ImagePreviewControl x:Name="ImageViewer" Visibility="Collapsed" />
+          <local:ModelViewerControl x:Name="ModelViewer" />
+        </Grid>
       </Grid>
 
       <!-- Right: Display / Export -->
@@ -421,48 +463,50 @@
                           Click="Cancel_Click" />
                 </StackPanel>
 
-                <TextBlock Text="Render"
-                           Margin="0,8,0,0"
-                           Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <TextBlock
-                  Text="Headless rasterizer - not the interactive viewport camera."
-                  FontSize="11"
-                  TextWrapping="Wrap"
-                  Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <Grid ColumnSpacing="8">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                  </Grid.ColumnDefinitions>
-                  <NumberBox x:Name="RenderSizeBox"
-                             Grid.Column="0"
-                             Header="Size (px)"
-                             Minimum="16"
-                             Maximum="4096"
-                             Value="1024"
-                             SmallChange="64"
-                             LargeChange="256"
+                <StackPanel x:Name="RenderSettingsPanel" Spacing="12">
+                  <TextBlock Text="Render"
+                             Margin="0,8,0,0"
+                             Style="{StaticResource BodyStrongTextBlockStyle}" />
+                  <TextBlock
+                    Text="Headless rasterizer - not the interactive viewport camera."
+                    FontSize="11"
+                    TextWrapping="Wrap"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                  <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <NumberBox x:Name="RenderSizeBox"
+                               Grid.Column="0"
+                               Header="Size (px)"
+                               Minimum="16"
+                               Maximum="4096"
+                               Value="1024"
+                               SmallChange="64"
+                               LargeChange="256"
+                               SpinButtonPlacementMode="Compact" />
+                    <NumberBox x:Name="RenderAzimuthBox"
+                               Grid.Column="1"
+                               Header="Azimuth"
+                               Minimum="-360"
+                               Maximum="360"
+                               Value="-90"
+                               SmallChange="15"
+                               LargeChange="45"
+                               SpinButtonPlacementMode="Compact" />
+                  </Grid>
+                  <NumberBox x:Name="RenderElevationBox"
+                             Header="Elevation"
+                             Minimum="-90"
+                             Maximum="90"
+                             Value="30"
+                             SmallChange="5"
+                             LargeChange="15"
                              SpinButtonPlacementMode="Compact" />
-                  <NumberBox x:Name="RenderAzimuthBox"
-                             Grid.Column="1"
-                             Header="Azimuth"
-                             Minimum="-360"
-                             Maximum="360"
-                             Value="-90"
-                             SmallChange="15"
-                             LargeChange="45"
-                             SpinButtonPlacementMode="Compact" />
-                </Grid>
-                <NumberBox x:Name="RenderElevationBox"
-                           Header="Elevation"
-                           Minimum="-90"
-                           Maximum="90"
-                           Value="30"
-                           SmallChange="5"
-                           LargeChange="15"
-                           SpinButtonPlacementMode="Compact" />
+                </StackPanel>
                 <Button x:Name="RenderPngButton"
-                        Content="Export as PNG..."
+                        Content="Export render as PNG..."
                         IsEnabled="False"
                         Click="RenderPng_Click" />
               </StackPanel>
