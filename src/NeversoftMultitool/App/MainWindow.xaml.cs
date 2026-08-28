@@ -153,6 +153,7 @@ public sealed partial class MainWindow : Window
             HashReviewerTabContent.Visibility = Visibility.Collapsed;
             ScriptDecompilerTabContent.Visibility = Visibility.Collapsed;
             MeshConverterTabContent.Visibility = Visibility.Collapsed;
+            LevelsTabContent.Visibility = Visibility.Collapsed;
 
             // Clear status bar when switching tabs
             SetStatus("");
@@ -187,9 +188,32 @@ public sealed partial class MainWindow : Window
                 case "MeshConverter":
                     MeshConverterTabContent.Visibility = Visibility.Visible;
                     break;
+                case "Levels":
+                    LevelsTabContent.Visibility = Visibility.Visible;
+                    break;
             }
 
             // Navigated to tab
+        }
+    }
+
+    /// <summary>
+    ///     Switch to the tab carrying <paramref name="tag" />, for cross-tab
+    ///     affordances ("N level(s) are in the Levels tab").
+    /// </summary>
+    /// <remarks>
+    ///     Callers that want a status line must set it AFTER this returns:
+    ///     <see cref="NavView_SelectionChanged" /> clears the status bar on every
+    ///     switch.
+    /// </remarks>
+    public void SelectTab(string tag)
+    {
+        foreach (var item in NavView.MenuItems.OfType<NavigationViewItem>())
+        {
+            if (!string.Equals(item.Tag?.ToString(), tag, StringComparison.Ordinal))
+                continue;
+            NavView.SelectedItem = item;
+            return;
         }
     }
 

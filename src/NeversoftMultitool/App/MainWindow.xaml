@@ -119,6 +119,15 @@
 
         <NavigationViewItemHeader Content="3D Models" />
 
+        <!--  Levels (world-scale content: its own 2D/3D viewer and export)  -->
+        <NavigationViewItem
+          Content="Levels"
+          Tag="Levels">
+          <NavigationViewItem.Icon>
+            <FontIcon Glyph="&#xE809;" />
+          </NavigationViewItem.Icon>
+        </NavigationViewItem>
+
         <!--  Meshes & Characters (merged mesh conversion + character preview)  -->
         <NavigationViewItem
           Content="Meshes &amp; Characters"
@@ -260,6 +269,10 @@
               Visibility="Collapsed" />
             <tabs:MeshConverterTab
               x:Name="MeshConverterTabContent"
+              VerticalAlignment="Stretch"
+              Visibility="Collapsed" />
+            <tabs:LevelsTab
+              x:Name="LevelsTabContent"
               VerticalAlignment="Stretch"
               Visibility="Collapsed" />
           </Grid>

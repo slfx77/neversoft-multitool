@@ -34,8 +34,10 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
     private readonly ObservableCollection<MeshFileEntry> _items = [];
 
     // One scan serves both 3D tabs; this one renders its own slice of it.
+    // Levels live in the Levels tab, and the two slices are exact complements,
+    // so a row can never appear in both lists bound to the same mutable entry.
     private readonly MeshTabScanSession _scan = MeshTabScanSession.Instance;
-    private const MeshScanSlice Slice = MeshScanSlice.All;
+    private const MeshScanSlice Slice = MeshScanSlice.Models;
 
     private readonly Dictionary<string, bool> _visibilityOverrides =
         new(StringComparer.Ordinal);
@@ -168,13 +170,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             token.ThrowIfCancellationRequested();
 
             _scan.Publish(path, entries);
-
-            if (entries.Count == 0)
-                MainWindow.Instance?.SetStatus(
-                    $"{Path.GetFileName(path)}: no supported mesh entries found.");
-            else
-                MainWindow.Instance?.SetStatus(
-                    $"Found {entries.Count} mesh entrie(s) in {Path.GetFileName(path)}.");
+            ReportScanResult(Path.GetFileName(path));
         }
         catch (OperationCanceledException)
         {
@@ -235,8 +231,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             token.ThrowIfCancellationRequested();
 
             _scan.Publish(rootDir, entries);
-
-            MainWindow.Instance?.SetStatus($"Found {entries.Count} mesh file(s).");
+            ReportScanResult(null);
         }
         catch (OperationCanceledException)
         {
@@ -253,6 +248,25 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
             cts.Dispose();
             UpdateUiState();
         }
+    }
+
+    /// <summary>
+    ///     Report this tab's own slice, not the scan total: levels went to the
+    ///     Levels tab, and a count that includes them would not match the list.
+    /// </summary>
+    private void ReportScanResult(string? archiveName)
+    {
+        var models = _scan.CountIn(MeshScanSlice.Models);
+        var levels = _scan.CountIn(MeshScanSlice.Levels);
+        var where = archiveName == null ? "" : $" in {archiveName}";
+
+        MainWindow.Instance?.SetStatus(models switch
+        {
+            0 when levels == 0 => $"No supported mesh entries found{where}.",
+            0 => $"No models{where} - {levels:N0} level(s) are in the Levels tab.",
+            _ when levels == 0 => $"Found {models:N0} mesh file(s){where}.",
+            _ => $"Found {models:N0} mesh file(s){where}; {levels:N0} level(s) are in the Levels tab."
+        });
     }
 
     private async Task CancelInFlightScan()
