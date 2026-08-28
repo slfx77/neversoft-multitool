@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NeversoftMultitool.Core.Formats.Mesh;
@@ -277,6 +278,8 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         }
 
         ConvertButton.IsEnabled = checkedCount > 0 && SelectedOutputFormat() != null;
+        UpdateWorldzoneExportSettingsVisibility();
+        UpdateLevelObjectExportSettingsVisibility();
         UpdateRenderButtons();
     }
 
@@ -299,6 +302,128 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         var hasGlb = ModelViewer.LastGlbBytes is { Length: > 0 };
         var checkedCount = _items.Count(i => i.IsChecked);
         RenderPngButton.IsEnabled = hasGlb || checkedCount > 0;
+    }
+
+    /// <summary>
+    ///     Export settings apply to checked rows, which need not be the row
+    ///     currently selected for preview. Keep the viewport control tied to
+    ///     selection, but expose export lighting/scale whenever the operation
+    ///     scope contains an actual content-detected worldzone.
+    /// </summary>
+    private void UpdateWorldzoneExportSettingsVisibility()
+    {
+        if (WorldzoneExportSettingsSection == null) return;
+
+        WorldzoneExportSettingsSection.Visibility = _items.Any(static entry =>
+            entry.IsChecked && entry.IsPakWorldzone)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void UpdateLevelObjectExportSettingsVisibility()
+    {
+        if (ExportIncludeLevelObjectsCheckbox == null) return;
+
+        ExportIncludeLevelObjectsCheckbox.Visibility = _items.Any(static entry =>
+            entry.IsChecked && entry.HasSupportedLevelObjectCompanion)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void UpdateDisplaySettingsVisibility(MeshFileEntry? entry)
+    {
+        WorldzoneViewportSettingsSection.Visibility = entry?.IsPakWorldzone == true
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        DisplayIncludeLevelObjectsCheckbox.Visibility =
+            entry?.HasSupportedLevelObjectCompanion == true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    private WorldzoneTimeOfDay GetSelectedPreviewWorldzoneTimeOfDay()
+    {
+        var tag = (WorldzoneTimeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return tag == "night" ? WorldzoneTimeOfDay.Night : WorldzoneTimeOfDay.Day;
+    }
+
+    private string GetSelectedPreviewLightingMode() =>
+        GetSelectedPreviewWorldzoneTimeOfDay() == WorldzoneTimeOfDay.Night ? "night" : "day";
+
+    private WorldzoneTimeOfDay GetSelectedExportWorldzoneTimeOfDay() =>
+        ExportWorldzoneNightToggle.IsOn ? WorldzoneTimeOfDay.Night : WorldzoneTimeOfDay.Day;
+
+    private bool ShouldIncludeLevelObjectsInExport() =>
+        ExportIncludeLevelObjectsCheckbox.IsChecked != false;
+
+    private bool ShouldIncludeLevelObjectsInPreview() =>
+        DisplayIncludeLevelObjectsCheckbox.IsChecked != false;
+
+    /// <summary>The preview time of day for one entry: only a worldzone has one.</summary>
+    private WorldzoneTimeOfDay PreviewTimeFor(MeshFileEntry entry) =>
+        entry.IsPakWorldzone ? GetSelectedPreviewWorldzoneTimeOfDay() : WorldzoneTimeOfDay.All;
+
+    private bool TryGetWorldzoneScale(out float scale)
+    {
+        var text = WorldzoneScaleText.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            scale = 1f;
+            return true;
+        }
+
+        return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out scale)
+               && float.IsFinite(scale)
+               && scale > 0f;
+    }
+
+    private bool TryGetWorldzoneScale(IEnumerable<MeshFileEntry> entries, out float scale)
+    {
+        if (!entries.Any(entry => entry.IsPakWorldzone))
+        {
+            scale = 1f;
+            return true;
+        }
+
+        return TryGetWorldzoneScale(out scale);
+    }
+
+    private async void DisplayIncludeLevelObjectsCheckbox_Click(object sender, RoutedEventArgs e)
+    {
+        if (FilesListView.SelectedItem is not MeshFileEntry
+            {
+                HasSupportedLevelObjectCompanion: true
+            } entry)
+        {
+            return;
+        }
+
+        await ReloadPreviewAsync(entry, preserveCamera: true);
+    }
+
+    private async void WorldzoneTimeCombo_SelectionChanged(
+        object sender, SelectionChangedEventArgs e)
+    {
+        if (WorldzoneTimeCombo == null || ModelViewer == null) return;
+
+        var selectedTime = GetSelectedPreviewWorldzoneTimeOfDay();
+        if (FilesListView?.SelectedItem is not MeshFileEntry { IsPakWorldzone: true } entry)
+        {
+            await ModelViewer.SetLightingModeAsync("day");
+            return;
+        }
+
+        await ModelViewer.SetLightingModeAsync(
+            selectedTime == WorldzoneTimeOfDay.Night ? "night" : "day");
+
+        await Preview.InitializeAsync();
+        // A newer selection or another lighting change may have landed while the
+        // viewer round-tripped; that request owns the preview, not this one.
+        if (!ReferenceEquals(FilesListView.SelectedItem, entry) ||
+            GetSelectedPreviewWorldzoneTimeOfDay() != selectedTime)
+            return;
+
+        await ReloadPreviewAsync(entry, preserveCamera: false);
     }
 
     private void ExportFormatCheckbox_Changed(object sender, RoutedEventArgs e)
@@ -367,14 +492,33 @@ public sealed partial class LevelsTab : UserControl, IDisposable
 
         if (entry == null)
         {
+            UpdateDisplaySettingsVisibility(null);
+            await ModelViewer.SetLightingModeAsync("day");
             await Preview.ClearAsync();
             UpdateRenderButtons();
             return;
         }
 
+        UpdateDisplaySettingsVisibility(entry);
+        await ModelViewer.SetLightingModeAsync(
+            entry.IsPakWorldzone ? GetSelectedPreviewLightingMode() : "day");
         await Preview.InitializeAsync();
-        var groups = await Preview.LoadPreviewAsync(entry, visibilityOverrides: null);
-        PopulateVisibilityGroups(groups);
+        await ReloadPreviewAsync(entry, preserveCamera: false);
+    }
+
+    /// <summary>
+    ///     Rebuild the preview for one entry with the current worldzone lighting
+    ///     and level-object settings, then refresh the visibility list from it.
+    /// </summary>
+    private async Task ReloadPreviewAsync(MeshFileEntry entry, bool preserveCamera)
+    {
+        var groups = await Preview.LoadPreviewAsync(
+            entry,
+            PreviewTimeFor(entry),
+            _visibilityOverrides.Count == 0 ? null : _visibilityOverrides,
+            preserveCamera,
+            ShouldIncludeLevelObjectsInPreview());
+        if (groups != null) PopulateVisibilityGroups(groups);
         UpdateRenderButtons();
     }
 
@@ -408,10 +552,7 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         if (sender is not CheckBox { Tag: string key } box || _visibilityEntry == null) return;
         _visibilityOverrides[key] = box.IsChecked == true;
 
-        var groups = await Preview.LoadPreviewAsync(
-            _visibilityEntry, visibilityOverrides: _visibilityOverrides, preserveCamera: true);
-        if (groups != null) PopulateVisibilityGroups(groups);
-        UpdateRenderButtons();
+        await ReloadPreviewAsync(_visibilityEntry, preserveCamera: true);
     }
 
     // ---- Export ----
@@ -424,13 +565,20 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         var format = SelectedOutputFormat();
         if (format == null) return;
 
+        if (!TryGetWorldzoneScale(entries, out var worldzoneScale))
+        {
+            MainWindow.Instance?.SetStatus("Worldzone scale must be a positive number.");
+            return;
+        }
+
         var outputDir = await FolderPickerHelper.PickFolderAsync();
         if (outputDir == null) return;
 
         await _batchRunner.ConvertAsync(
-            entries, outputDir, WorldzoneTimeOfDay.All, 1f, format.Value,
+            entries, outputDir, GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, format.Value,
             visibilityEntry: _visibilityEntry,
-            visibilityOverrides: _visibilityOverrides.Count == 0 ? null : _visibilityOverrides);
+            visibilityOverrides: _visibilityOverrides.Count == 0 ? null : _visibilityOverrides,
+            includeLevelObjects: ShouldIncludeLevelObjectsInExport());
     }
 
     private async void Cancel_Click(object sender, RoutedEventArgs e)
@@ -446,6 +594,15 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         var checkedEntries = _items.Where(i => i.IsChecked).ToList();
         var selected = FilesListView.SelectedItem as MeshFileEntry;
         var overrides = _visibilityOverrides.Count == 0 ? null : _visibilityOverrides;
+        var includeLevelObjects = ShouldIncludeLevelObjectsInExport();
+
+        IEnumerable<MeshFileEntry> scope = checkedEntries;
+        if (checkedEntries.Count <= 1 && selected != null) scope = [selected];
+        if (!TryGetWorldzoneScale(scope, out var worldzoneScale))
+        {
+            MainWindow.Instance?.SetStatus("Worldzone scale must be a positive number.");
+            return;
+        }
 
         if (checkedEntries.Count > 1)
         {
@@ -454,7 +611,8 @@ public sealed partial class LevelsTab : UserControl, IDisposable
 
             await _batchRunner.RenderPngBatchAsync(
                 checkedEntries, outputDir, size, azimuth, elevation, false,
-                WorldzoneTimeOfDay.All, 1f, selected, overrides);
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, selected, overrides,
+                includeLevelObjects: includeLevelObjects);
             return;
         }
 
@@ -477,7 +635,8 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         {
             await _batchRunner.RenderPngEntryAsync(
                 entry, dir, saveStem, size, azimuth, elevation, false,
-                WorldzoneTimeOfDay.All, 1f, overrides);
+                GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, overrides,
+                includeLevelObjects: includeLevelObjects);
             return;
         }
 

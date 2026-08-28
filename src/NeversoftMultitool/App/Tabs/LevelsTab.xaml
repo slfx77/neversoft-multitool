@@ -309,7 +309,41 @@
                           VerticalScrollBarVisibility="Auto"
                           Visibility="Collapsed">
               <StackPanel Spacing="12" Padding="0,0,8,8">
+                <CheckBox
+                  x:Name="DisplayIncludeLevelObjectsCheckbox"
+                  Content="Include level objects"
+                  MinWidth="0"
+                  IsChecked="True"
+                  Visibility="Collapsed"
+                  ToolTipService.ToolTip="Include authored objects from the level's companion object file"
+                  Click="DisplayIncludeLevelObjectsCheckbox_Click" />
+                <Grid x:Name="WorldzoneViewportSettingsSection"
+                      ColumnSpacing="8"
+                      RowSpacing="8"
+                      Visibility="Collapsed">
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="70" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Grid.Row="0" Grid.Column="0"
+                             Text="Lighting"
+                             VerticalAlignment="Center"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                  <ComboBox x:Name="WorldzoneTimeCombo"
+                            Grid.Row="0" Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            SelectedIndex="0"
+                            SelectionChanged="WorldzoneTimeCombo_SelectionChanged">
+                    <ComboBoxItem Content="Day" Tag="day" />
+                    <ComboBoxItem Content="Night" Tag="night" />
+                  </ComboBox>
+                </Grid>
+
                 <TextBlock Text="Visibility"
+                           Margin="0,8,0,0"
                            Style="{StaticResource BodyStrongTextBlockStyle}" />
                 <TextBlock x:Name="DisplayEmptyText"
                            Text="Select a level to see its display options."
@@ -326,6 +360,46 @@
               <StackPanel Spacing="12" Padding="0,0,8,8">
                 <TextBlock Text="Convert"
                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+                <CheckBox
+                  x:Name="ExportIncludeLevelObjectsCheckbox"
+                  Content="Include level objects"
+                  MinWidth="0"
+                  IsChecked="True"
+                  Visibility="Collapsed"
+                  ToolTipService.ToolTip="Include authored objects from companion object files in exported output" />
+                <StackPanel x:Name="WorldzoneExportSettingsSection"
+                            Spacing="8"
+                            Visibility="Collapsed">
+                  <TextBlock Text="Worldzone"
+                             FontWeight="SemiBold"
+                             Margin="0,4,0,0" />
+                  <Grid ColumnSpacing="8" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                      <RowDefinition Height="Auto" />
+                      <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="70" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="Lighting"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ToggleSwitch x:Name="ExportWorldzoneNightToggle"
+                                  Grid.Row="0" Grid.Column="1"
+                                  OffContent="Day"
+                                  OnContent="Night"
+                                  IsOn="False" />
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Text="Scale"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBox x:Name="WorldzoneScaleText"
+                             Grid.Row="1" Grid.Column="1"
+                             Text="1" />
+                  </Grid>
+                </StackPanel>
                 <CheckBox x:Name="ExportGlbCheckbox"
                           Content="glTF (.glb)"
                           IsChecked="True"
