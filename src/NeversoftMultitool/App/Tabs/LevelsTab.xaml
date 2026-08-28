@@ -468,42 +468,33 @@
                              Margin="0,8,0,0"
                              Style="{StaticResource BodyStrongTextBlockStyle}" />
                   <TextBlock
-                    Text="Headless rasterizer - not the interactive viewport camera."
+                    Text="A level has no natural front, so the shot is named by compass direction. Straight down flattens every wall, which is why isometric is the default."
                     FontSize="11"
                     TextWrapping="Wrap"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                  <Grid ColumnSpacing="8">
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width="*" />
-                      <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <NumberBox x:Name="RenderSizeBox"
-                               Grid.Column="0"
-                               Header="Size (px)"
-                               Minimum="16"
-                               Maximum="4096"
-                               Value="1024"
-                               SmallChange="64"
-                               LargeChange="256"
-                               SpinButtonPlacementMode="Compact" />
-                    <NumberBox x:Name="RenderAzimuthBox"
-                               Grid.Column="1"
-                               Header="Azimuth"
-                               Minimum="-360"
-                               Maximum="360"
-                               Value="-90"
-                               SmallChange="15"
-                               LargeChange="45"
-                               SpinButtonPlacementMode="Compact" />
-                  </Grid>
-                  <NumberBox x:Name="RenderElevationBox"
-                             Header="Elevation"
-                             Minimum="-90"
-                             Maximum="90"
-                             Value="30"
-                             SmallChange="5"
-                             LargeChange="15"
-                             SpinButtonPlacementMode="Compact" />
+                  <ComboBox x:Name="ProjectionCombo"
+                            Header="Projection"
+                            HorizontalAlignment="Stretch"
+                            SelectionChanged="ProjectionCombo_SelectionChanged"
+                            AutomationProperties.Name="Projection" />
+                  <ComboBox x:Name="DirectionCombo"
+                            Header="Direction"
+                            HorizontalAlignment="Stretch"
+                            SelectionChanged="DirectionCombo_SelectionChanged"
+                            AutomationProperties.Name="Direction" />
+                  <NumberBox x:Name="RenderSizeBox"
+                             Header="Long edge (px)"
+                             Minimum="64"
+                             Maximum="4096"
+                             Value="1536"
+                             SmallChange="64"
+                             LargeChange="512"
+                             SpinButtonPlacementMode="Inline"
+                             ValueChanged="RenderSizeBox_ValueChanged" />
+                  <TextBlock x:Name="OutputSizeText"
+                             FontSize="11"
+                             TextWrapping="Wrap"
+                             Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
                 <Button x:Name="RenderPngButton"
                         Content="Export render as PNG..."

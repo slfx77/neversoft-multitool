@@ -7,6 +7,7 @@ using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
+using NeversoftMultitool.Core.Rendering;
 using NeversoftMultitool.Core.Rendering.Level2d;
 
 namespace NeversoftMultitool;
@@ -46,6 +47,9 @@ public sealed partial class LevelsTab : UserControl, IDisposable
     /// <summary>Set while the code is driving the pickers, so their handlers stand down.</summary>
     private bool _applyingViewMode;
 
+    /// <summary>Set while the projection change is refilling the direction picker.</summary>
+    private bool _refillingDirections;
+
     /// <summary>The user's explicit choice, once made; null means "use the level's default".</summary>
     private bool? _userChoseTwoDimensional;
     private string _filesFilterText = "";
@@ -73,6 +77,7 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         _applyingViewMode = true;
         ViewModeSelector.SelectedItem = View3dItem;
         _applyingViewMode = false;
+        InitialiseProjectionPickers();
 
         // Kept alive by their Click subscriptions on the panel buttons.
         _ = new PanelCollapseController(
@@ -297,6 +302,7 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         ConvertButton.IsEnabled = checkedCount > 0 && SelectedOutputFormat() != null;
         UpdateWorldzoneExportSettingsVisibility();
         UpdateLevelObjectExportSettingsVisibility();
+        UpdateOutputSizeText();
         UpdateRenderButtons();
     }
 
@@ -329,6 +335,7 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         RenderPngButton.IsEnabled = hasGlb || checkedCount > 0;
         RenderPngButton.Content = "Export render as PNG...";
         RenderSettingsPanel.Visibility = Visibility.Visible;
+        UpdateOutputSizeText();
     }
 
     /// <summary>
@@ -585,6 +592,91 @@ public sealed partial class LevelsTab : UserControl, IDisposable
             + $"{render.Value.Width} x {render.Value.Height} px");
     }
 
+    /// <summary>
+    ///     Fill the projection picker and select isometric — a straight-down view
+    ///     flattens every wall to nothing, which makes one building look like the next.
+    /// </summary>
+    private void InitialiseProjectionPickers()
+    {
+        _refillingDirections = true;
+        foreach (var projection in Enum.GetValues<LevelExportProjection>())
+        {
+            ProjectionCombo.Items.Add(new ComboBoxItem
+            {
+                Content = LevelExportProjections.Label(projection),
+                Tag = projection
+            });
+        }
+
+        ProjectionCombo.SelectedIndex = (int)LevelExportProjection.Isometric;
+        _refillingDirections = false;
+        RefillDirections();
+    }
+
+    private LevelExportProjection SelectedProjection =>
+        (ProjectionCombo.SelectedItem as ComboBoxItem)?.Tag is LevelExportProjection p
+            ? p
+            : LevelExportProjection.Isometric;
+
+    private LevelExportView SelectedDirection =>
+        (DirectionCombo.SelectedItem as ComboBoxItem)?.Tag is LevelExportView v
+            ? v
+            : LevelExportProjections.Directions(SelectedProjection)[0];
+
+    /// <summary>
+    ///     The direction names change with the projection ("North at top" only means
+    ///     something looking straight down), so the picker is rebuilt per projection.
+    /// </summary>
+    private void RefillDirections()
+    {
+        _refillingDirections = true;
+        DirectionCombo.Items.Clear();
+        foreach (var view in LevelExportProjections.Directions(SelectedProjection))
+            DirectionCombo.Items.Add(new ComboBoxItem { Content = view.Label, Tag = view });
+        DirectionCombo.SelectedIndex = 0;
+        _refillingDirections = false;
+        UpdateOutputSizeText();
+    }
+
+    private void ProjectionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_refillingDirections || DirectionCombo == null) return;
+        RefillDirections();
+    }
+
+    private void DirectionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_refillingDirections) return;
+        UpdateOutputSizeText();
+    }
+
+    private void RenderSizeBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (OutputSizeText == null) return;
+        UpdateOutputSizeText();
+    }
+
+    /// <summary>
+    ///     Say what the render will actually be, recomputed on every change, so the
+    ///     settings are not a guess. Degrades to a sentence rather than blanking.
+    /// </summary>
+    private void UpdateOutputSizeText()
+    {
+        if (OutputSizeText == null) return;
+
+        if (FilesListView?.SelectedItem is not MeshFileEntry)
+        {
+            OutputSizeText.Text = "Select a level to render.";
+            return;
+        }
+
+        var view = SelectedDirection;
+        var edge = (int)Math.Clamp(RenderSizeBox.Value, 64, LevelExportProjections.MaxLongEdge);
+        OutputSizeText.Text =
+            $"Output: {edge} px on the long edge, framed to the whole level "
+            + $"(azimuth {view.Azimuth:0.#}, elevation {view.Elevation:0.##}).";
+    }
+
     private void ExportFormatCheckbox_Changed(object sender, RoutedEventArgs e)
     {
         if (ConvertButton == null) return;
@@ -755,9 +847,10 @@ public sealed partial class LevelsTab : UserControl, IDisposable
             return;
         }
 
-        var size = (int)RenderSizeBox.Value;
-        var azimuth = (float)RenderAzimuthBox.Value;
-        var elevation = (float)RenderElevationBox.Value;
+        var view = SelectedDirection;
+        var size = (int)Math.Clamp(RenderSizeBox.Value, 64, LevelExportProjections.MaxLongEdge);
+        var azimuth = view.Azimuth;
+        var elevation = view.Elevation;
         var checkedEntries = _items.Where(i => i.IsChecked).ToList();
         var selected = FilesListView.SelectedItem as MeshFileEntry;
         var overrides = _visibilityOverrides.Count == 0 ? null : _visibilityOverrides;
@@ -786,7 +879,8 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         var entry = selected ?? checkedEntries.FirstOrDefault();
         if (entry == null) return;
 
-        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName);
+        var stem = MeshConverterTabFileScanner.StripCompoundExtension(entry.FileName)
+                   + SelectedDirection.StemSuffix;
         var target = await FilePickerHelper.PickSaveFileAsync(stem, ("PNG image", [".png"]));
         if (target == null) return;
 
