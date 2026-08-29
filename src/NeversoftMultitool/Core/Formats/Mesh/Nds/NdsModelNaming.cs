@@ -72,6 +72,10 @@ public sealed class NdsModelNames(
     /// <summary>Set id to authored name.</summary>
     public IReadOnlyDictionary<uint, string> Sets { get; } = sets;
 
+    /// <summary>The artist's own name for one piece of a set, when the cart carries it.</summary>
+    public string? PieceName(uint idA, uint idB) =>
+        pieces.TryGetValue((idA, idB), out var name) ? name : null;
+
     /// <summary>
     ///     The export stem for one model, or null to keep its filename.
     ///

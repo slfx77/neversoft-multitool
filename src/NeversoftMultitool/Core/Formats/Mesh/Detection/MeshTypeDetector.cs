@@ -274,6 +274,7 @@ public static class MeshTypeDetector
             MeshFileKind.XbxScene => ModelSourceKind.XbxScene,
             MeshFileKind.Ddm => ModelSourceKind.Ddm,
             MeshFileKind.NdsGeometry => ModelSourceKind.NdsModel,
+            MeshFileKind.NdsLevel => ModelSourceKind.NdsLevel,
             MeshFileKind.Psx => ModelSourceKind.Psx,
             MeshFileKind.N64Model => ModelSourceKind.N64Model,
             MeshFileKind.GbaLevel => ModelSourceKind.GbaLevel,

@@ -99,7 +99,8 @@ public class MeshFileEntry : BaseFileEntry
         HasPlacedPsxCompanion,
         HasSupportedLevelObjectCompanion,
         N64MaxBoundsRadius,
-        ObjectCount);
+        ObjectCount,
+        IsNdsLevel);
 
     /// <summary>True when this row is level-scale content (see <see cref="MeshLevelPolicy" />).</summary>
     internal bool IsLevelContent => MeshLevelPolicy.IsLevelContent(LevelFacts);
@@ -109,6 +110,9 @@ public class MeshFileEntry : BaseFileEntry
     internal bool IsGbaLevel => Format == "GBA Level";
     internal bool IsGbaModel => Format == "GBA Character";
     internal bool IsNdsGeometry => Format == "DS";
+
+    /// <summary>A whole DS level — a synthetic row over one model set, not one file.</summary>
+    internal bool IsNdsLevel => Format == "DS Level";
 
     /// <summary>Set by the scanner when the model's clip library is non-empty.</summary>
     internal bool NdsHasClips { get; init; }

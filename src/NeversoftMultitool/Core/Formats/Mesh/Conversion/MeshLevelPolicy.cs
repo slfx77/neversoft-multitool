@@ -28,7 +28,8 @@ public readonly record struct MeshLevelFacts(
     bool HasPlacedPsxCompanion,
     bool HasSupportedLevelObjectCompanion,
     float N64MaxBoundsRadius,
-    int ObjectCount)
+    int ObjectCount,
+    bool IsNdsLevel = false)
 {
     /// <summary>THAW <c>.pak.ps2</c> worldzones are levels by sub-format.</summary>
     public bool IsPakWorldzone => Ps2SubFormat == Ps2SceneSubFormat.PakWorldzone;
@@ -68,6 +69,14 @@ public static class MeshLevelPolicy
     public const double GbaLevelWalkEyeHeight = 22d;
 
     /// <summary>
+    ///     DS levels export at the file's own scale, and the carts' own skater says
+    ///     what that is: proMullen stands 2.24 units, feet on zero. A skater's eye at
+    ///     ~93% of standing height gives 2.1 — measured off the shipped model rather
+    ///     than fitted to a level's bounding box.
+    /// </summary>
+    public const double NdsLevelWalkEyeHeight = 2.1d;
+
+    /// <summary>
     ///     Identifies level-scale content for the viewer's default camera mode
     ///     (levels start in Fly, everything else in Orbit) and walk-height
     ///     tuning. Worldzones, Apocalypse level files, RW BSP worlds, scene
@@ -91,6 +100,13 @@ public static class MeshLevelPolicy
         if (facts.Ps2SubFormat == Ps2SceneSubFormat.PakWorldzone)
             return true;
 
+        // A DS level is not a file but a model SET, so the scanner synthesises the
+        // row and says outright what it is. There is no shape to infer it from: the
+        // container spells a level's 135 world pieces and a skater's 46 body parts
+        // identically, and only the cart's own name separates them.
+        if (facts.IsNdsLevel)
+            return true;
+
         // Supers are animated characters by definition (the anim-chunk flag),
         // never levels — Apocalypse's war/thebeast/bruce are v3 supers.
         if (facts.IsPsx && !facts.PsxIsSuperModel &&
@@ -107,6 +123,10 @@ public static class MeshLevelPolicy
             name.EndsWith(".scn.xbx", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(".scn.wpc", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(".scn.ngc", StringComparison.OrdinalIgnoreCase) ||
+            // The next-gen scene families are the same CScene container on Xbox 360
+            // and PS3, so their level scenes are levels for the same reason.
+            name.EndsWith(".scn.xen", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith(".scn.ps3", StringComparison.OrdinalIgnoreCase) ||
             // Carved GBA level records are levels by definition.
             name.EndsWith(MeshTypeDetector.GbaLevelSuffix, StringComparison.OrdinalIgnoreCase))
         {
@@ -142,6 +162,7 @@ public static class MeshLevelPolicy
         if (facts.IsPakWorldzone) return ThawWorldzoneWalkEyeHeight;
         if (facts.FileName.EndsWith(MeshTypeDetector.GbaLevelSuffix, StringComparison.OrdinalIgnoreCase))
             return GbaLevelWalkEyeHeight;
+        if (facts.IsNdsLevel) return NdsLevelWalkEyeHeight;
 
         // N64 bundles are emitted at k / ScaleDivisor with k = 1 for non-supers,
         // which IS the PS1 translation divisor — the same level exports at the

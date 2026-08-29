@@ -9,6 +9,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
 using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
+using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Mesh.Nds;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
@@ -273,8 +274,68 @@ internal static class MeshConverterTabFileScanner
         });
 
         var list = RemoveNestedRwDffCopiesThatMatchRoot(results.ToList(), ct);
+        list.AddRange(BuildNdsLevelRows(list, ct));
         list.Sort(RelativePathComparer);
         return list;
+    }
+
+    /// <summary>
+    ///     One synthetic row per DS LEVEL, because a DS level is not a file: it is a
+    ///     model set whose pieces are separate container entries authored in world
+    ///     space. The per-piece rows stay — they are perfectly good models — and this
+    ///     adds the whole level beside them for the Levels tab.
+    ///
+    ///     A set is a level when the cart NAMES it one; that needs the cart's code, so
+    ///     a bare extracted .gob contributes no level rows and the tab simply shows
+    ///     nothing rather than guessing from size.
+    /// </summary>
+    private static List<MeshFileEntry> BuildNdsLevelRows(
+        List<MeshFileEntry> scanned, CancellationToken ct)
+    {
+        var rows = new List<MeshFileEntry>();
+        var containers = new Dictionary<string, IArchiveFileSystem>(StringComparer.Ordinal);
+        var bySet = new Dictionary<(string Container, uint IdA), List<MeshFileEntry>>();
+
+        foreach (var entry in scanned)
+        {
+            if (!entry.IsNdsGeometry || entry.Source is not ArchiveAssetSource archive)
+                continue;
+            if (!NdsModelCompanions.TryReadSetIds(entry.Source, out var idA, out _))
+                continue;
+            var container = archive.Backend.FileSystem;
+            containers[container.DisplayPath] = container;
+            var key = (container.DisplayPath, idA);
+            if (!bySet.TryGetValue(key, out var list))
+                bySet[key] = list = [];
+            list.Add(entry);
+        }
+
+        foreach (var ((containerPath, idA), pieces) in bySet)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (pieces.Count < 2)
+                continue;
+            var naming = NdsModelNaming.For(containers[containerPath]);
+            if (!naming.Sets.TryGetValue(idA, out var setName) || !NdsSetNames.IsLevel(setName))
+                continue;
+
+            // The row's source is one piece of the set; the parser reads the set id
+            // back off it and composites the rest from the container.
+            var first = pieces.OrderBy(p => p.FileName, StringComparer.Ordinal).First();
+            rows.Add(new MeshFileEntry
+            {
+                FileName = NdsSetNames.ToStem(setName),
+                FilePath = $"{containerPath}::{setName}",
+                RelativePath = setName,
+                Format = "DS Level",
+                ObjectCount = pieces.Count,
+                MeshCount = pieces.Sum(p => p.MeshCount),
+                TriangleCount = pieces.Sum(p => p.TriangleCount),
+                Source = first.Source
+            });
+        }
+
+        return rows;
     }
 
     /// <summary>

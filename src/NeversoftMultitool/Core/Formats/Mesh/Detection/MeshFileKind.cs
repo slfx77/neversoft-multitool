@@ -45,6 +45,9 @@ public enum MeshFileKind
     /// <summary>Vicarious Visions DS geometry (<c>&lt;idA&gt;.&lt;idB&gt;.geometry.bin</c> in a GOB).</summary>
     NdsGeometry,
 
+    /// <summary>A whole Vicarious Visions DS level — one model set, composited.</summary>
+    NdsLevel,
+
     /// <summary>RenderWare clump (<c>.skn</c>, <c>.dff</c>).</summary>
     RenderWareDff,
 

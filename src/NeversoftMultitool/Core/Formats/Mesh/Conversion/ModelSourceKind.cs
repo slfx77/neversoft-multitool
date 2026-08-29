@@ -38,5 +38,12 @@ public enum ModelSourceKind
     ///     A Vicarious Visions DS model: one packed Nintendo GX display list from a
     ///     cart's GOB container, textured from the bank its model set names.
     /// </summary>
-    NdsModel
+    NdsModel,
+
+    /// <summary>
+    ///     A whole Vicarious Visions DS level: every geometry piece of one model set
+    ///     merged (they are authored in world space), plus the gameplay entities its
+    ///     <c>.prp</c> places.
+    /// </summary>
+    NdsLevel
 }

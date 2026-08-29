@@ -39,6 +39,13 @@ internal static class GbaLevelGeometryWriter
     ///     the two have no reason to agree — one is a picture, the other is geometry.
     /// </summary>
     private const int Sub = 4;
+
+    /// <summary>
+    ///     Marks the primitive holding faces the baked art cannot texture. Same
+    ///     convention as the N64 writer's <c>__overlay</c>: a suffix a viewer can
+    ///     key on without the geometry changing meaning.
+    /// </summary>
+    public const string GrazedSuffix = "__grazed";
     private const double Fixed = 4096.0;
 
     public static void Populate(ModelDocument document, GbaLevelNativeSource native)
@@ -104,6 +111,14 @@ internal static class GbaLevelGeometryWriter
         var vertices = new List<ModelVertex>();
         var indices = new List<int>();
 
+        // Faces the engine's own baked view cannot texture: where the surface
+        // rises at 45 degrees in the view direction, the art projection's
+        // determinant passes through zero and flips sign, so the strip of art
+        // covering them stretches without bound. They are kept, because they are
+        // real geometry, but separated so nobody reads the stretch as a decode bug.
+        var grazedVertices = new List<ModelVertex>();
+        var grazedIndices = new List<int>();
+
         for (var gy = 0; gy < h; gy++)
         for (var gx = 0; gx < w; gx++)
         {
@@ -122,7 +137,15 @@ internal static class GbaLevelGeometryWriter
                 var d = SurfaceVertex(gx, gy, i, j + 1, values[(j + 1) * step + i], origin, art);
                 if (IsUndrawnQuad(undrawn, art, a, b, c, d))
                     continue;
-                AddQuad(vertices, indices, a, b, c, d);
+
+                // Slope across this quad, in world units per world unit.
+                var span = GbaLevelArtProjection.WorldUnitsPerCell / Sub;
+                var slopeX = (values[j * step + i + 1] - values[j * step + i]) / span;
+                var slopeY = (values[(j + 1) * step + i] - values[j * step + i]) / span;
+                if (GbaLevelArtProjection.IsGrazing(slopeX, slopeY))
+                    AddQuad(grazedVertices, grazedIndices, a, b, c, d);
+                else
+                    AddQuad(vertices, indices, a, b, c, d);
             }
 
             // Vertical skirts down to each neighbour's surface (a short lip at the
@@ -173,6 +196,12 @@ internal static class GbaLevelGeometryWriter
 
         var mesh = new ModelMesh { Name = native.LevelName };
         ModelDocumentGeometryAdapter.AddPrimitive(mesh, native.LevelName, materialIndex, vertices, indices);
+        if (grazedIndices.Count > 0)
+        {
+            ModelDocumentGeometryAdapter.AddPrimitive(
+                mesh, native.LevelName + GrazedSuffix, materialIndex, grazedVertices, grazedIndices);
+        }
+
         ModelDocumentGeometryAdapter.AddMeshNode(document, native.LevelName, mesh);
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }

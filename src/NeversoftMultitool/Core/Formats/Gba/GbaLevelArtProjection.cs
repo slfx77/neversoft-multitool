@@ -75,4 +75,39 @@ public static class GbaLevelArtProjection
         int gridX, int gridY, int i, int j, int subDivisions) =>
         ((gridX + (double)i / subDivisions) * WorldUnitsPerCell,
             (gridY + (double)j / subDivisions) * WorldUnitsPerCell);
+
+    /// <summary>
+    ///     How much art area one unit of world area covers, given the surface's
+    ///     slope. Flat ground yields <c>-256</c>.
+    /// </summary>
+    /// <remarks>
+    ///     This is the Jacobian determinant of <see cref="Project" /> with respect to
+    ///     world <c>(x, y)</c>, taking <c>z = h(x, y)</c>:
+    ///     <code>
+    ///     du/dx = -16      du/dy = +16
+    ///     dv/dx = 8 - 16·hx    dv/dy = 8 - 16·hy
+    ///     det   = 256·(hx + hy - 1)
+    ///     </code>
+    ///     It is <b>zero</b> where the surface rises at 45° in the combined view
+    ///     direction, and changes sign past that: the engine's single baked view
+    ///     folds. A surface at that slope projects to no art area at all, so no
+    ///     texture mapping can be faithful there — which is what "the diagonals look
+    ///     wavy" is. It is a property of the projection, not of any approximation
+    ///     this tool makes.
+    /// </remarks>
+    public static double ProjectedAreaPerWorldArea(double slopeX, double slopeY) =>
+        256.0 * (slopeX + slopeY - 1.0);
+
+    /// <summary>
+    ///     Whether a surface of this slope is at or past the fold, where the art
+    ///     carries no usable detail.
+    /// </summary>
+    /// <remarks>
+    ///     Threshold-free on purpose: flat ground gives a negative determinant, so
+    ///     "the sign has flipped" IS the criterion. Measured over all nine THPS2
+    ///     levels, quads on the near side average well under one art pixel of
+    ///     mapping error, while quads past it average 5-17 px and reach 268.
+    /// </remarks>
+    public static bool IsGrazing(double slopeX, double slopeY) =>
+        ProjectedAreaPerWorldArea(slopeX, slopeY) >= 0.0;
 }

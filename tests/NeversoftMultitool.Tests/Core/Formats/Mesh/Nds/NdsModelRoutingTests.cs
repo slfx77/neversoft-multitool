@@ -2,6 +2,9 @@ using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 using NeversoftMultitool.Core.Formats.Mesh.Detection;
+using NeversoftMultitool.Core.Formats.Mesh.Nds;
+using NeversoftMultitool.Core.Formats.Mesh;
+using NeversoftMultitool.Core.Formats.Mesh.Psx;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Nds;
 
@@ -35,6 +38,75 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
         // files the carts leave unnamed, not one carries a vertex.
         Assert.Equal(MeshFileKind.None, MeshTypeDetector.DetectByName("3f2a10c8.bin").Kind);
         Assert.Equal(MeshFileKind.None, MeshTypeDetector.DetectByName("track.hwas").Kind);
+    }
+
+    [Fact]
+    public void Policy_ADsLevelIsLevelContentAndGetsTheSkatersEye()
+    {
+        // A DS level is a synthetic row over a model SET, so the scanner says what it
+        // is outright — there is no shape to infer it from, since the container spells
+        // a level's world pieces and a skater's body parts identically.
+        var level = new MeshLevelFacts(
+            "Level_Alcatraz_Visual", "cart.nds::Level_Alcatraz_Visual", "Level_Alcatraz_Visual",
+            IsPsx: false, IsN64Model: false, IsPs2Geom: false, PsxIsSuperModel: false,
+            PsxMeshFormatRevision.Unknown, Ps2SceneSubFormat.None,
+            HasPlacedPsxCompanion: false, HasSupportedLevelObjectCompanion: false,
+            N64MaxBoundsRadius: 0f, ObjectCount: 135, IsNdsLevel: true);
+
+        Assert.True(MeshLevelPolicy.IsLevelContent(level));
+        Assert.Equal(MeshLevelPolicy.NdsLevelWalkEyeHeight,
+            MeshLevelPolicy.ResolveWalkEyeHeight(level, isLevel: true));
+
+        // A DS MODEL row is not a level, and gets no eye height.
+        var model = level with { IsNdsLevel = false, FileName = "a.b.geometry.bin" };
+        Assert.False(MeshLevelPolicy.IsLevelContent(model));
+        Assert.Null(MeshLevelPolicy.ResolveWalkEyeHeight(model, isLevel: false));
+    }
+
+    /// <summary>
+    ///     The road the Levels tab takes to convert a row: the parser composites the
+    ///     whole set from the container behind any one of its pieces. It must land on
+    ///     the same document the nds-mesh command builds, because they now share
+    ///     NdsLevelComposer and would otherwise have diverged silently.
+    /// </summary>
+    [CorpusFact]
+    public void RealCart_ALevelRowCompositesTheSameDocumentTheCommandDoes()
+    {
+        var romPath = paths.FindSampleFile(
+            "Tony Hawk's American Sk8land (2005-11-15, DS - Final)",
+            "Tony Hawk's American Sk8land (USA).nds");
+        Assert.SkipWhen(romPath == null, "Sk8land ROM sample not available");
+
+        var cart = ArchiveAssetBackend.TryOpen(romPath!);
+        var backend = cart!.TryOpenNested(
+            cart.FileSystem.FindByPath("vvobj/generated/gob/main.gob")!);
+        var container = backend!.FileSystem;
+        var naming = NeversoftMultitool.Core.Formats.Mesh.Nds.NdsModelNaming.For(container);
+        var idA = naming.Sets.First(s => s.Value == "Level_Warehouse_Visual").Key;
+
+        // What the command builds.
+        var composed = NeversoftMultitool.Core.Formats.Mesh.Nds.NdsLevelComposer.Compose(
+            container, idA, "Level_Warehouse_Visual",
+            NeversoftMultitool.Core.Formats.Mesh.Nds.NdsTextureLookup.Build(container),
+            naming, placeEntities: true);
+        Assert.NotNull(composed);
+        Assert.True(composed!.Entities > 0);
+
+        // What a tab row builds: any one piece of the set names it.
+        var piece = container.Entries.First(e =>
+            e.Name.EndsWith(MeshTypeDetector.NdsGeometrySuffix, StringComparison.OrdinalIgnoreCase)
+            && NdsModelSet.TryParseGeometryName(".\\" + e.Name, out var a, out _) && a == idA);
+        var document = new MeshModelParser().Parse(new MeshImportRequest
+        {
+            Source = new ArchiveAssetSource(backend, piece),
+            FileName = piece.Name,
+            OutputStem = "Level_Warehouse_Visual",
+            SourceKind = ModelSourceKind.NdsLevel
+        });
+
+        Assert.Equal(composed.Document.TriangleCount, document.TriangleCount);
+        Assert.Equal(composed.Document.Meshes.Count, document.Meshes.Count);
+        Assert.Equal(ModelSourceKind.NdsLevel, document.SourceKind);
     }
 
     /// <summary>
@@ -165,11 +237,11 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
 
     [CorpusTheory]
     [InlineData("Tony Hawk's American Sk8land (2005-11-15, DS - Final)",
-        "Tony Hawk's American Sk8land (USA).nds", "vvobj/generated/gob/main.gob", "1062/88609/862")]
+        "Tony Hawk's American Sk8land (USA).nds", "vvobj/generated/gob/main.gob", "1062/88653/862")]
     [InlineData("Tony Hawk's Downhill Jam (2006-10-24, DS - Final)",
-        "Tony Hawk's Downhill Jam (USA).nds", "vvobj/generated/gob/main.gob", "1014/93309/944")]
+        "Tony Hawk's Downhill Jam (USA).nds", "vvobj/generated/gob/main.gob", "1014/93313/944")]
     [InlineData("Tony Hawk's Proving Ground (2007-10-15, DS - Final)",
-        "Tony Hawk's Proving Ground (USA).nds", "gob/mainUS.gob", "1416/119015/1329")]
+        "Tony Hawk's Proving Ground (USA).nds", "gob/mainUS.gob", "1416/119045/1329")]
     public void RealCart_ThePerEntryRouteConvertsWhatTheCommandDoes(
         string build, string rom, string gobPath, string expected)
     {
@@ -221,9 +293,14 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
                 textured++;
         }
 
-        // These are the pinned corpus figures: 1,062 + 1,014 + 1,416 = 3,492 models,
-        // 88,609 + 93,309 + 119,015 = 300,933 triangles, 862 + 944 + 1,329 = 3,135
+        // The pinned corpus figures: 1,062 + 1,014 + 1,416 = 3,492 models,
+        // 88,653 + 93,313 + 119,045 = 301,011 triangles, 862 + 944 + 1,329 = 3,135
         // textured — the same totals the nds-mesh command reports.
+        //
+        // The triangle counts depend on ModelDocumentGeometryAdapter's degeneracy
+        // rule, which is shared by every format. They rose by 44 / 4 / 30 when that
+        // rule became scale-relative (clamped so it can only ever RELAX), because a
+        // fixed area threshold was culling small-but-real DS triangles.
         Assert.Equal(expected, $"{models}/{triangles}/{textured}");
     }
 }

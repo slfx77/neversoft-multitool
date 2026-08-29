@@ -98,7 +98,7 @@ public static class NdsMeshCommand
             Path.GetFileNameWithoutExtension(input) + "_models");
         Directory.CreateDirectory(output);
 
-        var catalog = NdsTextureCatalog.Build(container);
+        var catalog = NdsTextureLookup.Build(container);
         var clipSource = animations ? NdsClipSource.Build(container) : null;
         if (levels)
             return ExportLevels(container, catalog, output, verbose, cancellationToken);
@@ -163,20 +163,10 @@ public static class NdsMeshCommand
     ///     named <c>level_</c> or <c>set_</c> accordingly.
     /// </summary>
     private static int ExportLevels(
-        IArchiveFileSystem container, NdsTextureCatalog catalog, string output,
+        IArchiveFileSystem container, NdsTextureLookup catalog, string output,
         bool verbose, CancellationToken cancellationToken)
     {
-        var sets = NdsLevelCompositor.GroupSets(container);
-        // The cart's own code names its pieces. Reachable only from a CART — a bare
-        // extracted .gob has no code — so the names are additive and their absence
-        // just leaves the hex ids in place.
-        var manifests = container.Parent != null
-            ? NdsCartManifests.Read(container.Parent, container)
-            : new Dictionary<uint, NdsModelSetManifest>();
-        // The cart also NAMES each set, because a set's id is the CRC of its name.
-        // That supersedes the size measurement below wherever it speaks.
         var naming = NdsModelNaming.For(container);
-        var setNames = naming.Sets;
         var exported = 0;
         var worlds = 0;
         var entities = 0;
@@ -184,90 +174,47 @@ public static class NdsMeshCommand
         var triangles = 0;
         var authored = 0;
 
+        var sets = NdsLevelComposer.GroupSets(container);
         foreach (var (idA, members) in sets.OrderByDescending(s => s.Value.Count))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (members.Count < 2)
                 continue;
 
-            var parsed = new List<(uint IdB, ArchiveEntry Entry, byte[] Data, NdsGeometryFile Geometry)>();
-            foreach (var (idB, entry) in members.OrderBy(m => m.IdB))
-            {
-                byte[] data;
-                try
-                {
-                    data = container.ReadEntry(entry);
-                }
-                catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
-                {
-                    continue;
-                }
-
-                if (NdsGeometryFile.TryParseValidated(data, out var geometry))
-                    parsed.Add((idB, entry, data, geometry));
-            }
-
-            // A model set holds a level OR a many-part model, and the container
-            // spells both the same way. The cart's own name settles it outright —
-            // Level_Alcatraz_Visual against skate_s — and the size measurement in
-            // NdsModelSetBounds stays as the answer for a bare .gob, where there is
-            // no code to read a name out of. The name is also the better rule where
-            // they part: Proving Ground's front end is a real scene only 78 units
-            // across, which no size test can see.
-            setNames.TryGetValue(idA, out var setName);
-            var world = setName != null
+            // The cart NAMES its sets, which settles level-or-model outright; the
+            // size measurement is the answer for a bare .gob, which has no code.
+            naming.Sets.TryGetValue(idA, out var setName);
+            var isLevel = setName != null
                 ? NdsSetNames.IsLevel(setName)
-                : NdsModelSetBounds.IsWorldScale(parsed.Select(p => p.Geometry));
+                : NdsModelSetBounds.IsWorldScale(ReadGeometry(container, members));
             var name = setName != null
                 ? NdsSetNames.ToStem(setName)
-                : $"{(world ? "level" : "set")}_{idA:x8}";
-            var document = new ModelDocument { Name = name, SourceKind = ModelSourceKind.Generic };
-            var added = 0;
-            var pieceOf = new Dictionary<ModelPrimitive, int>();
-            manifests.TryGetValue(idA, out var manifest);
-            foreach (var (idB, entry, data, geometry) in parsed)
-            {
-                var meshesBefore = document.Meshes.Count;
-                var groups = NdsGxInterpreter.Run(data, geometry);
-                var piece = manifest?.Pieces.FirstOrDefault(p => p.IdB == idB)?.Name;
-                if (piece != null)
-                    authored++;
-                NdsGeometryWriter.PopulateNdsGeometry(
-                    document, geometry, groups,
-                    catalog.ResolveFor(entry, groups),
-                    namePrefix: $"{piece ?? $"{idB:x8}"}_");
-                for (var m = meshesBefore; m < document.Meshes.Count; m++)
-                foreach (var primitive in document.Meshes[m].Primitives)
-                    pieceOf[primitive] = added;
-                added++;
-            }
+                : $"{(isLevel ? "level" : "set")}_{idA:x8}";
 
-            if (added < 2 || document.TriangleCount == 0)
+            var composed = NdsLevelComposer.Compose(
+                container, idA, name, catalog, naming, placeEntities: isLevel, cancellationToken);
+            if (composed == null)
                 continue;
 
-            var liftedFaces = NdsLevelOverlayResolver.Apply(document, pieceOf);
-            var placed = world && setName != null
-                ? NdsEntityPlacer.Place(document, container, catalog, setName, naming)
-                : 0;
-
-            var result = ModelExportService.Export(document, new MeshExportRequest
+            var result = ModelExportService.Export(composed.Document, new MeshExportRequest
             {
                 OutputDirectory = output,
                 OutputStem = name,
                 CancellationToken = cancellationToken
             });
             exported++;
-            if (world)
+            if (isLevel)
                 worlds++;
-            pieces += added;
-            entities += placed;
-            triangles += document.TriangleCount;
+            pieces += composed.Pieces;
+            authored += composed.NamedPieces;
+            entities += composed.Entities;
+            triangles += composed.Document.TriangleCount;
             if (verbose)
             {
                 AnsiConsole.MarkupLine(
-                    $"  {name} [grey]{added} pieces, {document.TriangleCount} tris, "
-                    + $"{liftedFaces} decals lifted"
-                    + (placed > 0 ? $", {placed} entities placed" : "") + "[/]"
+                    $"  {name} [grey]{composed.Pieces} pieces, {composed.Document.TriangleCount} tris, "
+                    + $"{composed.LiftedDecals} decals lifted"
+                    + (composed.Entities > 0 ? $", {composed.Entities} entities placed" : "") + "[/]"
                     + (result.OutputPaths.Count > 0 ? "" : " [red]export failed[/]"));
             }
         }
@@ -276,21 +223,30 @@ public static class NdsMeshCommand
             AnsiConsole.MarkupLine($"Placed [green]{entities}[/] gameplay entities.");
         AnsiConsole.MarkupLine(
             $"Composited [green]{exported}[/] model sets — [green]{worlds}[/] world-scale "
-            + $"([green]{pieces}[/] pieces, [green]{triangles}[/] triangles"
-            + (authored > 0 ? $", [green]{authored}[/] pieces named by the cart" : "") + ")");
-        return exported > 0 ? 0 : 1;
+            + $"([green]{pieces}[/] pieces, [green]{triangles}[/] triangles, "
+            + $"[green]{authored}[/] named)");
+        return 0;
     }
 
-    internal static ModelDocument BuildDocument(
-        string name,
-        NdsGeometryFile geometry,
-        IReadOnlyList<NdsGeometryGroup> groups,
-        NdsTextureSource? textures = null)
+    /// <summary>The parsed geometry of a set's pieces, for the size fallback.</summary>
+    private static List<NdsGeometryFile> ReadGeometry(
+        IArchiveFileSystem container, List<(uint IdB, ArchiveEntry Entry)> members)
     {
-        var document = ModelDocument.CreateNative(
-            name, ModelSourceKind.Generic, new NdsGeometryNativeSource(geometry, groups));
-        NdsGeometryWriter.PopulateNdsGeometry(document, geometry, groups, textures);
-        return document;
+        var parsed = new List<NdsGeometryFile>();
+        foreach (var (_, entry) in members)
+        {
+            try
+            {
+                if (NdsGeometryFile.TryParseValidated(container.ReadEntry(entry), out var geometry))
+                    parsed.Add(geometry);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+            {
+                // A piece that will not read contributes nothing to the verdict.
+            }
+        }
+
+        return parsed;
     }
 
     /// <summary>
@@ -305,9 +261,21 @@ public static class NdsMeshCommand
             : null;
     }
 
+    internal static ModelDocument BuildDocument(
+        string name,
+        NdsGeometryFile geometry,
+        IReadOnlyList<NdsGeometryGroup> groups,
+        NdsTextureSource? textures = null)
+    {
+        var document = ModelDocument.CreateNative(
+            name, ModelSourceKind.Generic, new NdsGeometryNativeSource(geometry, groups));
+        NdsGeometryWriter.PopulateNdsGeometry(document, geometry, groups, textures);
+        return document;
+    }
+
     /// <summary>Reads one container entry and builds a model, or null if it is not geometry.</summary>
     private static ModelDocument? TryBuild(
-        IArchiveFileSystem container, ArchiveEntry entry, NdsTextureCatalog catalog,
+        IArchiveFileSystem container, ArchiveEntry entry, NdsTextureLookup catalog,
         NdsClipSource? clipSource = null, NdsModelNames? naming = null)
     {
         byte[] data;
@@ -324,7 +292,7 @@ public static class NdsMeshCommand
             return null;
 
         var groups = NdsGxInterpreter.Run(data, geometry);
-        var textures = catalog.ResolveFor(entry, groups);
+        var textures = catalog.For(entry, groups);
         var name = StemFor(entry, naming) ?? Path.GetFileNameWithoutExtension(entry.Name);
 
         var clips = clipSource?.ClipsFor(entry) ?? [];
@@ -500,97 +468,6 @@ internal static class NdsContainer
     }
 }
 
-/// <summary>
-///     The texture halves of a DS container: every parsed bank, and every texel blob
-///     indexed by the id its filename encodes.
-///
-///     A model's bank is STATED rather than inferred whenever the model's name was
-///     recovered — the two share the model set's first id (see
-///     <see cref="NdsModelSet" />). For a model with no recovered name the bank falls
-///     back to <see cref="NdsTextureBankResolver" />, which joins on the GX state
-///     both sides declare and speaks only when exactly one bank is compatible.
-/// </summary>
-internal sealed class NdsTextureCatalog
-{
-    private readonly List<IReadOnlyList<NdsTextureEntry>> _banks = [];
-    private readonly Dictionary<uint, IReadOnlyList<NdsTextureEntry>> _banksByKey = [];
-    private readonly Dictionary<uint, ArchiveEntry> _texels = [];
-    private readonly IArchiveFileSystem _container;
-
-    private NdsTextureCatalog(IArchiveFileSystem container)
-    {
-        _container = container;
-    }
-
-    public static NdsTextureCatalog Build(IArchiveFileSystem container)
-    {
-        var catalog = new NdsTextureCatalog(container);
-        foreach (var entry in container.Entries)
-        {
-            var name = entry.Name;
-            if (name.EndsWith(".texture.bin", StringComparison.OrdinalIgnoreCase)
-                && uint.TryParse(name.AsSpan(0, Math.Min(8, name.Length)),
-                    NumberStyles.HexNumber, null, out var id))
-            {
-                catalog._texels[id] = entry;
-            }
-        }
-
-        long? PixelLength(uint id) => catalog._texels.TryGetValue(id, out var e) ? e.Size : null;
-
-        foreach (var entry in container.Entries)
-        {
-            byte[] data;
-            try
-            {
-                data = container.ReadEntry(entry);
-            }
-            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
-            {
-                continue;
-            }
-
-            if (!NdsTextureBank.TryParseValidated(data, PixelLength, out var bank))
-                continue;
-
-            catalog._banks.Add(bank);
-            catalog._banksByKey[entry.Crc] = bank;
-        }
-
-        return catalog;
-    }
-
-    /// <summary>
-    ///     The bank for one model. Prefers the binding the loader spells — the model
-    ///     set's own id — and falls back to the GX-state join when the model's name
-    ///     was not recovered.
-    /// </summary>
-    public NdsTextureSource? ResolveFor(ArchiveEntry entry, IReadOnlyList<NdsGeometryGroup> groups)
-    {
-        if (NdsModelSet.TryParseGeometryName(GobNames.TryResolve(entry.Crc), out var idA, out _)
-            && _banksByKey.TryGetValue(NdsModelSet.TextureBankKey(idA), out var stated))
-        {
-            return new NdsTextureSource(stated, ReadTexels);
-        }
-
-        var joined = NdsTextureBankResolver.Resolve(groups, _banks);
-        return joined == null ? null : new NdsTextureSource(joined, ReadTexels);
-    }
-
-    private byte[]? ReadTexels(uint pixelId)
-    {
-        if (!_texels.TryGetValue(pixelId, out var entry))
-            return null;
-        try
-        {
-            return _container.ReadEntry(entry);
-        }
-        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
-        {
-            return null;
-        }
-    }
-}
 
 /// <summary>
 ///     Places a level's gameplay entities — the S-K-A-T-E letters, the trick orbs,
@@ -607,7 +484,7 @@ internal static class NdsEntityPlacer
     public static int Place(
         ModelDocument document,
         IArchiveFileSystem container,
-        NdsTextureCatalog catalog,
+        NdsTextureLookup catalog,
         string levelSetName,
         NdsModelNames naming)
     {
@@ -645,7 +522,7 @@ internal static class NdsEntityPlacer
             var groups = NdsGxInterpreter.Run(bytes, geometry);
             var before = document.Meshes.Count;
             NdsGeometryWriter.PopulateNdsGeometry(
-                document, geometry, groups, catalog.ResolveFor(entry, groups),
+                document, geometry, groups, catalog.For(entry, groups),
                 namePrefix: $"entity_{placement.ModelName}_{placed:D3}_");
 
             // The writer emits in the file's own space; the placement moves it,

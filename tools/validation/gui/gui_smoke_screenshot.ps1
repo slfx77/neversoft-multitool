@@ -19,6 +19,7 @@ param(
     [Parameter(Mandatory)] [string]$OutPng,
     [string]$NavItem,
     [string]$BrowsePath,
+    [string]$ArchivePath,
     [string[]]$Invoke,
     [string]$WaitForName,
     [string]$HoverOver,
@@ -164,6 +165,43 @@ try {
             Start-Sleep -Milliseconds 1200
             if ([GuiSmokeNative]::IsWindow($dialogHandle)) { throw "Folder picker did not accept '$BrowsePath'" }
         }
+        Start-Sleep -Seconds 1
+    }
+
+    if ($ArchivePath) {
+        # Same modal #32770 as the folder picker, but the file dialog's name box
+        # is a ComboBoxEx32 > Edit rather than a bare Edit, so the control is
+        # located by class walk rather than by id.
+        Invoke-Element (Find-ByName $window 'Select archive...')
+        $dialogCondition = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ClassNameProperty, '#32770')
+        $dialog = $null
+        $deadline = (Get-Date).AddSeconds(10)
+        while (-not $dialog -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 400
+            $dialog = $window.FindFirst([System.Windows.Automation.TreeScope]::Children, $dialogCondition)
+        }
+        if (-not $dialog) { throw "File picker dialog did not appear" }
+
+        $dialogHandle = [IntPtr]$dialog.Current.NativeWindowHandle
+        $edit = [GuiSmokeNative]::FindDescendant($dialogHandle, 'Edit', 1148)
+        if ($edit -eq [IntPtr]::Zero) {
+            $edit = [GuiSmokeNative]::FindDescendant($dialogHandle, 'Edit', 1152)
+        }
+        if ($edit -eq [IntPtr]::Zero) { throw "File-name edit not found in picker dialog" }
+        $okHandle = [GuiSmokeNative]::FindDescendant($dialogHandle, 'Button', 1)
+        if ($okHandle -eq [IntPtr]::Zero) { throw "Open button (IDOK) not found" }
+
+        [void][GuiSmokeNative]::SendMessageText($edit, 0x000C, [IntPtr]::Zero, $ArchivePath)
+        $readBack = New-Object System.Text.StringBuilder 1024
+        [void][GuiSmokeNative]::SendMessageGetText($edit, 0x000D, [IntPtr]1024, $readBack)
+        if ($readBack.ToString() -ne $ArchivePath) {
+            throw "File edit reads '$($readBack.ToString())' instead of '$ArchivePath'; not committing"
+        }
+
+        [void][GuiSmokeNative]::SendMessage($okHandle, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        Start-Sleep -Milliseconds 1500
+        if ([GuiSmokeNative]::IsWindow($dialogHandle)) { throw "File picker did not accept '$ArchivePath'" }
         Start-Sleep -Seconds 1
     }
 

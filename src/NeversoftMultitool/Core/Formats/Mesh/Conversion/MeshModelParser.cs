@@ -41,6 +41,7 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.GbaLevel => ParseGbaLevel(request),
             ModelSourceKind.GbaModel => ParseGbaModel(request),
             ModelSourceKind.NdsModel => ParseNdsModel(request),
+            ModelSourceKind.NdsLevel => ParseNdsLevel(request),
             _ => throw new NotSupportedException($"Unsupported mesh source kind: {request.SourceKind}")
         };
     }
@@ -165,6 +166,41 @@ public sealed class MeshModelParser : IModelParser
             request.IncludeAllN64Animations,
             request.N64AnimationOneShot);
         return document;
+    }
+
+    /// <summary>
+    ///     A whole DS level: every geometry piece of one model set merged, its
+    ///     cross-piece decals lifted, and its gameplay entities placed.
+    ///
+    ///     The set is identified by the row's own source entry — any piece of the set
+    ///     names it, because a piece's file name carries the set id. Compositing needs
+    ///     the CONTAINER (the other pieces and the level's .prp are sibling entries),
+    ///     so this route requires an archive-backed source; a loose file has no set to
+    ///     belong to.
+    /// </summary>
+    private static ModelDocument ParseNdsLevel(MeshImportRequest request)
+    {
+        if (request.Source is not ArchiveAssetSource archive)
+        {
+            throw new InvalidOperationException(
+                "A DS level is composited from its container — open the cart (.nds) or its .gob");
+        }
+
+        if (!Nds.NdsModelCompanions.TryReadSetIds(request.Source, out var idA, out _))
+            throw new InvalidOperationException("The entry does not name a DS model set");
+
+        var container = archive.Backend.FileSystem;
+        var composed = Nds.NdsLevelComposer.Compose(
+            container,
+            idA,
+            request.OutputStem,
+            Nds.NdsTextureLookup.Build(container),
+            Nds.NdsModelNaming.For(container),
+            placeEntities: true);
+
+        return composed?.Document
+               ?? throw new InvalidOperationException(
+                   "The model set holds fewer than two pieces with geometry");
     }
 
     /// <summary>

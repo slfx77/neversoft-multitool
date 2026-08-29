@@ -819,6 +819,71 @@ documents. Verdict: **PROVEN**.
   single-distinct-frame clips: **the port ships those animations as static
   placeholders**, so this is a fact about the cart, not a mapping error.
 
+## RESOLVED (2026-08-28): "diagonal textures reproject wavy" — the projection folds
+
+A user report, and it is not an export defect. The art transform's Jacobian
+determinant with respect to world (x, y), taking `z = h(x, y)`, is
+
+```
+du/dx = -16          du/dy = +16
+dv/dx = 8 - 16·hx    dv/dy = 8 - 16·hy
+det   = 256·(hx + hy - 1)
+```
+
+so flat ground covers 256 art px per world unit², the determinant **passes
+through zero where the surface rises at 45° in the combined view direction**, and
+**changes sign past that**. A face at that slope projects to no art area at all,
+so the strip of art covering it stretches without bound — which is exactly what
+"wavy" looks like. It is a property of the engine's single baked view, not of any
+approximation this tool makes.
+
+**Measured over all nine levels before shipping anything**, as the worst distance
+in ART PIXELS between the exact projection of a point inside a sub-quad and what
+the two affine triangles interpolate there:
+
+| level | cells | folded | mean err, near side | mean err, past the fold | worst |
+|---|---|---|---|---|---|
+| Hangar | 407 | 74 | 0.83 | 13.21 | 46.40 |
+| School II | 1623 | 131 | 0.62 | 13.29 | 34.05 |
+| Marseille | 1771 | 162 | 0.30 | 9.87 | 20.75 |
+| Warehouse | 585 | 49 | 0.33 | 5.71 | 20.75 |
+| NY City | 1708 | 189 | 0.68 | 16.80 | 104.80 |
+| Skate Street | 781 | 72 | 1.10 | 4.46 | 25.60 |
+| Rooftops | 332 | 39 | 36.30 | 75.04 | 268.80 |
+| Wind Tunnel | 81 | 13 | 0.39 | 1.48 | 1.88 |
+| pool | 80 | 17 | 2.17 | 6.88 | 48.00 |
+
+On the near side of the fold the affine two-triangle mapping is **sub-pixel** on
+the six large levels — there is nothing there to fix. Past it the error is one to
+two orders of magnitude larger.
+
+**Two fixes were tested against that measurement and REJECTED:**
+
+- **The other diagonal is worse**, about 2× on every level (Hangar 46.40 → 75.81,
+  NY City 104.80 → 198.63). The split the writer already uses is the better one.
+- **Doubling the subdivision does not help, and sometimes hurts** — School II
+  34.05 → 44.80, pool 48.00 → 96.00. Refinement making an error *worse* is the
+  signature of a fold rather than an approximation error: a sharper sample of a
+  singular map is a sharper singularity.
+
+**Shipped instead**: `GbaLevelArtProjection.IsGrazing` — threshold-free, because
+flat ground gives a negative determinant so "the sign has flipped" *is* the
+criterion — and `GbaLevelGeometryWriter` emits those quads into a separate
+`__grazed` primitive. They are kept, because they are real geometry, and
+separated so the stretch reads as a marked class rather than a decode bug.
+Triangle totals, materials and textures are unchanged; all nine levels have some,
+which is what you would expect of a property of the view rather than of one
+level's authoring.
+
+Rooftops is the one level whose *near-side* error is also large (36.30 px). That
+is a separate, still-open defect — see the facade-below-art residual noted above.
+
+**This also answers F4, the "sample the object from four angles" idea.** There is
+no second baked view to sample: DISPCNT is `0x1C42` (mode 2, two affine
+backgrounds), and the cart stores one image's worth of tiles per level. A face the
+view grazes has no art anywhere in the ROM, so any texture for it would be
+invented. **Not derivable**; the faces are marked instead.
+
 ## OPEN (2026-08-27): rails are NOT in the collision grid — the entity table at `+0x150`
 
 A user report ("rails are visibly present in the texture but unmodeled") is
