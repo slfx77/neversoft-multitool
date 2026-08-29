@@ -833,25 +833,35 @@ material, and 0.000 on most materials. Rails are absent, not aliased.)
 
 **What was found instead.** Level-record field `+0x150` — previously unidentified
 — points at a per-level table: `{u32 count, count × 16-byte records}`. The count
-is exact: the gap to the next level's table is `4 + 16·count` for every level.
-Records are eight 16-bit fields. Measured facts, all nine levels, 491 records:
+is exact: 13 of the 14 tables end precisely where the next begins.
+
+**Count the RAW level records, not the rendered ones.** `GbaLevelImages.FindLevels`
+deduplicates by `(objectList, elementLibrary)` because it renders art and variants
+of a level share theirs — but each variant carries its OWN entity table. The ROM's
+table holds **14 records / 510 entities** (`62,79,97,54,79,71,33,9,7` plus
+`2,6,2,2,7`); counting from the deduplicated nine loses 19 records, and with them a
+whole id band. *The 9/491 figure recorded here on 2026-08-27 was that mistake, and
+this supersedes it.*
+
+Records are eight 16-bit fields. Measured over all 14 records, 510 entities:
 
 - Fields 0 and 1 are **world X and Y at 48 raw units per collision cell**:
-  all 491 land inside their own level's grid, whose dimensions differ wildly
-  (31×19 up to 56×35), with the maximum always just under the grid edge.
+  all 510 land inside their own level's grid, whose dimensions differ wildly
+  (9×15 up to 56×35), with the maximum always just under the grid edge.
 - Field 2 is **signed** (20 records are negative), so it is a coordinate, not a size.
-- Field 7 is **a multiple of 0x1000 in 491 of 491** records and takes only five
+- Fields 3, 4 and 5 are **never** ≤ 0 — whatever they are, they are magnitudes.
+- Field 7 is **a multiple of 0x1000 in 510 of 510** records and takes only five
   values — 0x0000, 0x2000, 0x3000, 0x8000, 0xC000 — i.e. a quantized orientation.
-- Field 6 is an id banded on **decimal thousands**: 0–36, then 1000–1037,
-  2000–2032, 3000–3019, 4000–4030, 5001–5033, 6000–6015. Ids ≥ 1000 almost always
-  occur **exactly twice per level, once with field 7 = 0x8000 and once with
-  0xC000**; ids < 40 use only 0x0000/0x2000/0x3000 and are often 0x30 or 0x24
-  cubes (the five identical 0x24 cubes with id 32 in the Hangar are a good
-  candidate for the SKATE letters).
+- Field 6 is an id banded on **decimal thousands**, bands 0 through 7, max 7400.
+  (Six bands over the deduplicated levels; the variant records add a 7000 band.)
+- **110 records are cubes** — fields 3/4/5 all equal — 92 at 48 raw units, which is
+  exactly one collision cell, and 18 at 36.
+- 45 of the 167 sub-1000 records carry field 7 = 0x8000 or 0xC000, against nearly
+  every record above that band.
 
-**What is NOT established**: the roles of fields 3, 4 and 5, and therefore what
-one record's geometry actually is. Two readings survive — a box size, or a
-second point — and the obvious oracle *failed*: testing "the object's base rests
+**What is NOT established**: the roles of fields 2, 3, 4 and 5, and therefore what
+one record's geometry actually is. Two readings survive for 3/4/5 — a box size, or
+a second point — and the obvious oracle *failed*: testing "the object's base rests
 on the collision surface" across four raw-unit scales × three anchors
 (z = base / centre / top) never beat its own shuffled-ground control by more
 than 1.5×, topping out at 15% of entities within 0.25 world units.
@@ -864,6 +874,14 @@ parallel handrails, so joining one endpoint of each produces the same convincing
 line. Across the whole level the same rendering also throws long segments across
 open ground where nothing exists. A coherent picture on the object you were
 looking for is not evidence when a wrong pairing would draw the same picture.
+
+**Shipped as inspection only** (2026-08-28): `Core/Formats/Gba/GbaLevelEntityTable.cs`
+reads the table, `gba-level-entities` writes schema-v1 JSON with
+`fieldInterpretationStatus: "notDecoded"` and `geometryApplicationStatus:
+"notApplied"`, and `GbaLevelEntityTableTests` pins every structural fact above so a
+later decode has something to be checked against rather than fitted to. The record
+fields past the first two are named `Field2`..`Field7` deliberately: naming one
+`Height` or `Yaw` would smuggle in the claim.
 
 **Next step**: read the field roles out of the ROM's own consumer rather than
 fitting them — locate the code that loads record `+0x150` (a BizHawk read-watch
@@ -881,10 +899,15 @@ transcribe the walk. Do not emit rail geometry from a fitted layout.
    areas the captured frames could not validate, plus ~24 tiles that are not in the
    pool at all (likely sprite/overlay art from another source). Bounded follow-up —
    re-capture frames covering more of a level, or find the second pool.
-2. **Level-record `+0x30` face/quad list.** Decodes as stride-18 quads
-   `v, v+1, v+18, v+19` with an unidentified consumer — still open. (The skater
-   half of this item is RESOLVED: see §SHIPPED 2026-08-26 — the skater is a real
-   stored 3D model, now exported.)
+2. ~~**Level-record `+0x30` face/quad list.**~~ **RETIRED (2026-08-28).** The
+   field is not unidentified: true record `+0x30` is the **metatile table**, and
+   its consumer is `GbaLevelImages.RenderColourSurface`, which LZ77-decompresses
+   it to `nMeta × 4` u16 and indexes it for every tile it draws
+   (`MetaTablePtrDelta = -0x114` from the scan-relative record). The note dated
+   from before the art path was decoded and was reading an identified table as an
+   unknown one. Its "stride-18 quads `v, v+1, v+18, v+19`" is what a 2×2 metatile
+   map looks like when you assume it is connectivity. (The skater half of this
+   item was already resolved: see §SHIPPED 2026-08-26.)
 3. **GBA tile-sheets / sprites.** THPS2's 221 32-aligned LZ77 tile sheets
    (2048-byte ×126 = 64-tile 4bpp sheets, sprite/anim frames, fonts) are located but
    their palette + arrangement binding is runtime state — needs a palette-pairing
