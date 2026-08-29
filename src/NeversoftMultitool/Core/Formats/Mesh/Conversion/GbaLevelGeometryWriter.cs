@@ -32,7 +32,13 @@ internal static class GbaLevelGeometryWriter
     ///     texture at roughly one texel per GLB unit and levels at PSX-like extents).</summary>
     public const float Scale = 16f;
 
-    private const int Sub = GbaCollisionRenderer.SubDivisions;
+    /// <summary>
+    ///     Sub-quads per cell edge in the EXPORTED mesh. Deliberately the writer's
+    ///     own constant: it used to alias the 2D renderer's, so changing how finely
+    ///     the mesh is tessellated would silently move a pinned overlay image, and
+    ///     the two have no reason to agree — one is a picture, the other is geometry.
+    /// </summary>
+    private const int Sub = 4;
     private const double Fixed = 4096.0;
 
     public static void Populate(ModelDocument document, GbaLevelNativeSource native)
@@ -63,9 +69,8 @@ internal static class GbaLevelGeometryWriter
             TextureIndex = document.Textures.Count - 1
         });
 
-        // The art transform's per-level origin (record +0x64/+0x68, 24.8 fixed).
-        var originX = ReadS32(rom, trueRecord + 0x64) / 256.0;
-        var originY = ReadS32(rom, trueRecord + 0x68) / 256.0;
+        var origin = GbaLevelArtProjection.TryReadOrigin(rom, trueRecord)
+                     ?? throw new InvalidDataException("The level record carries no art origin");
 
         // The collision grid is a rectangle but the authored art is not — School II
         // has a deep notch between its building wings — so cells the art never
@@ -111,10 +116,10 @@ internal static class GbaLevelGeometryWriter
             for (var j = 0; j < Sub; j++)
             for (var i = 0; i < Sub; i++)
             {
-                var a = SurfaceVertex(gx, gy, i, j, values[j * step + i], originX, originY, art);
-                var b = SurfaceVertex(gx, gy, i + 1, j, values[j * step + i + 1], originX, originY, art);
-                var c = SurfaceVertex(gx, gy, i + 1, j + 1, values[(j + 1) * step + i + 1], originX, originY, art);
-                var d = SurfaceVertex(gx, gy, i, j + 1, values[(j + 1) * step + i], originX, originY, art);
+                var a = SurfaceVertex(gx, gy, i, j, values[j * step + i], origin, art);
+                var b = SurfaceVertex(gx, gy, i + 1, j, values[j * step + i + 1], origin, art);
+                var c = SurfaceVertex(gx, gy, i + 1, j + 1, values[(j + 1) * step + i + 1], origin, art);
+                var d = SurfaceVertex(gx, gy, i, j + 1, values[(j + 1) * step + i], origin, art);
                 if (IsUndrawnQuad(undrawn, art, a, b, c, d))
                     continue;
                 AddQuad(vertices, indices, a, b, c, d);
@@ -155,10 +160,10 @@ internal static class GbaLevelGeometryWriter
                     if (hi1 - lo1 < 1e-4 && hi2 - lo2 < 1e-4)
                         continue;
 
-                    var a = SurfaceVertex(gx, gy, ea.I, ea.J, hi1, originX, originY, art);
-                    var b = SurfaceVertex(gx, gy, eb.I, eb.J, hi2, originX, originY, art);
-                    var c = SurfaceVertex(gx, gy, eb.I, eb.J, lo2, originX, originY, art);
-                    var d = SurfaceVertex(gx, gy, ea.I, ea.J, lo1, originX, originY, art);
+                    var a = SurfaceVertex(gx, gy, ea.I, ea.J, hi1, origin, art);
+                    var b = SurfaceVertex(gx, gy, eb.I, eb.J, hi2, origin, art);
+                    var c = SurfaceVertex(gx, gy, eb.I, eb.J, lo2, origin, art);
+                    var d = SurfaceVertex(gx, gy, ea.I, ea.J, lo1, origin, art);
                     if (IsUndrawnQuad(undrawn, art, a, b, c, d))
                         continue;
                     AddQuad(vertices, indices, a, b, c, d);
@@ -175,13 +180,13 @@ internal static class GbaLevelGeometryWriter
     // World (wx, wy horizontal; z up) → GLB right-handed Y-up: (X, Y, Z) = (wy, z, wx)·Scale.
     // UV = the engine's art transform, normalised into the art image.
     private static ModelVertex SurfaceVertex(
-        int gx, int gy, int i, int j, double z, double originX, double originY,
+        int gx, int gy, int i, int j, double z, (double X, double Y) origin,
         GbaLevelImages.GbaLevelRender art)
     {
-        var wx = (gx + (double)i / Sub) * 3.0;
-        var wy = (gy + (double)j / Sub) * 3.0;
-        var u = (originX + 16.0 * (wy - wx)) / art.Width;
-        var v = (originY + 8.0 * (wx + wy) - 16.0 * z) / art.Height;
+        var (wx, wy) = GbaLevelArtProjection.CellSamplePosition(gx, gy, i, j, Sub);
+        var (artX, artY) = GbaLevelArtProjection.Project(origin, wx, wy, z);
+        var u = artX / art.Width;
+        var v = artY / art.Height;
         return new ModelVertex(
             new Vector3((float)(wy * Scale), (float)(z * Scale), (float)(wx * Scale)),
             Vector3.UnitY,

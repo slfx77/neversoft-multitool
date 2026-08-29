@@ -302,10 +302,9 @@ public static class GbaCollisionRenderer
         if (trueRecordOffset + 0x6C > rom.Length)
             return null;
 
-        var x0Raw = BinaryPrimitives.ReadInt32LittleEndian(rom.Slice(trueRecordOffset + 0x64, 4));
-        var y0Raw = BinaryPrimitives.ReadInt32LittleEndian(rom.Slice(trueRecordOffset + 0x68, 4));
-        var originX = x0Raw / 256.0;
-        var originY = y0Raw / 256.0;
+        var origin = GbaLevelArtProjection.TryReadOrigin(rom, trueRecordOffset);
+        if (origin is null)
+            return null;
 
         var rgba = (byte[])artRgba.Clone();
         const int n = SubDivisions;
@@ -327,10 +326,9 @@ public static class GbaCollisionRenderer
 
             (double X, double Y) At(int i, int j)
             {
-                var wx = (gx + (double)i / n) * 3.0;
-                var wy = (gy + (double)j / n) * 3.0;
-                var z = samples[j * step + i] / Fixed;
-                return (originX + 16.0 * (wy - wx), originY + 8.0 * (wx + wy) - 16.0 * z);
+                var (wx, wy) = GbaLevelArtProjection.CellSamplePosition(gx, gy, i, j, n);
+                return GbaLevelArtProjection.Project(
+                    origin.Value, wx, wy, samples[j * step + i] / Fixed);
             }
 
             // Tint the cell's curved footprint.
