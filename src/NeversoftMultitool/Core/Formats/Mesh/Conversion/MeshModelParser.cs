@@ -291,7 +291,7 @@ public sealed class MeshModelParser : IModelParser
 
         var native = new GbaLevelNativeSource(record, rom, trueRecord, levelName, location);
         var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.GbaLevel, native);
-        GbaLevelGeometryWriter.Populate(document, native);
+        GbaLevelGeometryWriter.Populate(document, native, request.VisibilityOverrides);
         return document;
     }
 

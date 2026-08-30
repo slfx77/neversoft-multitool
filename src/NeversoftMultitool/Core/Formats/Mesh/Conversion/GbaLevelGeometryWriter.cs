@@ -46,9 +46,15 @@ internal static class GbaLevelGeometryWriter
     ///     key on without the geometry changing meaning.
     /// </summary>
     public const string GrazedSuffix = "__grazed";
+
+    /// <summary>Visibility-group id for the out-of-bounds ring.</summary>
+    public const string BoundaryGroupId = "gba-level-boundary";
     private const double Fixed = 4096.0;
 
-    public static void Populate(ModelDocument document, GbaLevelNativeSource native)
+    public static void Populate(
+        ModelDocument document,
+        GbaLevelNativeSource native,
+        IReadOnlyDictionary<string, bool>? visibilityOverrides = null)
     {
         var rom = native.Rom;
         var trueRecord = native.TrueRecordOffset;
@@ -84,6 +90,15 @@ internal static class GbaLevelGeometryWriter
         // draws would emit as flat black slabs.
         var undrawn = GbaLevelArtCoverage.BuildUndrawnMask(art.Rgba, art.Width, art.Height);
 
+        // The out-of-bounds ring is the level's real boundary: the engine's own
+        // kill wall, standing about 34 world units up where the playfield sits near
+        // zero. It is omitted by default because a wall that tall drawn around the
+        // level entombs it - which is also why the boundary reads as "flat" without
+        // it. Behind a switch it becomes real geometry.
+        var showBoundary = visibilityOverrides != null
+                           && visibilityOverrides.TryGetValue(BoundaryGroupId, out var on)
+                           && on;
+
         var step = Sub + 1;
         var w = grid.Width;
         var h = grid.Height;
@@ -91,6 +106,7 @@ internal static class GbaLevelGeometryWriter
         // Per-cell surface samples (world-unit heights) and the live mask.
         var heights = new double[w * h][];
         var live = new bool[w * h];
+        var boundaryCells = 0;
         for (var gy = 0; gy < h; gy++)
         for (var gx = 0; gx < w; gx++)
         {
@@ -98,7 +114,9 @@ internal static class GbaLevelGeometryWriter
             // Judged by the material's own sampled surface, never the raw
             // base-height word — material 30 stores something else there, and
             // trusting it punched holes where real objects stand.
-            live[index] = !GbaCollisionRenderer.IsOutOfBounds(rom, grid, gx, gy);
+            var outOfBounds = GbaCollisionRenderer.IsOutOfBounds(rom, grid, gx, gy);
+            if (outOfBounds) boundaryCells++;
+            live[index] = !outOfBounds || showBoundary;
             if (!live[index])
                 continue;
             var samples = grid.SampleCell(rom, gx, gy, step);
@@ -204,6 +222,24 @@ internal static class GbaLevelGeometryWriter
 
         ModelDocumentGeometryAdapter.AddMeshNode(document, native.LevelName, mesh);
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
+
+        if (boundaryCells > 0)
+        {
+            document.VisibilityGroups.Add(new ModelVisibilityGroup
+            {
+                Id = BoundaryGroupId,
+                Label = $"Out-of-bounds boundary ({boundaryCells} cells)",
+                DefaultEnabled = false,
+                IsEnabled = showBoundary,
+                Source = ModelVisibilityGroupSource.AlternateGeometry,
+                SourceReference =
+                    $"collision cells whose sampled surface stands above "
+                    + $"{GbaCollisionRenderer.OutOfBoundsHeight:0.#} world units - the engine's "
+                    + "kill wall. Its art is not derivable: the baked view grazes a wall that "
+                    + "tall, and the transform's -16 px per world unit of height was measured "
+                    + "only over ground heights 0-10.5."
+            });
+        }
     }
 
     // World (wx, wy horizontal; z up) → GLB right-handed Y-up: (X, Y, Z) = (wy, z, wx)·Scale.
