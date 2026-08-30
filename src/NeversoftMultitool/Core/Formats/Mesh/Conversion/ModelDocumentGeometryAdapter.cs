@@ -207,8 +207,28 @@ internal static class ModelDocumentGeometryAdapter
             return true;
         }
 
+        // The area test has to allow for the units a format happens to be authored
+        // in. A bare absolute threshold is a hidden unit assumption: Project 8
+        // stores a whole cutscene character inside ~0.4 units, so its ordinary
+        // triangles have areas near 1e-4 and this culled roughly two thirds of them
+        // (1,892 -> 671 on one file) while leaving the much larger THAW and PSX
+        // models untouched.
+        //
+        // Scaling the threshold by the longest edge is what makes it unit-free, but
+        // it must only ever RELAX the test, never tighten it. A purely relative
+        // form is stricter than the absolute one for every model authored in large
+        // units, because a long thin sliver has a big area in absolute terms and a
+        // negligible one relative to its own edges — and that quietly dropped
+        // triangles across N64, GBA, NDS and THAW PC, moving censuses those formats
+        // had measured and pinned. Clamping the scale factor at 1 keeps the
+        // original behaviour wherever an edge reaches unit length and only loosens
+        // it for geometry smaller than that, so no format can lose a triangle here.
         var cross = Vector3.Cross(b - a, c - a);
-        return cross.LengthSquared() <= epsilon;
+        var longestEdgeSquared = MathF.Max(
+            MathF.Max(Vector3.DistanceSquared(a, b), Vector3.DistanceSquared(b, c)),
+            Vector3.DistanceSquared(a, c));
+        var scale = MathF.Min(1f, longestEdgeSquared * longestEdgeSquared);
+        return cross.LengthSquared() <= epsilon * scale;
 
         static bool IsFinite(Vector3 value) =>
             float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
