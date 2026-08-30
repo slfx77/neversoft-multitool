@@ -42,6 +42,7 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.GbaModel => ParseGbaModel(request),
             ModelSourceKind.NdsModel => ParseNdsModel(request),
             ModelSourceKind.NdsLevel => ParseNdsLevel(request),
+            ModelSourceKind.NdsCollision => ParseNdsCollision(request),
             _ => throw new NotSupportedException($"Unsupported mesh source kind: {request.SourceKind}")
         };
     }
@@ -165,6 +166,28 @@ public sealed class MeshModelParser : IModelParser
             request.N64AnimationIndices,
             request.IncludeAllN64Animations,
             request.N64AnimationOneShot);
+        return document;
+    }
+
+    /// <summary>
+    ///     A DS level's collision world: the surface it is skated on, split by the
+    ///     file's own surface word, plus the gameplay volumes tagged into it. The
+    ///     edge network parses but is not emitted — see <see cref="NdsCollisionWriter" />.
+    /// </summary>
+    private static ModelDocument ParseNdsCollision(MeshImportRequest request)
+    {
+        if (!Nds.NdsCollisionFile.TryParse(request.Source.ReadBytes(), out var collision))
+        {
+            throw new InvalidOperationException(
+                "Not a readable DS collision world (its sections did not tile the file)");
+        }
+
+        var document = new ModelDocument
+        {
+            Name = request.OutputStem,
+            SourceKind = ModelSourceKind.NdsCollision
+        };
+        NdsCollisionWriter.Populate(document, collision);
         return document;
     }
 

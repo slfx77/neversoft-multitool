@@ -45,5 +45,11 @@ public enum ModelSourceKind
     ///     merged (they are authored in world space), plus the gameplay entities its
     ///     <c>.prp</c> places.
     /// </summary>
-    NdsLevel
+    NdsLevel,
+
+    /// <summary>
+    ///     A Vicarious Visions DS collision world: the triangle surface a level is
+    ///     skated on, plus the gameplay volumes tagged into it.
+    /// </summary>
+    NdsCollision
 }

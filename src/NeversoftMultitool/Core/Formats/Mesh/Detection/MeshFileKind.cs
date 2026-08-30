@@ -48,6 +48,9 @@ public enum MeshFileKind
     /// <summary>A whole Vicarious Visions DS level — one model set, composited.</summary>
     NdsLevel,
 
+    /// <summary>A Vicarious Visions DS collision world (<c>.lwc</c>).</summary>
+    NdsCollision,
+
     /// <summary>RenderWare clump (<c>.skn</c>, <c>.dff</c>).</summary>
     RenderWareDff,
 

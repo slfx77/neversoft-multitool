@@ -50,6 +50,12 @@ public static class MeshTypeDetector
     /// </summary>
     public const string NdsGeometrySuffix = ".geometry.bin";
 
+    /// <summary>
+    ///     A DS level's collision world. Unlike the geometry files this has a
+    ///     distinctive extension of its own, so it needs no context to recognise.
+    /// </summary>
+    public const string NdsCollisionSuffix = ".lwc";
+
     private static readonly string[] XboxSceneSuffixes =
     [
         ".skin.xbx", ".mdl.xbx", ".scn.xbx",
@@ -83,6 +89,7 @@ public static class MeshTypeDetector
         GbaLevelSuffix,
         GbaModelSuffix,
         NdsGeometrySuffix,
+        NdsCollisionSuffix,
         ".ddm",
         ".psx",
         .. RenderWareDffSuffixes,
@@ -171,6 +178,7 @@ public static class MeshTypeDetector
             GbaLevelSuffix => new MeshFileRoute(MeshFileKind.GbaLevel, suffix, DisplayFormat: "GBA Level"),
             GbaModelSuffix => new MeshFileRoute(MeshFileKind.GbaModel, suffix, DisplayFormat: "GBA Character"),
             NdsGeometrySuffix => new MeshFileRoute(MeshFileKind.NdsGeometry, suffix, DisplayFormat: "DS Model"),
+            NdsCollisionSuffix => new MeshFileRoute(MeshFileKind.NdsCollision, suffix, DisplayFormat: "DS Collision"),
             ".ddm" => new MeshFileRoute(MeshFileKind.Ddm, suffix, DisplayFormat: "DDM Mesh"),
             ".psx" => new MeshFileRoute(MeshFileKind.Psx, suffix, RequiresContentProbe: true),
             ".bsp" => new MeshFileRoute(MeshFileKind.RenderWareBsp, suffix, RequiresContentProbe: true),
@@ -290,6 +298,7 @@ public static class MeshTypeDetector
             MeshFileKind.Ddm => ModelSourceKind.Ddm,
             MeshFileKind.NdsGeometry => ModelSourceKind.NdsModel,
             MeshFileKind.NdsLevel => ModelSourceKind.NdsLevel,
+            MeshFileKind.NdsCollision => ModelSourceKind.NdsCollision,
             MeshFileKind.Psx => ModelSourceKind.Psx,
             MeshFileKind.N64Model => ModelSourceKind.N64Model,
             MeshFileKind.GbaLevel => ModelSourceKind.GbaLevel,
