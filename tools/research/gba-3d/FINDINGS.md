@@ -878,11 +878,32 @@ level's authoring.
 Rooftops is the one level whose *near-side* error is also large (36.30 px). That
 is a separate, still-open defect — see the facade-below-art residual noted above.
 
-**This also answers F4, the "sample the object from four angles" idea.** There is
-no second baked view to sample: DISPCNT is `0x1C42` (mode 2, two affine
-backgrounds), and the cart stores one image's worth of tiles per level. A face the
-view grazes has no art anywhere in the ROM, so any texture for it would be
-invented. **Not derivable**; the faces are marked instead.
+**F4, the "sample the object from four angles" idea, is OPEN — not refused.**
+An earlier draft of this section called it "not derivable" on the grounds that
+DISPCNT is `0x1C42` (mode 2, two affine backgrounds) and the cart stores one
+image's worth of tiles per level, so there is no second *baked view*. That is true
+and beside the point, and the verdict was **withdrawn** after user correction.
+
+The real proposal is different and better: the single baked image already contains
+the same geometry at **several orientations**. The Hangar has quarter-pipes facing
+toward the camera and away from it; the face the view grazes on one instance is
+squarely visible on another. So the art usually **does** exist — what is missing is
+anything in the data tying the two instances together.
+
+That makes this a **visual/structural inference** problem, not a data-recovery one,
+and it needs its own oracle before any of it ships:
+
+- Group cells by collision shape + material (the shape byte is already the D4
+  symmetry index, so mirrored instances are *stated*, not guessed).
+- For a grazed face, find a non-grazed instance of the same shape class and borrow
+  its art strip through the appropriate D4 transform.
+- The oracle has to be a **held-out instance**: take a face that IS well projected,
+  pretend it is grazed, synthesise it from a different instance, and compare against
+  the art it actually has. Anything that cannot beat "copy the nearest visible
+  neighbour" is not earning its place.
+
+Until that exists the grazed faces stay **marked, not synthesised** — the
+`__grazed` primitive is the honest interim, not the answer.
 
 ## OPEN (2026-08-27): rails are NOT in the collision grid — the entity table at `+0x150`
 
