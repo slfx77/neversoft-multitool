@@ -51,7 +51,12 @@ public static class NdsModelNaming
                     pieces[(idA, piece.IdB)] = piece.Name;
             }
 
-            return new NdsModelNames(sets, pieces);
+            // The clip binding is read from the code directly rather than from the
+            // manifests, because a manifest is only accepted for a set with several
+            // geometry files — and most animated models are one-piece sets, so the
+            // manifest route reached barely a seventh of them.
+            return new NdsModelNames(
+                sets, pieces, NdsCartManifests.ReadAnimationBindings(cart, container));
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException
                                    or EndOfStreamException or NotSupportedException)
@@ -64,13 +69,26 @@ public static class NdsModelNaming
 /// <summary>The authored names for one container's model sets and their pieces.</summary>
 public sealed class NdsModelNames(
     IReadOnlyDictionary<uint, string> sets,
-    IReadOnlyDictionary<(uint IdA, uint IdB), string> pieces)
+    IReadOnlyDictionary<(uint IdA, uint IdB), string> pieces,
+    IReadOnlyDictionary<(uint IdA, uint IdB), uint> clips)
 {
-    public static NdsModelNames Empty { get; } =
-        new(new Dictionary<uint, string>(), new Dictionary<(uint, uint), string>());
+    public static NdsModelNames Empty { get; } = new(
+        new Dictionary<uint, string>(),
+        new Dictionary<(uint, uint), string>(),
+        new Dictionary<(uint, uint), uint>());
 
     /// <summary>Set id to authored name.</summary>
     public IReadOnlyDictionary<uint, string> Sets { get; } = sets;
+
+    /// <summary>
+    ///     The clip a piece owns, in the carts that spell animation with one opaque
+    ///     id per model rather than an indexed library. The manifest record carries
+    ///     it beside the geometry pair, which is the only place the link exists:
+    ///     Downhill Jam's and Proving Ground's animation ids are a population of
+    ///     their own, hashing onto no name and matching no geometry id.
+    /// </summary>
+    public uint AnimationIdFor(uint idA, uint idB) =>
+        clips.TryGetValue((idA, idB), out var id) ? id : 0;
 
     /// <summary>The artist's own name for one piece of a set, when the cart carries it.</summary>
     public string? PieceName(uint idA, uint idB) =>

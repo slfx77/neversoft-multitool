@@ -79,18 +79,32 @@ public sealed class NdsAnimationFile
         if (data.Length < 24)
             return false;
 
-        var frames = BinaryPrimitives.ReadInt32LittleEndian(data);
+        // Downhill Jam and Proving Ground wrap the same clip in a `comp` container,
+        // which shifts the header one word: the magic takes slot 0 and the four
+        // counts follow, so the self-describing word Sk8land keeps at +16 (the end
+        // of the offset table) is instead the fourth count. The identity still
+        // holds — the first channel offset IS that table end — so the wrapped form
+        // is checked against the offsets rather than against a stored word, and
+        // that is exact on 322 of 322 Downhill Jam and 467 of 467 Proving Ground
+        // files. Everything past the header is byte-identical between the two.
+        var isComp = data[0] == (byte)'p' && data[1] == (byte)'m'
+                                           && data[2] == (byte)'o' && data[3] == (byte)'c';
+        var head = isComp ? 4 : 0;
+
+        var frames = BinaryPrimitives.ReadInt32LittleEndian(data[head..]);
         var counts = new int[3];
         for (var i = 0; i < 3; i++)
-            counts[i] = BinaryPrimitives.ReadInt32LittleEndian(data[(4 + i * 4)..]);
-        var tableEnd = BinaryPrimitives.ReadInt32LittleEndian(data[16..]);
+            counts[i] = BinaryPrimitives.ReadInt32LittleEndian(data[(head + 4 + i * 4)..]);
 
         var total = counts[0] + counts[1] + counts[2];
-        if (frames <= 0 || total <= 0 || total > 4096
-            || tableEnd != 20 + total * 4 || tableEnd > data.Length)
-        {
+        if (frames <= 0 || total <= 0 || total > 4096 || 20 + total * 4 > data.Length)
             return false;
-        }
+
+        var tableEnd = isComp
+            ? BinaryPrimitives.ReadInt32LittleEndian(data[20..])
+            : BinaryPrimitives.ReadInt32LittleEndian(data[16..]);
+        if (tableEnd != 20 + total * 4)
+            return false;
 
         var channels = new NdsAnimationKey[3][][];
         var at = 20;

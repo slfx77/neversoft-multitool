@@ -67,14 +67,21 @@ public static class NdsModelCompanions
     }
 
     /// <summary>
-    ///     The model's clip library, in index order. Sk8land spells clips
-    ///     <c>.\&lt;idA&gt;.&lt;idB&gt;.&lt;n&gt;.animation.bin</c> and the run is
-    ///     CONTIGUOUS from 0, so enumeration is asking for the next one until it is
-    ///     not there — no container index, and a hole cannot silently truncate a
-    ///     library because there are none.
+    ///     The model's clips. The three carts spell animation two different ways and
+    ///     both are read here.
     ///
-    ///     Downhill Jam and Proving Ground spell animation differently and are not
-    ///     reached here; they return nothing rather than a wrong clip.
+    ///     Sk8land names an indexed library
+    ///     <c>.\&lt;idA&gt;.&lt;idB&gt;.&lt;n&gt;.animation.bin</c>, CONTIGUOUS from 0,
+    ///     so enumeration is asking for the next one until it is not there — no
+    ///     container index, and a hole cannot silently truncate a library because
+    ///     there are none.
+    ///
+    ///     Downhill Jam and Proving Ground give a model ONE clip under a single
+    ///     opaque id, and that id is not derivable from anything the model itself
+    ///     carries: those ids hash onto no authored name and coincide with no
+    ///     geometry id. The link is stated in the cart's manifest record beside the
+    ///     geometry pair, so this route needs the cart — a bare <c>.gob</c> yields
+    ///     nothing rather than a wrong clip.
     /// </summary>
     public static IReadOnlyList<(int Index, NdsAnimationFile Clip)> ReadClips(
         AssetSource source, int limit = 512)
@@ -104,7 +111,37 @@ public static class NdsModelCompanions
             clips.Add((n, clip));
         }
 
-        return clips;
+        return clips.Count > 0 ? clips : ReadStatedClip(source, idA, idB);
+    }
+
+    /// <summary>
+    ///     The single clip a cart's manifest states for this piece, for the builds
+    ///     that spell animation that way. Returns it at index 0 so a caller selects
+    ///     it exactly as it selects one of Sk8land's.
+    /// </summary>
+    private static IReadOnlyList<(int Index, NdsAnimationFile Clip)> ReadStatedClip(
+        AssetSource source, uint idA, uint idB)
+    {
+        if (source is not ArchiveAssetSource archive)
+            return [];
+        var animationId = NdsModelNaming.For(archive.Backend.FileSystem).AnimationIdFor(idA, idB);
+        if (animationId == 0)
+            return [];
+
+        byte[]? data;
+        try
+        {
+            data = source.TryReadCompanion($"{animationId:x8}.animation.bin");
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException
+                                   or EndOfStreamException or NotSupportedException)
+        {
+            return [];
+        }
+
+        return data != null && NdsAnimationFile.TryParse(data, out var clip)
+            ? [(0, clip)]
+            : [];
     }
 
     private static string NameOf(AssetSource source)

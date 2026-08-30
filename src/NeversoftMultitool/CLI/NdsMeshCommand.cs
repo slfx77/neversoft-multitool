@@ -408,6 +408,30 @@ internal sealed class NdsClipSource
                 clips.Add(($"anim_{n}", clip));
         }
 
+        if (clips.Count > 0)
+            return clips;
+
+        // Downhill Jam and Proving Ground give a model ONE clip under a single
+        // opaque id that nothing in the model itself carries — those ids hash onto
+        // no authored name and coincide with no geometry id. The cart's manifest
+        // record states the link beside the geometry pair.
+        var animationId = NdsModelNaming.For(_container).AnimationIdFor(idA, idB);
+        if (animationId == 0)
+            return clips;
+        var stated = _container.FindByPath($"{animationId:x8}.animation.bin");
+        if (stated == null)
+            return clips;
+
+        try
+        {
+            if (NdsAnimationFile.TryParse(_container.ReadEntry(stated), out var single))
+                clips.Add(("anim_0", single));
+        }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+        {
+            // A clip that will not read leaves the model static.
+        }
+
         return clips;
     }
 }

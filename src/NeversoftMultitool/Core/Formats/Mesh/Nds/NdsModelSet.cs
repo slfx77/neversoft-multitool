@@ -49,6 +49,27 @@ public static class NdsModelSet
                && uint.TryParse(body[9..], NumberStyles.HexNumber, null, out idB);
     }
 
+    /// <summary>
+    ///     The single opaque id in a one-id animation name
+    ///     (<c>.\&lt;id&gt;.animation.bin</c>), the form Downhill Jam and Proving
+    ///     Ground use. Sk8land's indexed clips carry two ids and an ordinal and are
+    ///     deliberately NOT matched here.
+    /// </summary>
+    public static bool TryParseAnimationName(string? name, out uint animationId)
+    {
+        animationId = 0;
+        const string suffix = ".animation.bin";
+        if (name == null || !name.StartsWith(".\\", StringComparison.Ordinal)
+            || !name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            || name.Length != 2 + 8 + suffix.Length)
+        {
+            return false;
+        }
+
+        return uint.TryParse(
+            name.AsSpan(2, 8), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out animationId);
+    }
+
     /// <summary>The container name of one geometry file in a set.</summary>
     public static string GeometryName(uint idA, uint idB) => $".\\{idA:x8}.{idB:x8}.geometry.bin";
 

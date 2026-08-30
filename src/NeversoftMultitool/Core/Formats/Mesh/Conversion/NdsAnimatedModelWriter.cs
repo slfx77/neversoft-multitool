@@ -81,7 +81,15 @@ internal static class NdsAnimatedModelWriter
         foreach (var provenance in provenances)
         {
             var global = Convert(bind.UsedMatrices[provenance]);
-            Matrix4x4.Invert(global, out var inverse);
+
+            // A bind matrix the writer cannot invert has no inverse bind matrix, and
+            // glTF export inverts every one — a Downhill Jam model whose display list
+            // collapses a joint to zero scale reached the exporter and threw there
+            // instead of failing here. Refusing the clip keeps the static document,
+            // which is what the rest of this writer's failure paths do.
+            if (!Matrix4x4.Invert(global, out var inverse))
+                return 0;
+
             skeleton.Bones.Add(new ModelBone
             {
                 Name = $"joint_{skeleton.Bones.Count:D3}",
@@ -135,6 +143,14 @@ internal static class NdsAnimatedModelWriter
                 var global = Convert(native);
                 if (!Matrix4x4.Decompose(global, out var s, out var r, out var t))
                     return null;
+
+                // glTF requires a unit rotation, and Decompose does not always give
+                // one: a display list that shears or scales a joint non-uniformly
+                // leaves residue in the quaternion (one Proving Ground model came
+                // out at 0.9737, well past float noise, and the validator rejected
+                // all 105 of its keys). The scale it belongs to is already separated
+                // into `s`, so normalising here loses nothing.
+                r = Quaternion.Normalize(r);
 
                 // glTF SLERPs the short way; keep successive keys on one hemisphere
                 // or an interpolated playhead snaps at sign flips.

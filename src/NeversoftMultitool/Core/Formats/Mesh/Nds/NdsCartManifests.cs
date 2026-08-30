@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Gob;
 
@@ -50,6 +51,87 @@ public static class NdsCartManifests
         return geometry.Count == 0
             ? new Dictionary<uint, string>()
             : NdsSetNames.Harvest(CodeRegions(cart), geometry.Keys);
+    }
+
+    /// <summary>
+    ///     Binds a model piece to the single clip it owns, for the carts that spell
+    ///     animation with one opaque id per model rather than an indexed library.
+    ///
+    ///     Those ids are recoverable no other way: they hash onto no authored name
+    ///     (measured over every printable run in ARM9 and the overlays — 0 of 322 and
+    ///     0 of 467, while the identical sweep names every geometry set and piece) and
+    ///     they coincide with no geometry id. But the code that asks for the file has
+    ///     to hold the id, and it holds it inside the record that also carries the
+    ///     geometry pair — three and two words ahead of it.
+    ///
+    ///     Fail-closed on both halves. An id is used only if it occurs EXACTLY once
+    ///     across every code image, and only if the pair ahead of it is one the
+    ///     container really holds. Measured: 322 of 322 Downhill Jam ids and 467 of
+    ///     467 Proving Ground ids satisfy both, forming a bijection — one clip per
+    ///     piece, nothing left over on either side — while values drawn at random
+    ///     from the same word pool and pushed through the identical rule bind 0.
+    /// </summary>
+    /// <param name="cart">The opened <c>.nds</c>.</param>
+    /// <param name="container">The cart's opened GOB.</param>
+    public static IReadOnlyDictionary<(uint IdA, uint IdB), uint> ReadAnimationBindings(
+        IArchiveFileSystem cart, IArchiveFileSystem container)
+    {
+        ArgumentNullException.ThrowIfNull(cart);
+        ArgumentNullException.ThrowIfNull(container);
+
+        var pairs = new HashSet<(uint, uint)>();
+        var animationIds = new HashSet<uint>();
+        foreach (var entry in container.Entries)
+        {
+            var name = GobNames.TryResolve(entry.Crc);
+            if (NdsModelSet.TryParseGeometryName(name, out var idA, out var idB))
+                pairs.Add((idA, idB));
+            else if (NdsModelSet.TryParseAnimationName(name, out var animationId))
+                animationIds.Add(animationId);
+        }
+
+        if (pairs.Count == 0 || animationIds.Count == 0)
+            return new Dictionary<(uint, uint), uint>();
+
+        // One pass per image, recording where each id is and how often.
+        var sites = new Dictionary<uint, (uint IdA, uint IdB)?>();
+        var seen = new HashSet<uint>();
+        var ambiguous = new HashSet<uint>();
+        foreach (var (_, _, data) in CodeRegions(cart))
+        {
+            var words = data.Length / 4;
+            for (var i = 3; i < words; i++)
+            {
+                var value = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(i * 4));
+                if (!animationIds.Contains(value))
+                    continue;
+                if (!seen.Add(value))
+                {
+                    ambiguous.Add(value);
+                    continue;
+                }
+
+                var idA = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan((i - 3) * 4));
+                var idB = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan((i - 2) * 4));
+                sites[value] = pairs.Contains((idA, idB)) ? (idA, idB) : null;
+            }
+        }
+
+        // The binding is a bijection in both shipped carts, so a piece claimed twice
+        // means the reading is wrong for that row; drop it rather than pick one.
+        var claims = new Dictionary<(uint, uint), uint>();
+        var contested = new HashSet<(uint, uint)>();
+        foreach (var (animationId, target) in sites)
+        {
+            if (target == null || ambiguous.Contains(animationId))
+                continue;
+            if (!claims.TryAdd(target.Value, animationId))
+                contested.Add(target.Value);
+        }
+
+        foreach (var target in contested)
+            claims.Remove(target);
+        return claims;
     }
 
     /// <summary>ARM9 and every ARM9 overlay, as raw images.</summary>
