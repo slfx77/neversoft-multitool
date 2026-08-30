@@ -1043,6 +1043,87 @@ so the five fields are **not** simply THPS2's five with a palette among them —
 field roles are unidentified and must be read, not assumed. THPS3 needs its own
 locator, and DHJ its own container RE.
 
+## MEASURED (2026-08-30): the THPS4→Sk8land level-art record, four of six fields
+
+Following the survey's own recommendation. The 0x1C run is a **level-art table** and
+it is contiguous — the survey's "runs of 8/10/7/1" were one table each, broken only
+where a record stores its assets **uncompressed** instead of LZ77. Read with a loose
+gate (six in-ROM pointers + a small word) the tables are:
+
+| cart | table | records | of which fully LZ77 |
+|---|---|---|---|
+| THPS4 | `0x0BDAA4` | 8 | 5 |
+| THUG | `0x0CE318` | 10 | 7 |
+| THUG2 | `0x0E2F24` | 7 | 3 |
+| Sk8land | `0x0FD194` | 12 | 7 |
+
+The record is `{ptr f0, ptr f1, ptr f2, ptr f3, ptr f4, ptr raw, u32 flags}`. The
+uncompressed records corroborate the field roles for free: whether a field is stored
+LZ77 or raw, **f0 always begins `FF FF`, f1 always `40 60` or `60 60`, f3 always
+`00 00`** — the same signature in the same slot across all four carts.
+
+### Field roles
+
+**Proven by index closure.** For every one of the 20+ fully-LZ77 records, in all four
+carts, exactly one ordered triple closes: `f2 → f3 → f4`, where every u16 in f2 is a
+valid index into f3's 8-byte entries and every u16 in f3 is a valid index into f4's
+32-byte entries. The closure is not merely satisfied but **tight — the largest index
+is always exactly count − 1** (804 tiles/max 803; 873/872; 624/623; 724/723; …),
+which is what rules out a coincidentally-loose bound.
+
+**Confirmed by looking.** f4 rendered as 4bpp and as 8bpp is noise. Rendered as
+**1-bit 16×16 elements — 32 bytes = 16 rows of LSB-first u16** — it is unmistakable
+isometric line art: 45° edges, dithered half-tone shading, solid fills. That is
+THPS2's element system at a new size (THPS2: 24×24 1-bit; here: 16×16), and it makes
+the arithmetic close: f3's 4 elements are a 2×2 **32×32-pixel** block, so one f2 u16
+covers 32×32 px, which is exactly what the object records' own bboxes assert.
+
+- **f4** = 1-bit 16×16 element pool, 32 bytes each.
+- **f3** = metatile table, 8 bytes = 4 element indices (2×2 → 32×32 px).
+- **f2** = pool of per-object metatile grids, one u16 per 32×32 px.
+- **f1** = object table, 12 bytes per record (below).
+- **f0** = u16 array of object indices, `0xFFFF` = empty.
+
+### The object record (12 bytes), byte ranges measured over every object
+
+`[0] 0-96  [1] 0-96  [2] 32-128  [3] 32-128  [4] 1-4  [5] 0-1  [6] 0-4  [7] 0  [8..9] u16  [10..11] u16`
+
+`[0..3]` is a bbox in pixels inside a 128×128 box, always on a 32-px grid;
+`[4] == (x1-x0)/32` is the grid width in 32-px cells, and the height is
+`(y1-y0)/32` — **not** `[5]`, which is a 0/1 flag. `[8..9]` is a **u16 BYTE offset
+into f2**: `offset/2 + w*h <= f2cells` holds for **100% of objects in 20/20 records**
+(1780/1780, 1290/1290, 305/305, …), where a random u16 would usually overflow.
+`[10..11]` tops out near the object count and is unidentified.
+
+`f0`'s non-`FFFF` values are exactly the object indices `0..n-1` where `n =
+f1.Length/12` — **the maximum is `n-1` in every record of every cart** — and each
+index appears **at most once** (the non-`FFFF` count equals the distinct count in
+every record). So f0 enumerates objects; it is not a per-cell stamp.
+
+### NOT established: how objects are placed. Four models measured and refuted
+
+1. **f1 as a cumulative directory into f0** — refuted: the offset chain is
+   non-contiguous (THPS4[0] 53 consecutive of 1780) and never closes on f0's length.
+2. **f0 as a placement grid where each object fills its own w×h rectangle** —
+   refuted, and refuted *by construction* once each object was shown to appear once.
+   Scored 42/880, 56/842, 5/75; the "best" widths tie in blocks, the signature of no
+   signal.
+3. **Map width from bbox abutment across cell borders** — no peak: scores sit at
+   0.78–0.96 for hundreds of widths because the base rate of `y1==128` is itself high.
+4. **Map width from ink continuity across the seam** (the strongest oracle available,
+   since the art now decodes) — no peak either: best scores 0.03–0.29 with no width
+   agreeing between records of the same cart, and **several records score exactly
+   0.000 at every width**, i.e. array-adjacent cells share no ink at all.
+
+That last result is the informative one: it says f0's ordering is **not spatial**, so
+no map width exists to be found. Placement must come from somewhere this record does
+not point at. This is the same wall as THPS2's `+0x150` entity table, and it wants
+the same remedy — read the ROM's own consumer rather than fit the data. Do not emit
+a level layout from a fitted map width.
+
+Reusable immediately, with no layout claim: the element pool and the per-object art
+decode on all four cartridges.
+
 ## Next steps (in order)
 
 1. **Skater model follow-ups** — the u16 normal encoding, the 0x80 face flag,
