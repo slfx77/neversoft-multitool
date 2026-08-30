@@ -1306,12 +1306,24 @@ public sealed class MeshModelParser : IModelParser
         return document;
     }
 
+    /// <summary>
+    ///     A PlayStation 3 next-gen scene keeps its attribute and index blocks in a
+    ///     sibling VRAM file; every other platform stores them inline and gets null.
+    /// </summary>
+    private static byte[]? ReadNextGenVramCompanion(MeshImportRequest request)
+    {
+        var companion = NextGenSceneFile.GetVramCompanionName(request.FileName);
+        return companion is null ? null : request.Source.TryReadCompanion(companion);
+    }
+
     private static ModelDocument ParseXbxScene(MeshImportRequest request)
     {
         var data = request.Source.ReadBytes();
         var isNgc = NgcSceneFile.IsNgcScene(data);
         var scene = true switch
         {
+            _ when NextGenSceneFile.IsNextGenScene(data) =>
+                NextGenSceneFile.Parse(data, ReadNextGenVramCompanion(request)),
             _ when isNgc => NgcSceneFile.Parse(data),
             _ when ThawSceneFile.IsThawScene(data) => ThawSceneFile.Parse(data),
             _ => XbxSceneFile.Parse(data)

@@ -36,6 +36,9 @@ internal static class MeshContentProbe
         if (data.Length < 12)
             return TooSmall(route);
 
+        if (NextGenSceneFile.IsNextGenScene(data))
+            return route with { RequiresContentProbe = false, DisplayFormat = "Next-Gen Scene" };
+
         if (NgcSceneFile.IsNgcScene(data))
             return route with { RequiresContentProbe = false, DisplayFormat = "GameCube Scene" };
 

@@ -21,12 +21,22 @@ namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Conversion;
 ///     <c>Classify</c> — does not short-circuit on a zero object count, and
 ///     <c>ResolveWalkEyeHeight</c> ends with <c>!IsPsx =&gt; null</c> AFTER the
 ///     worldzone/GBA/N64 branches, so BSP/SCN/DDM levels deliberately get none.
+///     <para>
+///         ONE deliberate divergence from the pre-move rule has since been added and
+///         is mirrored below: <c>.scn.xen</c> and <c>.scn.ps3</c> join the scene-file
+///         list, because the next-gen builds are the same CScene container as the
+///         Xbox/PC/GameCube scenes already there and their level scenes now convert.
+///         It is spelled out here rather than left out of the cross-product — a
+///         suffix the reference and the policy both omit would let the two drift
+///         apart without any test noticing.
+///     </para>
 /// </remarks>
 public sealed class MeshLevelPolicyTests
 {
     private static readonly string[] FileNames =
     [
         "skateshop.bsp", "SkCon.scn.xbx", "level.scn.wpc", "level.scn.ngc",
+        "z_bw_bridge.scn.xen", "z_bw_bridge.scn.ps3",
         "0_hangar.lvl.gba", "13_spider_man.chr.gba",
         "l1a1_g.psx", "skmall.psx", "hawk.psx", "items.psx",
         "mall_o.ddm", "Itm_Bonus01.ddm",
@@ -90,9 +100,9 @@ public sealed class MeshLevelPolicyTests
 
         // Guard the guard: a cross-product that never produced a level, or never
         // produced an eye height, would pass vacuously.
-        // 20 names x 5 paths x 7 sub-formats x 5 PSX revisions x 2^6 flags
+        // 22 names x 5 paths x 7 sub-formats x 5 PSX revisions x 2^6 flags
         // x 7 radii x 5 object counts.
-        Assert.Equal(7_840_000, compared);
+        Assert.Equal(8_624_000, compared);
         Assert.True(levels > 0 && levels < compared, $"levels={levels} of {compared}");
         Assert.True(withEye > 0 && withEye < levels, $"withEye={withEye} of {levels} levels");
     }
@@ -212,6 +222,9 @@ public sealed class MeshLevelPolicyTests
             name.EndsWith(".scn.xbx", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(".scn.wpc", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(".scn.ngc", StringComparison.OrdinalIgnoreCase) ||
+            // The one deliberate post-move addition; see the class remarks.
+            name.EndsWith(".scn.xen", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith(".scn.ps3", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(MeshTypeDetector.GbaLevelSuffix, StringComparison.OrdinalIgnoreCase))
         {
             return true;
