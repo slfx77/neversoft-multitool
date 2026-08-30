@@ -198,13 +198,13 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
     /// </summary>
     [CorpusTheory]
     [InlineData("Tony Hawk's American Sk8land (2005-11-15, DS - Final)",
-        "Tony Hawk's American Sk8land (USA).nds", 1167)]
+        "Tony Hawk's American Sk8land (USA).nds", 1167, 8)]
     [InlineData("Tony Hawk's Downhill Jam (2006-10-24, DS - Final)",
-        "Tony Hawk's Downhill Jam (USA).nds", 1325)]
+        "Tony Hawk's Downhill Jam (USA).nds", 1325, 7)]
     [InlineData("Tony Hawk's Proving Ground (2007-10-15, DS - Final)",
-        "Tony Hawk's Proving Ground (USA).nds", 1858)]
+        "Tony Hawk's Proving Ground (USA).nds", 1858, 8)]
     public void RealCart_WalkingTheCartFindsItsGeometryWithoutBeingToldWhereTheGobIs(
-        string build, string rom, int expectedCandidates)
+        string build, string rom, int expectedGeometry, int expectedCollision)
     {
         var romPath = paths.FindSampleFile(build, rom);
         Assert.SkipWhen(romPath == null, $"{build} ROM sample not available");
@@ -212,7 +212,8 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
         var root = ArchiveAssetBackend.TryOpen(romPath!);
         Assert.NotNull(root);
 
-        var candidates = 0;
+        var geometry = 0;
+        var collision = 0;
         var pending = new Queue<ArchiveAssetBackend>();
         pending.Enqueue(root!);
         while (pending.Count > 0)
@@ -222,7 +223,20 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
             {
                 if (MeshTypeDetector.IsMeshCandidate(entry.Name))
                 {
-                    candidates++;
+                    // A cart contributes two mesh families: the model pieces and the
+                    // per-level collision worlds. Counting them apart keeps the test
+                    // reading as "the walk reaches BOTH" rather than one total that
+                    // moves whenever either does.
+                    if (entry.Name.EndsWith(
+                            MeshTypeDetector.NdsCollisionSuffix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        collision++;
+                    }
+                    else
+                    {
+                        geometry++;
+                    }
+
                     continue;
                 }
 
@@ -232,7 +246,8 @@ public sealed class NdsModelRoutingTests(TestPaths paths)
             }
         }
 
-        Assert.Equal(expectedCandidates, candidates);
+        Assert.Equal(expectedGeometry, geometry);
+        Assert.Equal(expectedCollision, collision);
     }
 
     [CorpusTheory]

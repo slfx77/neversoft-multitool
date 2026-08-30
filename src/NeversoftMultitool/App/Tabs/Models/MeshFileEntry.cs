@@ -100,7 +100,7 @@ public class MeshFileEntry : BaseFileEntry
         HasSupportedLevelObjectCompanion,
         N64MaxBoundsRadius,
         ObjectCount,
-        IsNdsLevel);
+        IsNdsLevel || IsNdsCollision);
 
     /// <summary>True when this row is level-scale content (see <see cref="MeshLevelPolicy" />).</summary>
     internal bool IsLevelContent => MeshLevelPolicy.IsLevelContent(LevelFacts);
@@ -113,6 +113,9 @@ public class MeshFileEntry : BaseFileEntry
 
     /// <summary>A whole DS level — a synthetic row over one model set, not one file.</summary>
     internal bool IsNdsLevel => Format == "DS Level";
+
+    /// <summary>A DS level's collision world — the surface it is skated on.</summary>
+    internal bool IsNdsCollision => Format == "DS Collision";
 
     /// <summary>Set by the scanner when the model's clip library is non-empty.</summary>
     internal bool NdsHasClips { get; init; }

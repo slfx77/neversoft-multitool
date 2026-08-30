@@ -152,6 +152,7 @@ internal static class MeshConverterTabFileConverter
         if (entry.IsN64Model) return ModelSourceKind.N64Model;
         if (entry.IsGbaLevel) return ModelSourceKind.GbaLevel;
         if (entry.IsGbaModel) return ModelSourceKind.GbaModel;
+        if (entry.IsNdsCollision) return ModelSourceKind.NdsCollision;
         if (entry.IsNdsLevel) return ModelSourceKind.NdsLevel;
         if (entry.IsNdsGeometry) return ModelSourceKind.NdsModel;
         if (entry.IsPsx) return ModelSourceKind.Psx;

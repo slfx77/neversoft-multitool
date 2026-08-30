@@ -470,6 +470,7 @@ internal static class MeshConverterTabFileScanner
             MeshFileKind.GbaLevel => ScanGbaLevelFile(source, displayPath, rootDir),
             MeshFileKind.GbaModel => ScanGbaModelFile(source, displayPath, rootDir),
             MeshFileKind.NdsGeometry => ScanNdsGeometryFile(source, displayPath, rootDir),
+            MeshFileKind.NdsCollision => ScanNdsCollisionFile(source, displayPath, rootDir),
             MeshFileKind.Psx => ScanPsxFile(source, displayPath, rootDir),
             _ => null
         };
@@ -704,6 +705,42 @@ internal static class MeshConverterTabFileScanner
                 MeshCount = groups.Count,
                 TriangleCount = triangles,
                 NdsHasClips = NdsModelCompanions.ReadClips(source, limit: 1).Count > 0,
+                Source = source
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     A DS level's collision world. It sits in the Levels tab beside the level's
+    ///     render row, because it IS that level — the surface it is skated on rather
+    ///     than the surface it is drawn as.
+    /// </summary>
+    private static MeshFileEntry? ScanNdsCollisionFile(
+        AssetSource source, string displayPath, string rootDir)
+    {
+        try
+        {
+            if (!NdsCollisionFile.TryParse(source.ReadBytes(), out var world))
+                return null;
+
+            return new MeshFileEntry
+            {
+                FileName = source.EntryName,
+                FilePath = displayPath,
+                // The bare entry name, so a collision row reads beside its level's
+                // row rather than carrying the container path the level row omits.
+                RelativePath = source.EntryName,
+                Format = "DS Collision",
+                // Chained rail segments and distinct gameplay volumes — the two
+                // things in here that are not the surface itself.
+                ObjectCount = world.Edges.Count,
+                MeshCount = world.Faces.Where(f => f.IsVolume)
+                    .Select(f => f.VolumeId).Distinct().Count(),
+                TriangleCount = world.Faces.Count,
                 Source = source
             };
         }
