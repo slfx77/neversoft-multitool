@@ -974,6 +974,75 @@ fitting them — locate the code that loads record `+0x150` (a BizHawk read-watc
 on the table address is the cheapest route, as it was for the art transform) and
 transcribe the walk. Do not emit rail geometry from a fitted layout.
 
+## SURVEYED (2026-08-30): how far the THPS2 implementation reaches across the line
+
+Question asked: how generalizable is the THPS2 work across the rest of the GBA
+corpus on the same engine (THPS2 → Sk8land). Answer: **the level stack is THPS2-only
+today, and the asset container changed at least twice inside that range.**
+
+### Measured, every locator against every cart
+
+| cart | code | levels | carve | collision | skater | tricks | screens |
+|---|---|---|---|---|---|---|---|
+| THPS2 | ATHE | 9 | 26 | 14/14 | yes | 174 | 13 |
+| THPS3 | AT3E | 0 | 0 | – | no | 0 | 0 |
+| THPS4 | AT6E | 0 | 0 | – | no | 0 | 0 |
+| THUG | BTOE | 0 | 0 | – | no | 0 | 0 |
+| THUG2 | B2TE | 0 | 0 | – | no | 0 | 0 |
+| Sk8land | BH9E | 0 | 0 | – | no | 0 | 0 |
+| DHJ | BXSE | 0 | 0 | – | no | 0 | 0 |
+
+Every content locator we have returns zero past THPS2. That is a real result and not
+a bug in the sweep: the same probes rediscover THPS2's own tables from shape alone
+(see the self-check below).
+
+### But the later carts DO carry per-level data — three different containers
+
+**A stride-agnostic search for constant-stride arrays of pointers-to-strings** (a
+level record names its level, so a level table shows up as such a run) finds, in
+every cart from THPS3 to Sk8land, **per-level gap tables**: a run of records each
+opening `[Air Gaps]` and listing that level's named gaps. Stride 0x28 in THPS3,
+0x2C in THPS4, 0x24 in THUG/THUG2/Sk8land, against THPS2's 0xC. So levels exist as
+structured data throughout; they are simply not in THPS2's record.
+
+**A stride-agnostic search for THPS2's art SHAPE** — runs of consecutive ROM
+pointers of which several target decodable BIOS-LZ77 streams, which is what
+THPS2's `+0x2C..+0x3C` block (tile pool, metatile table, plane 0, plane 1, palette)
+looks like — separates the line into three:
+
+- **THPS2** — `repeating cluster stride 0x15C ×13` and `0x4C ×13`. That is the
+  level-record table (14 records) and the character table (15 records), recovered
+  from shape alone with no knowledge of either. **This is the control that makes the
+  negatives above credible.**
+- **THPS3** — 547 LZ77 targets (more than THPS2's 445) but **no repeating art-record
+  stride at all**. Its container is neither THPS2's nor the later carts'.
+- **THPS4 / THUG / THUG2 / Sk8land** — all four share a **0x1C-stride record holding
+  five consecutive LZ77 pointers** plus a trailing raw pointer. Runs of 8, 10, 7 and
+  1+ records; payloads are level-art scale (2–52 KB). Structurally this is the
+  compacted successor to THPS2's five-pointer art block.
+- **Downhill Jam** — **zero** pointer clusters targeting LZ77, and only 94
+  string-pointer sites in the whole 16 MB cart. A different container entirely,
+  consistent with the earlier note that it stores assets largely uncompressed.
+
+### What this means for reuse
+
+Reusable across the line as-is: the **BIOS-LZ77 decoder** (`GbaBiosLz77`), the
+**THUMB interpreter** (`GbaThumbCpu`, it executes whatever ARM7 code it is pointed
+at), and **GAX audio**, which already ships for all seven.
+
+NOT reusable, and each blocked on its own locator: the level table, the collision
+grid (`+0x13C/+0x140/+0x144`), the art origin (`+0x64/+0x68`), the entity table
+(`+0x150`), the skater model, and the trick table. Every one of those is an offset
+inside a record shape that exists only in THPS2.
+
+**The cheapest next step is THPS4→Sk8land, not THPS3.** Four carts share one record
+shape, so identifying its five fields once buys level art on four cartridges. The
+lead is the 0x1C run at THPS4 `0x0BDAA4`, THUG `0x0CE314`, THUG2 `0x0E2F20`,
+Sk8land `0x0FD190`. Note what is NOT yet true: none of those payloads is 512 bytes,
+so the five fields are **not** simply THPS2's five with a palette among them — the
+field roles are unidentified and must be read, not assumed. THPS3 needs its own
+locator, and DHJ its own container RE.
+
 ## Next steps (in order)
 
 1. **Skater model follow-ups** — the u16 normal encoding, the 0x80 face flag,
