@@ -54,7 +54,9 @@ public static class MeshTypeDetector
     [
         ".skin.xbx", ".mdl.xbx", ".scn.xbx",
         ".skin.wpc", ".mdl.wpc", ".scn.wpc",
-        ".skin.ngc", ".mdl.ngc", ".scn.ngc"
+        ".skin.ngc", ".mdl.ngc", ".scn.ngc",
+        ".skin.xen", ".mdl.xen", ".scn.xen",
+        ".skin.ps3", ".mdl.ps3", ".scn.ps3"
     ];
 
     private static readonly string[] Ps2SceneSuffixes = [".iskin.ps2", ".skin.ps2", ".mdl.ps2"];
@@ -179,9 +181,22 @@ public static class MeshTypeDetector
 
     /// <summary>
     ///     How many header bytes <see cref="DetectFromBytes" /> needs to reach the
-    ///     same verdict it would on the whole file. Pinned by a corpus test —
-    ///     a shorter buffer can only downgrade a route to
-    ///     <see cref="MeshFileKind.None" />, never yield a wrong kind.
+    ///     same verdict it would on the whole file. Pinned by
+    ///     <c>MeshProbeByteBudgetTests</c> — a shorter buffer can only downgrade a
+    ///     route to <see cref="MeshFileKind.None" />, never yield a wrong kind.
+    ///     <para>
+    ///         The Xbox-scene family needs far more than a fixed header: its ladder
+    ///         asks <c>NgcSceneFile.IsNgcScene</c> (which refuses anything shorter
+    ///         than its own 64-byte header) and then
+    ///         <c>ThawSceneFile.IsThawScene</c>, which must reach the 0xBABEFACE
+    ///         sentinel PAST the whole material list. This budget was 48 bytes, so
+    ///         both predicates were unreachable and every GameCube and THAW PC scene
+    ///         was rejected by name-then-content detection — measured, all 723 THAW
+    ///         PC scene files require more than 48 bytes (minimum 360, maximum
+    ///         9,144), i.e. the old budget satisfied none of them. Only the GUI
+    ///         scanner escaped, because it runs its own whole-buffer check instead
+    ///         of coming through here.
+    ///     </para>
     /// </summary>
     public static int GetProbeByteBudget(string fileName)
     {
@@ -196,7 +211,7 @@ public static class MeshTypeDetector
         if (Ps2SceneSuffixes.Contains(suffix))
             return 32;
         if (XboxSceneSuffixes.Contains(suffix))
-            return 48;
+            return 256 * 1024;
         if (RenderWareDffSuffixes.Contains(suffix) || string.Equals(suffix, ".bsp", StringComparison.Ordinal))
             return 12;
 
