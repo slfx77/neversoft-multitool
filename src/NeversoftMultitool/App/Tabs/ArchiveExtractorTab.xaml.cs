@@ -98,7 +98,7 @@ public sealed partial class ArchiveExtractorTab : UserControl, IDisposable
                     _archiveType = "CUT";
                     entries = CutArchive.GetFileList(_archivePath);
                     break;
-                case ".pak" or ".apk" or ".ps2" or ".ngc" when PakArchive.IsPakArchive(_archivePath):
+                case ".pak" or ".apk" or ".ps2" or ".ngc" or ".xen" when PakArchive.IsPakArchive(_archivePath):
                     _archiveType = "PAK";
                     entries = PakArchive.GetFileList(_archivePath);
                     break;

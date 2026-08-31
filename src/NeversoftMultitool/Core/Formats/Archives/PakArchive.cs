@@ -22,11 +22,26 @@ namespace NeversoftMultitool.Core.Formats.Archives;
 ///     archive itself (header-relative offsets like LE); entries WITHOUT it live in the
 ///     companion .mpk.ngc at RAW stored offsets (the first companion entry stores 0).
 ///     Self-contained archives pair with a 32-byte 0xAB/0xCD-fill .mpk.ngc placeholder stub.
+///     Xbox 360 (.pak.xen/.pab.xen, measured 2026-08-25 on THAW/Project 8/Proving Ground
+///     X360) ships the same big-endian tables WHOLE-FILE COMPRESSED: THAW wraps both files
+///     in a headerless Okumura LZSS stream (the PRE v3 codec without its 0xABCD0003
+///     header) while Project 8 and Proving Ground wrap them in a headerless raw DEFLATE
+///     stream. Entry offsets are decompressed-space and keep the LE semantics
+///     (header-relative with the pab-overrun fallback — the GC 0x80000000 residency flag
+///     is never used). Proving Ground additionally replaced the table terminator with
+///     QbKey(".last") = 0x2CB3EF3B (the Guitar Hero-era sentinel). THAW X360 entries put
+///     the lowercased-full-path QbKey at +0x0C like GC; Project 8 / Proving Ground
+///     populate +0x10/+0x14 like LE.
 /// </summary>
 public static class PakArchive
 {
     /// <summary>QbKey("last") — sentinel marking end of entry table.</summary>
     private const uint LastSentinel = 0xB524565F;
+
+    /// <summary>
+    ///     QbKey(".last") — the Proving Ground X360 / Guitar Hero-era table terminator.
+    /// </summary>
+    private const uint DotLastSentinel = 0x2CB3EF3B;
 
     /// <summary>Compact entry size (no filename): 8 × u32 = 32 bytes.</summary>
     private const int CompactEntrySize = 0x20;
@@ -115,6 +130,130 @@ public static class PakArchive
             : BitConverter.ToUInt32(data, offset);
     }
 
+    private static bool IsSentinel(uint value)
+    {
+        return value is LastSentinel or DotLastSentinel;
+    }
+
+    /// <summary>
+    ///     Parsing context beyond byte order. Xenon (.pak.xen) and PS3 (.pak.ps3)
+    ///     archives are big-endian but keep the LE companion semantics
+    ///     (header-relative offsets with the pab-overrun fallback — measured on all
+    ///     three X360 builds and on P8 PS3's self-contained raw tables) rather than
+    ///     the GC raw-offset residency flag, and their generated entry names carry
+    ///     the matching platform suffix. <see cref="BeSourceSuffix" /> is null for
+    ///     the GC default.
+    /// </summary>
+    private readonly record struct PakContext(bool BigEndian, string? BeSourceSuffix)
+    {
+        public bool Xenon => BeSourceSuffix != null;
+
+        public string BePlatformSuffix => BeSourceSuffix ?? ".ngc";
+    }
+
+    /// <summary>Whole-file wrapper codec on X360 archives.</summary>
+    internal enum PakWrapperCodec
+    {
+        None,
+        Deflate,
+        Lzss
+    }
+
+    /// <summary>
+    ///     The big-endian platform suffix implied by a source path/entry name:
+    ///     ".xen" (X360) or ".ps3", else null for the GameCube default.
+    /// </summary>
+    private static string? GetBeSourceSuffix(string? pathOrName)
+    {
+        if (pathOrName == null) return null;
+        if (pathOrName.Contains(".xen", StringComparison.OrdinalIgnoreCase)) return ".xen";
+        if (pathOrName.Contains(".ps3", StringComparison.OrdinalIgnoreCase)) return ".ps3";
+        return null;
+    }
+
+    /// <summary>
+    ///     Undoes the X360 whole-file compression wrapper. Raw tables win first so
+    ///     every existing platform is byte-identical in behavior; then a headerless
+    ///     raw-deflate inflate (Project 8 / Proving Ground) and a headerless Okumura
+    ///     LZSS decode (THAW X360) are each accepted only when the decoded bytes
+    ///     validate as a PAK table — decode-then-validate keeps this fail-closed for
+    ///     the raw-data pak families that share the extension.
+    /// </summary>
+    internal static (byte[] Data, PakWrapperCodec Codec) DecodeWrapper(byte[] raw)
+    {
+        if (IsPakTable(raw))
+            return (raw, PakWrapperCodec.None);
+
+        if (TryInflate(raw, out var inflated) && IsPakTable(inflated))
+            return (inflated, PakWrapperCodec.Deflate);
+
+        var lzss = BinaryIO.LzssDecoder.DecodeToEnd(raw);
+        if (IsPakTable(lzss))
+            return (lzss, PakWrapperCodec.Lzss);
+
+        return (raw, PakWrapperCodec.None);
+    }
+
+    /// <summary>
+    ///     Loads an X360 compression-wrapped pak (and its companion) as decompressed
+    ///     buffers for in-memory browsing. Returns false for ordinary raw paks —
+    ///     their entry offsets are file byte ranges the disk-backed filesystem
+    ///     serves directly, whereas a wrapped pak's offsets address decompressed
+    ///     coordinates that only exist in these buffers.
+    /// </summary>
+    public static bool TryLoadCompressedForBrowsing(string pakPath, out byte[] data, out byte[]? pabData)
+    {
+        var (decoded, codec) = DecodeWrapper(File.ReadAllBytes(pakPath));
+        if (codec == PakWrapperCodec.None)
+        {
+            data = [];
+            pabData = null;
+            return false;
+        }
+
+        data = decoded;
+        pabData = HasCompanionData(pakPath)
+            ? DecodeCompanion(File.ReadAllBytes(GetPabPath(pakPath)), codec)
+            : null;
+        return true;
+    }
+
+    /// <summary>Re-applies the pak's wrapper codec to its companion .pab bytes.</summary>
+    private static byte[] DecodeCompanion(byte[] rawPab, PakWrapperCodec codec)
+    {
+        switch (codec)
+        {
+            case PakWrapperCodec.Deflate:
+                if (TryInflate(rawPab, out var inflated))
+                    return inflated;
+                throw new InvalidDataException(
+                    "PAK companion .pab did not inflate with the archive's deflate wrapper.");
+            case PakWrapperCodec.Lzss:
+                return BinaryIO.LzssDecoder.DecodeToEnd(rawPab);
+            default:
+                return rawPab;
+        }
+    }
+
+    private static bool TryInflate(byte[] raw, out byte[] inflated)
+    {
+        try
+        {
+            using var input = new MemoryStream(raw, writable: false);
+            using var deflate = new System.IO.Compression.DeflateStream(
+                input, System.IO.Compression.CompressionMode.Decompress);
+            using var output = new MemoryStream();
+            deflate.CopyTo(output);
+            inflated = output.ToArray();
+            return inflated.Length > 0;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
+        {
+            inflated = [];
+            return false;
+        }
+    }
+
     /// <summary>
     ///     Returns true if the file is a PAK archive (contains at least one QbKey("last") sentinel
     ///     preceded by a valid entry). Detects both little-endian (PS2) and big-endian (GC) layouts.
@@ -131,20 +270,34 @@ public static class PakArchive
         }
     }
 
-    /// <summary>In-memory variant of <see cref="IsPakArchive(string)" />.</summary>
+    /// <summary>
+    ///     In-memory variant of <see cref="IsPakArchive(string)" />. Accepts raw
+    ///     tables and X360 compression-wrapped archives (whose table only exists
+    ///     after undoing the whole-file wrapper).
+    /// </summary>
     public static bool IsPakArchive(byte[] data)
     {
-        return IsPakArchive(data, false) || IsPakArchive(data, true);
+        if (IsPakTable(data))
+            return true;
+
+        var (_, codec) = DecodeWrapper(data);
+        return codec != PakWrapperCodec.None;
     }
 
-    private static bool IsPakArchive(byte[] data, bool bigEndian)
+    /// <summary>Raw (unwrapped) table check shared by detection and wrapper decode.</summary>
+    private static bool IsPakTable(byte[] data)
+    {
+        return IsPakTable(data, false) || IsPakTable(data, true);
+    }
+
+    private static bool IsPakTable(byte[] data, bool bigEndian)
     {
         if (data.Length < CompactEntrySize)
             return false;
 
         for (var i = CompactEntrySize; i <= data.Length - 4; i += 4)
         {
-            if (ReadU32(data, i, bigEndian) != LastSentinel)
+            if (!IsSentinel(ReadU32(data, i, bigEndian)))
                 continue;
 
             if (LooksLikeEntryAt(data, i - CompactEntrySize, false, i, bigEndian))
@@ -162,19 +315,23 @@ public static class PakArchive
     /// </summary>
     public static List<ArchiveEntry> GetFileList(string pakPath)
     {
-        return GetFileListCore(File.ReadAllBytes(pakPath), HasCompanionData(pakPath));
+        var (data, _) = DecodeWrapper(File.ReadAllBytes(pakPath));
+        return GetFileListCore(data, HasCompanionData(pakPath), GetBeSourceSuffix(pakPath));
     }
 
     /// <summary>
     ///     In-memory variant. Callers that have PAK bytes without a filesystem path
     ///     pass <paramref name="hasPab" /> = false (no companion PAB detection).
+    ///     <paramref name="sourceName" /> carries the original file/entry name so
+    ///     .xen archives keep their platform semantics and suffix.
     /// </summary>
-    public static List<ArchiveEntry> GetFileList(byte[] data, bool hasPab = false)
+    public static List<ArchiveEntry> GetFileList(byte[] data, bool hasPab = false, string? sourceName = null)
     {
-        return GetFileListCore(data, hasPab);
+        var (decoded, _) = DecodeWrapper(data);
+        return GetFileListCore(decoded, hasPab, GetBeSourceSuffix(sourceName));
     }
 
-    private static List<ArchiveEntry> GetFileListCore(byte[] data, bool hasPab)
+    private static List<ArchiveEntry> GetFileListCore(byte[] data, bool hasPab, string? beSourceSuffix)
     {
         var entries = new List<ArchiveEntry>();
 
@@ -182,9 +339,10 @@ public static class PakArchive
         if (sentinelPositions.Count == 0)
             return entries;
 
+        var context = new PakContext(bigEndian, beSourceSuffix);
         foreach (var sentinelPos in sentinelPositions)
         {
-            var tableEntries = WalkBackward(data, sentinelPos, bigEndian);
+            var tableEntries = WalkBackward(data, sentinelPos, context);
             foreach (var entry in tableEntries)
             {
                 entry.IsCompressed = hasPab;
@@ -237,16 +395,20 @@ public static class PakArchive
     /// </summary>
     public static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntries(string pakPath)
     {
-        return GetTypedEntriesCore(File.ReadAllBytes(pakPath), HasCompanionData(pakPath));
+        var (data, _) = DecodeWrapper(File.ReadAllBytes(pakPath));
+        return GetTypedEntriesCore(data, HasCompanionData(pakPath), GetBeSourceSuffix(pakPath));
     }
 
     /// <summary>In-memory variant of <see cref="GetTypedEntries(string)" />.</summary>
-    public static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntries(byte[] data, bool hasPab = false)
+    public static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntries(
+        byte[] data, bool hasPab = false, string? sourceName = null)
     {
-        return GetTypedEntriesCore(data, hasPab);
+        var (decoded, _) = DecodeWrapper(data);
+        return GetTypedEntriesCore(decoded, hasPab, GetBeSourceSuffix(sourceName));
     }
 
-    private static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntriesCore(byte[] data, bool hasPab)
+    private static List<(uint TypeHash, ArchiveEntry Entry)> GetTypedEntriesCore(
+        byte[] data, bool hasPab, string? beSourceSuffix)
     {
         var typedEntries = new List<(uint TypeHash, ArchiveEntry Entry)>();
 
@@ -254,10 +416,11 @@ public static class PakArchive
         if (sentinelPositions.Count == 0)
             return typedEntries;
 
+        var context = new PakContext(bigEndian, beSourceSuffix);
         foreach (var sentinelPos in sentinelPositions)
         {
-            var tableStart = FindTableStart(data, sentinelPos, bigEndian);
-            ParseTypedEntries(data, tableStart, sentinelPos, hasPab, bigEndian, typedEntries);
+            var tableStart = FindTableStart(data, sentinelPos, context);
+            ParseTypedEntries(data, tableStart, sentinelPos, hasPab, context, typedEntries);
         }
 
         // Same collision rule as GetFileList so both enumerations agree on names.
@@ -266,13 +429,13 @@ public static class PakArchive
     }
 
     private static void ParseTypedEntries(
-        byte[] data, int tableStart, int sentinelPos, bool hasPab, bool bigEndian,
+        byte[] data, int tableStart, int sentinelPos, bool hasPab, PakContext context,
         List<(uint TypeHash, ArchiveEntry Entry)> output)
     {
         var current = tableStart;
         while (current < sentinelPos && current + CompactEntrySize <= data.Length)
         {
-            var parsed = TryReadTypedEntry(data, current, sentinelPos, hasPab, bigEndian);
+            var parsed = TryReadTypedEntry(data, current, sentinelPos, hasPab, context);
             if (parsed is null)
                 break;
 
@@ -282,10 +445,11 @@ public static class PakArchive
     }
 
     private static ((uint TypeHash, ArchiveEntry Entry) Typed, int EntrySize)? TryReadTypedEntry(
-        byte[] data, int current, int sentinelPos, bool hasPab, bool bigEndian)
+        byte[] data, int current, int sentinelPos, bool hasPab, PakContext context)
     {
+        var bigEndian = context.BigEndian;
         var fileType = ReadU32(data, current, bigEndian);
-        if (fileType == LastSentinel)
+        if (IsSentinel(fileType))
             return null;
 
         var flags = ReadU32(data, current + 0x1C, bigEndian);
@@ -294,18 +458,18 @@ public static class PakArchive
 
         var offset = ReadU32(data, current + 0x04, bigEndian);
         var length = ReadU32(data, current + 0x08, bigEndian);
-        var inCompanion = IsCompanionResident(flags, bigEndian);
+        var inCompanion = IsCompanionResident(flags, context);
         var resolved = inCompanion ? offset : current + offset;
         if (length == 0 || (!inCompanion && resolved <= sentinelPos))
             return null;
 
         var hasFilename = HasEmbeddedFilename(flags);
         var entrySize = hasFilename ? FullEntrySize : CompactEntrySize;
-        var nameOnlyCrc = ReadNameCrc(data, current, bigEndian);
+        var nameOnlyCrc = ReadNameCrc(data, current, context);
 
         var (name, directory) = hasFilename && current + CompactEntrySize + 160 <= data.Length
             ? ParseFilename(data, current + CompactEntrySize)
-            : GenerateName(fileType, nameOnlyCrc, (uint)resolved, bigEndian);
+            : GenerateName(fileType, nameOnlyCrc, (uint)resolved, context);
 
         var entry = new ArchiveEntry
         {
@@ -333,13 +497,15 @@ public static class PakArchive
             return;
 
         var archiveName = Path.GetFileNameWithoutExtension(pakPath);
-        var pakData = File.ReadAllBytes(pakPath);
+        var (pakData, wrapperCodec) = DecodeWrapper(File.ReadAllBytes(pakPath));
 
-        // Load companion data file if present (.pab for PS2, .mpk.ngc for GC)
+        // Load companion data file if present (.pab for PS2/X360, .mpk.ngc for GC).
+        // X360 companions carry the same whole-file wrapper as their pak, and entry
+        // offsets address the DECOMPRESSED coordinates on both sides.
         var pabPath = GetPabPath(pakPath);
         byte[]? pabData = null;
         if (HasCompanionData(pakPath))
-            pabData = File.ReadAllBytes(pabPath);
+            pabData = DecodeCompanion(File.ReadAllBytes(pabPath), wrapperCodec);
 
         var outputRoot = Path.GetFullPath(outputDir);
         var extractionRoot = ArchiveExtractionPath.GetContainedPath(
@@ -471,7 +637,7 @@ public static class PakArchive
             var positions = new List<int>();
             for (var i = 0; i <= data.Length - CompactEntrySize; i += 4)
             {
-                if (ReadU32(data, i, bigEndian) == LastSentinel && i + CompactEntrySize <= data.Length)
+                if (IsSentinel(ReadU32(data, i, bigEndian)) && i + CompactEntrySize <= data.Length)
                     positions.Add(i);
             }
 
@@ -487,20 +653,20 @@ public static class PakArchive
     ///     then parses forward to collect all entries.
     ///     Validation stays conservative so raw-data families are not misclassified as archives.
     /// </summary>
-    private static List<ArchiveEntry> WalkBackward(byte[] data, int sentinelPos, bool bigEndian)
+    private static List<ArchiveEntry> WalkBackward(byte[] data, int sentinelPos, PakContext context)
     {
-        var tableStart = FindTableStart(data, sentinelPos, bigEndian);
-        return ParseEntries(data, tableStart, sentinelPos, bigEndian);
+        var tableStart = FindTableStart(data, sentinelPos, context);
+        return ParseEntries(data, tableStart, sentinelPos, context);
     }
 
-    private static int FindTableStart(byte[] data, int sentinelPos, bool bigEndian)
+    private static int FindTableStart(byte[] data, int sentinelPos, PakContext context)
     {
         var pos = sentinelPos;
 
         while (pos > 0)
         {
-            if (TryStepBack(data, pos, FullEntrySize, true, bigEndian, out var newPos) ||
-                TryStepBack(data, pos, CompactEntrySize, false, bigEndian, out newPos))
+            if (TryStepBack(data, pos, FullEntrySize, true, context.BigEndian, out var newPos) ||
+                TryStepBack(data, pos, CompactEntrySize, false, context.BigEndian, out newPos))
             {
                 pos = newPos;
                 continue;
@@ -527,15 +693,16 @@ public static class PakArchive
         return true;
     }
 
-    private static List<ArchiveEntry> ParseEntries(byte[] data, int start, int sentinelPos, bool bigEndian)
+    private static List<ArchiveEntry> ParseEntries(byte[] data, int start, int sentinelPos, PakContext context)
     {
         var entries = new List<ArchiveEntry>();
         var current = start;
+        var bigEndian = context.BigEndian;
 
         while (current < sentinelPos && current + CompactEntrySize <= data.Length)
         {
             var fileType = ReadU32(data, current, bigEndian);
-            if (fileType == LastSentinel)
+            if (IsSentinel(fileType))
                 break;
 
             var flags = ReadU32(data, current + 0x1C, bigEndian);
@@ -544,18 +711,18 @@ public static class PakArchive
 
             var offset = ReadU32(data, current + 0x04, bigEndian);
             var length = ReadU32(data, current + 0x08, bigEndian);
-            var nameOnlyCrc = ReadNameCrc(data, current, bigEndian);
+            var nameOnlyCrc = ReadNameCrc(data, current, context);
 
             var hasFilename = HasEmbeddedFilename(flags);
             var entrySize = hasFilename ? FullEntrySize : CompactEntrySize;
-            var inCompanion = IsCompanionResident(flags, bigEndian);
+            var inCompanion = IsCompanionResident(flags, context);
             var resolved = inCompanion ? offset : current + offset;
             if (length == 0 || (!inCompanion && resolved <= sentinelPos))
                 break;
 
             var (name, directory) = hasFilename && current + CompactEntrySize + 160 <= data.Length
                 ? ParseFilename(data, current + CompactEntrySize)
-                : GenerateName(fileType, nameOnlyCrc, (uint)resolved, bigEndian);
+                : GenerateName(fileType, nameOnlyCrc, (uint)resolved, context);
 
             entries.Add(new ArchiveEntry
             {
@@ -581,7 +748,7 @@ public static class PakArchive
         var candidateType = ReadU32(data, pos, bigEndian);
         var candidateFlags = ReadU32(data, pos + 0x1C, bigEndian);
         if (candidateType == 0 ||
-            candidateType == LastSentinel ||
+            IsSentinel(candidateType) ||
             !IsValidPakFlags(candidateFlags) ||
             HasEmbeddedFilename(candidateFlags) != hasFilename)
         {
@@ -596,7 +763,10 @@ public static class PakArchive
         // Offsets are relative to the entry header; resolved data must land past
         // the following table region (data always follows the sentinel). GC
         // companion-resident entries store raw .mpk.ngc positions (0 is valid).
-        if (!IsCompanionResident(ReadU32(data, pos + 0x1C, bigEndian), bigEndian) &&
+        // Detection deliberately uses the lenient GC reading for BE entries: a
+        // Xenon entry (flags 0, header-relative offset) also passes it, and the
+        // strict Xenon offset semantics are applied at parse time via PakContext.
+        if (!IsCompanionResident(ReadU32(data, pos + 0x1C, bigEndian), new PakContext(bigEndian, null)) &&
             pos + offset <= nextPos)
             return false;
 
@@ -621,11 +791,14 @@ public static class PakArchive
     /// <summary>
     ///     GC entries without the 0x80000000 flag store their data in the companion
     ///     .mpk.ngc file. Little-endian archives never set the bit and keep the
-    ///     legacy overrun-based companion fallback.
+    ///     legacy overrun-based companion fallback — and so do the big-endian X360
+    ///     .pak.xen archives, whose offsets are always header-relative (measured on
+    ///     THAW/Project 8/Proving Ground X360: entries resolve past the pak end into
+    ///     the decompressed .pab, never as raw companion positions).
     /// </summary>
-    private static bool IsCompanionResident(uint flags, bool bigEndian)
+    private static bool IsCompanionResident(uint flags, PakContext context)
     {
-        return bigEndian && (flags & DataInPakFlag) == 0;
+        return context.BigEndian && !context.Xenon && (flags & DataInPakFlag) == 0;
     }
 
     private static bool LooksLikeFilename(byte[] data, int filenameOffset)
@@ -671,25 +844,38 @@ public static class PakArchive
 
     /// <summary>
     ///     Best name key for an entry. PS2 entries carry the short-name CRC at +0x14
-    ///     (full-path QbKey at +0x10 as fallback); GC entries put the name QbKey at +0x0C.
+    ///     (full-path QbKey at +0x10 as fallback); GC entries put the name QbKey at
+    ///     +0x0C. X360 splits by era: THAW X360 keeps the GC position (+0x0C =
+    ///     QbKey of the lowercased full path, proven against its embedded-name full
+    ///     entries), while Project 8 / Proving Ground leave +0x0C zero and populate
+    ///     +0x14/+0x10 like LE — hence the zero-skipping chain for Xenon.
     /// </summary>
-    private static uint ReadNameCrc(byte[] data, int entryPos, bool bigEndian)
+    private static uint ReadNameCrc(byte[] data, int entryPos, PakContext context)
     {
-        if (bigEndian)
+        var bigEndian = context.BigEndian;
+        if (bigEndian && !context.Xenon)
             return ReadU32(data, entryPos + 0x0C, bigEndian);
+
+        if (bigEndian)
+        {
+            var gcStyle = ReadU32(data, entryPos + 0x0C, bigEndian);
+            if (gcStyle != 0)
+                return gcStyle;
+        }
 
         var nameOnlyCrc = ReadU32(data, entryPos + 0x14, bigEndian);
         return nameOnlyCrc != 0 ? nameOnlyCrc : ReadU32(data, entryPos + 0x10, bigEndian);
     }
 
     private static (string Name, string Directory) GenerateName(
-        uint fileType, uint nameCrc, uint offset, bool bigEndian)
+        uint fileType, uint nameCrc, uint offset, PakContext context)
     {
         var extension = KnownTypes.GetValueOrDefault(fileType, $".{fileType:X8}");
-        // GC archives name their payloads with the platform suffix (e.g. .qb.ngc),
-        // which also keeps extracted files routing to the big-endian parsers.
-        if (bigEndian)
-            extension += ".ngc";
+        // BE archives name their payloads with the platform suffix (e.g. .qb.ngc,
+        // .qb.xen), which also keeps extracted files routing to the big-endian
+        // parsers.
+        if (context.BigEndian)
+            extension += context.BePlatformSuffix;
 
         var resolved = QbKey.QbKey.TryResolve(nameCrc);
         if (resolved != null)

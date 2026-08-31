@@ -83,4 +83,59 @@ public static class LzssDecoder
 
         return output;
     }
+
+    /// <summary>
+    ///     Decompresses a headerless LZSS stream until the input is exhausted.
+    ///     Xbox 360 THAW ships whole-file LZSS-wrapped .pak.xen/.pab.xen with no
+    ///     declared output size, so the decoder runs to end-of-input instead of
+    ///     to a target length. Same ring-buffer semantics as
+    ///     <see cref="Decode(ReadOnlySpan{byte}, int)" />.
+    /// </summary>
+    public static byte[] DecodeToEnd(ReadOnlySpan<byte> compressed)
+    {
+        var output = new MemoryStream(compressed.Length * 2);
+        var textBuf = new byte[RingBufferSize + MatchLimit - 1];
+        textBuf.AsSpan(0, RingBufferSize - MatchLimit).Fill(0x20);
+
+        var r = RingBufferSize - MatchLimit;
+        var inPos = 0;
+        uint flags = 0;
+
+        while (inPos < compressed.Length)
+        {
+            flags >>= 1;
+            if ((flags & 256) == 0)
+            {
+                flags = compressed[inPos++] | 0xFF00u;
+                if (inPos >= compressed.Length) break;
+            }
+
+            if ((flags & 1) != 0)
+            {
+                var c = compressed[inPos++];
+                output.WriteByte(c);
+                textBuf[r++] = c;
+                r &= RingBufferSize - 1;
+            }
+            else
+            {
+                if (inPos + 1 >= compressed.Length) break;
+                int i = compressed[inPos++];
+                int j = compressed[inPos++];
+
+                i |= (j & 0xF0) << 4;
+                j = (j & 0x0F) + Threshold;
+
+                for (var k = 0; k <= j; k++)
+                {
+                    var c = textBuf[(i + k) & (RingBufferSize - 1)];
+                    output.WriteByte(c);
+                    textBuf[r++] = c;
+                    r &= RingBufferSize - 1;
+                }
+            }
+        }
+
+        return output.ToArray();
+    }
 }
