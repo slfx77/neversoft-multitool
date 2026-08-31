@@ -1100,7 +1100,49 @@ f1.Length/12` — **the maximum is `n-1` in every record of every cart** — and
 index appears **at most once** (the non-`FFFF` count equals the distinct count in
 every record). So f0 enumerates objects; it is not a per-cell stamp.
 
-### NOT established: how objects are placed. Four models measured and refuted
+### SOLVED (2026-08-30, same day): placement, read out of the ROM's loader
+
+The four models below were all refuted, and the remedy was the one this project's
+record keeps recommending: **read the consumer instead of fitting the data.**
+
+Route in: the BIOS LZ77 entry is a thunk in a SWI table (THUG2 `0x080564D8`); its
+only caller is a decompress-by-type dispatcher whose wrapper is `Decompress(dst, src)`
+at `0x080527E0`; and of that wrapper's 21 callers, **five are consecutive in one
+function** — the level-art loader at `0x0803FBC8`. It states, in order:
+
+- the RAM globals it fills — art record, elements, grids, metatiles, map, objects;
+- that the **object table is 12 bytes per record** (it divides the decompressed size
+  by 12, then allocates `n * 12`);
+- that raw-vs-compressed is chosen **per field from the flags word's own bytes**:
+  `+0x18` map, `+0x19` objects, `+0x1A` metatiles, elements always compressed. Sk8land
+  gates the grid pool on `+0x1B` as well, so that one is measured per ROM rather than
+  tabled per game;
+- and `(param2 + 0x20) >> 6`, where `param2` is the loader's second argument.
+
+Its caller at `0x0801606A` supplies both arguments and thereby spells the parent
+**level record**: `levelTable + index * 0x44`, the art pointer at `+0x24`, and
+`param2 = u16[+0x00] * 8`. So the level's **pixel size is stated** (the u16 pair,
+scaled by 8) and the **map is that size in 64-pixel cells** — the loader's own
+`(pixelWidth + 32) / 64`.
+
+That closes it, and self-validates: `mapWidth * mapHeight == the map's cell count`
+**exactly, for all 37 records across the four cartridges**, which is what identifies
+the art pointer's offset inside the level record with no per-game table (0x24 on
+THUG/THUG2/Sk8land, 0x38 on THPS4 — each the unique offset satisfying the identity).
+
+The last piece was the map's own reading: it holds **run starts**, not one object per
+cell. Its non-empty entries are strictly increasing from 0 to `objectCount - 1`, so
+cell `c` owns every object up to the next non-empty cell's value, which partitions the
+object table exactly. That is why "each object appears at most once" was true and the
+rectangle-footprint model was nevertheless wrong.
+
+Shipped as `Core/Formats/Gba/GbaLaterLevelArt.cs`: **THPS4 8, THUG 10, THUG2 7,
+Sk8land 12 levels**, all rendering, with THPS2/THPS3/Downhill Jam correctly declined.
+Renders are ink coverage — the art is one bit deep and the colour surface is still
+unidentified, though the level record does carry five raw 512-byte palettes
+(which is why a scan for *compressed* 512-byte payloads found none).
+
+### The four placement models that were refuted first
 
 1. **f1 as a cumulative directory into f0** — refuted: the offset chain is
    non-contiguous (THPS4[0] 53 consecutive of 1780) and never closes on f0's length.
@@ -1115,14 +1157,15 @@ every record). So f0 enumerates objects; it is not a per-cell stamp.
    agreeing between records of the same cart, and **several records score exactly
    0.000 at every width**, i.e. array-adjacent cells share no ink at all.
 
-That last result is the informative one: it says f0's ordering is **not spatial**, so
-no map width exists to be found. Placement must come from somewhere this record does
-not point at. This is the same wall as THPS2's `+0x150` entity table, and it wants
-the same remedy — read the ROM's own consumer rather than fit the data. Do not emit
-a level layout from a fitted map width.
+Model 4's uniform zero was misleading in an instructive way. f0's ordering **is**
+spatial, but its entries are run starts rather than per-cell stamps, so comparing "the
+object at cell c" with "the object at cell c+W" compared the wrong pair — and the ink
+test, being the most specific of the four, failed the hardest on the wrong pairing.
+**A specific oracle fails loudly on a wrong model; that is a reason to doubt the
+model, not only the search.**
 
-Reusable immediately, with no layout claim: the element pool and the per-object art
-decode on all four cartridges.
+The lesson stands regardless: none of these four would have produced the answer, and
+the loader gave it in one sitting.
 
 ## Next steps (in order)
 
