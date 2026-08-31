@@ -9,9 +9,9 @@ internal static class VideoConverterTabOperations
 {
     public static bool IsVideoFile(string path)
     {
-        return OrdinalFileName.HasExtension(path, ".sfd")
-               || OrdinalFileName.HasExtension(path, ".pss")
-               || OrdinalFileName.HasExtension(path, ".bik")
+        // FfmpegVideoFormats owns .sfd/.pss/.bik plus the compound next-gen
+        // .bik.xen and PSP .pmf; .vid/.str have their own in-process decoders.
+        return FfmpegVideoFormats.HasVideoSuffix(path)
                || OrdinalFileName.HasExtension(path, ".vid")
                || OrdinalFileName.HasExtension(path, ".str");
     }
@@ -22,6 +22,10 @@ internal static class VideoConverterTabOperations
             .Where(static path => (OrdinalFileName.HasExtension(path, ".sfd") && IsMpegPsVideoFile(path))
                                   || (OrdinalFileName.HasExtension(path, ".pss") && IsMpegPsVideoFile(path))
                                   || OrdinalFileName.HasExtension(path, ".bik")
+                                  || OrdinalFileName.HasSuffix(Path.GetFileName(path), ".bik.xen")
+                                     && FfmpegVideoFormats.IsBink(path)
+                                  || OrdinalFileName.HasSuffix(Path.GetFileName(path), ".pmf")
+                                     && FfmpegVideoFormats.IsPsmf(path)
                                   || (OrdinalFileName.HasExtension(path, ".vid") && IsVidVideoFile(path))
                                   || (OrdinalFileName.HasExtension(path, ".str") && IsStrVideoFile(path)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -80,9 +84,7 @@ internal static class VideoConverterTabOperations
 
     public static bool IsFfmpegPassthroughFormat(string path)
     {
-        return OrdinalFileName.HasExtension(path, ".sfd")
-               || OrdinalFileName.HasExtension(path, ".pss")
-               || OrdinalFileName.HasExtension(path, ".bik");
+        return FfmpegVideoFormats.HasVideoSuffix(path);
     }
 
     public static bool IsStrVideoFile(string path)

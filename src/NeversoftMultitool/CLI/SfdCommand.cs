@@ -11,7 +11,7 @@ public static class SfdCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing video files (.sfd, .pss, .bik)"
+            Description = "Path to directory containing video files (.sfd, .pss, .bik, .bik.xen, .pmf)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -69,7 +69,7 @@ public static class SfdCommand
         if (sfdFiles.Length == 0)
         {
             AnsiConsole.MarkupLine(
-                "[yellow]No video files (.sfd, .pss, .bik) found in the specified directory.[/]");
+                "[yellow]No video files (.sfd, .pss, .bik, .bik.xen, .pmf) found in the specified directory.[/]");
             return 0;
         }
 
@@ -159,13 +159,7 @@ public static class SfdCommand
     internal static string[] SelectCandidatePaths(IEnumerable<string> paths)
     {
         return paths
-            .Where(static path =>
-            {
-                var extension = Path.GetExtension(path);
-                return extension.Equals(".sfd", StringComparison.OrdinalIgnoreCase) ||
-                       extension.Equals(".pss", StringComparison.OrdinalIgnoreCase) ||
-                       extension.Equals(".bik", StringComparison.OrdinalIgnoreCase);
-            })
+            .Where(static path => FfmpegVideoFormats.IsFfmpegVideo(path))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
     }
@@ -174,7 +168,11 @@ public static class SfdCommand
     {
         return paths
             .GroupBy(
-                static path => Path.GetFileNameWithoutExtension(path) ?? string.Empty,
+                // Must use the same compound-suffix rule the converter names its
+                // output with, or foo.bik and foo.bik.xen produce two distinct
+                // keys but one output file — a silent overwrite instead of the
+                // duplicate-stem error this guard exists to raise.
+                static path => FfmpegVideoFormats.GetOutputStem(path),
                 StringComparer.Ordinal)
             .Where(static group => group.Count() > 1)
             .Select(static group => group.Key)

@@ -7,6 +7,31 @@ internal static class FormatProbeVideo
 {
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
+        var name = Path.GetFileName(filePath);
+
+        // Compound next-gen suffixes must be tested before the single-extension
+        // switch, which sees only ".xen" for foo.bik.xen.
+        if (OrdinalFileName.HasSuffix(name, ".bik.xen"))
+        {
+            return FfmpegVideoFormats.IsBink(filePath)
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "BIK Video (Xenon/PS3)")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported, "BIK Video", "Not a Bink stream");
+        }
+
+        if (OrdinalFileName.HasSuffix(name, ".pmf"))
+        {
+            // PSMF carries ATRAC3+ audio ffmpeg cannot decode, so the video
+            // converts but the soundtrack does not — partial, not supported.
+            return FfmpegVideoFormats.IsPsmf(filePath)
+                ? new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.PartiallySupported,
+                    "PSMF Video (PSP)",
+                    "Video converts; ATRAC3+ audio is not decodable")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported, "PSMF Video", "Not a valid PSMF container");
+        }
+
         var ext = Path.GetExtension(filePath);
         return ext.ToLowerInvariant() switch
         {

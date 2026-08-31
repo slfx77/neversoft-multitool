@@ -143,7 +143,7 @@ public static partial class SfdConverter
 
         Directory.CreateDirectory(outputDir);
         var outputPath = Path.Combine(outputDir,
-            Path.GetFileNameWithoutExtension(inputPath) + ".mp4");
+            FfmpegVideoFormats.GetOutputStem(inputPath) + ".mp4");
 
         var probe = Probe(inputPath);
         var totalSeconds = probe?.Duration.TotalSeconds ?? 0;
@@ -164,8 +164,20 @@ public static partial class SfdConverter
             }
             else
             {
+                // Without an explicit map ffmpeg keeps only the FIRST audio
+                // stream. Bink ships language tracks — 361 of the corpus's
+                // 1,062 .bik.xen carry more than one (up to 16) — so the
+                // default silently discarded them. Both maps are optional so
+                // video-only and audio-only sources still convert.
+                // PSP PSMF is the exception: its ATRAC3+ audio is a private
+                // stream ffmpeg cannot decode, so those convert video-only
+                // rather than failing the file outright.
+                var streamMap = FfmpegVideoFormats.IsAudioUndecodable(inputPath)
+                    ? "-map 0:v:0? -an"
+                    : "-map 0:v:0? -map 0:a?";
                 arguments =
-                    $"-y -i \"{inputPath}\" {VideoEncodeArgs(previewQuality)} -c:a aac -b:a 192k \"{outputPath}\"";
+                    $"-y -i \"{inputPath}\" {streamMap} {VideoEncodeArgs(previewQuality)} " +
+                    $"-c:a aac -b:a 192k \"{outputPath}\"";
             }
 
             var result = RunFfmpeg(ffmpeg, arguments, outputPath, totalSeconds, progress, cancellationToken);
