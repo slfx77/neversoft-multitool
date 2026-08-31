@@ -73,8 +73,17 @@ public sealed class AnimationDiscoveryTests(TestPaths paths)
         });
 
         Assert.Equal($"anim_{selected.ClipIndex}", Assert.Single(document.Animations).Name);
-        Assert.All(document.Meshes.SelectMany(static mesh => mesh.Primitives),
-            static primitive => Assert.NotNull(primitive.Skin));
+
+        // The skater exports as morph targets rather than a 172-bone rig, so a
+        // primitive carries this clip's poses and no skin — the bone count above is
+        // what the ANIMATION pane matches on, not what the mesh is built with.
+        Assert.All(document.Meshes.SelectMany(static mesh => mesh.Primitives), primitive =>
+        {
+            Assert.Null(primitive.Skin);
+            Assert.NotEmpty(primitive.MorphTargets);
+            Assert.All(primitive.MorphTargets, target =>
+                Assert.StartsWith($"anim_{selected.ClipIndex}_f", target.Name, StringComparison.Ordinal));
+        });
     }
 
     [CorpusFact]
