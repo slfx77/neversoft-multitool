@@ -188,7 +188,7 @@ public static class NdsMeshCommand
                 ? NdsSetNames.IsLevel(setName)
                 : NdsModelSetBounds.IsWorldScale(ReadGeometry(container, members));
             var name = setName != null
-                ? NdsSetNames.ToStem(setName)
+                ? NdsSetNames.ToStem(NdsSetNames.DisplayName(setName))
                 : $"{(isLevel ? "level" : "set")}_{idA:x8}";
 
             var composed = NdsLevelComposer.Compose(

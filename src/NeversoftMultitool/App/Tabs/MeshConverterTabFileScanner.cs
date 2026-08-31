@@ -322,11 +322,14 @@ internal static class MeshConverterTabFileScanner
             // The row's source is one piece of the set; the parser reads the set id
             // back off it and composites the rest from the container.
             var first = pieces.OrderBy(p => p.FileName, StringComparer.Ordinal).First();
+            // Shown and exported without the exporter's _Visual tag; the authored
+            // name keeps it, and everything that matches on it still uses that.
+            var display = NdsSetNames.DisplayName(setName);
             rows.Add(new MeshFileEntry
             {
-                FileName = NdsSetNames.ToStem(setName),
+                FileName = NdsSetNames.ToStem(display),
                 FilePath = $"{containerPath}::{setName}",
-                RelativePath = setName,
+                RelativePath = display,
                 Format = "DS Level",
                 ObjectCount = pieces.Count,
                 MeshCount = pieces.Sum(p => p.MeshCount),

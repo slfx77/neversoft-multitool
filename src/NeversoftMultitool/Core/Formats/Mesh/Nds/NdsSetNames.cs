@@ -99,6 +99,23 @@ public static class NdsSetNames
     }
 
     /// <summary>
+    ///     The name to SHOW a set under, and to export it as.
+    ///
+    ///     <c>_Visual</c> is the exporter's tag marking which of a level's sets holds
+    ///     its drawable geometry — the level itself is <c>Level_Alcatraz</c>, and its
+    ///     collision file is spelled that way too. The authored name keeps the suffix
+    ///     and everything that MATCHES on it still uses the authored form:
+    ///     <see cref="IsLevel" /> and the <c>.prp</c> pairing both read the real name.
+    /// </summary>
+    public static string DisplayName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return name.EndsWith(LevelSuffix, StringComparison.Ordinal)
+            ? name[..^LevelSuffix.Length]
+            : name;
+    }
+
+    /// <summary>
     ///     A set name reduced to a filesystem-safe export stem. Names are already
     ///     plain identifiers in every shipped cart; this only guards the general case.
     /// </summary>
