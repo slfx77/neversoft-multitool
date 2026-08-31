@@ -160,7 +160,7 @@ public sealed class BlendMorphPackageWriterTests(TestPaths paths)
     }
 
     /// <summary>
-    ///     The real skater: 46 primitives sharing one clip's 18 distinct poses,
+    ///     The real skater: 44 primitives sharing one clip's 18 distinct poses,
     ///     every delta buffer parallel to its own primitive and every key naming
     ///     exactly one pose — the same shape the glTF weights track carries.
     /// </summary>
@@ -177,7 +177,10 @@ public sealed class BlendMorphPackageWriterTests(TestPaths paths)
 
         var primitives = manifest.RootElement.GetProperty("Meshes")[0]
             .GetProperty("Primitives");
-        Assert.Equal(46, primitives.GetArrayLength());
+        // 44, not the whole 46: a character draws only the sub-objects its own
+        // roster mask names (see the per-character parts fix), so this skater
+        // wears neither the hood nor the other leg style.
+        Assert.Equal(44, primitives.GetArrayLength());
         foreach (var primitive in primitives.EnumerateArray())
         {
             var vertexCount = primitive.GetProperty("VertexCount").GetInt32();
