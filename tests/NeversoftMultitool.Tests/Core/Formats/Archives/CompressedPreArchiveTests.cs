@@ -1,4 +1,5 @@
 using System.Text;
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Archives;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Archives;
@@ -7,6 +8,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
 {
     private const uint VersionV2 = 0xABCD0002;
     private const uint VersionV3 = 0xABCD0003;
+    private const uint VersionV4 = 0xABCD0004;
     private const uint RawEntryChecksum = 0x11223344;
     private const uint CompressedEntryChecksum = 0x55667788;
 
@@ -14,6 +16,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
     private const string Thps3Ps2Build = "Tony Hawk's Pro Skater 3 (2001-10-22, PS2 - Final)";
     private const string Thug2XboxBuild = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
     private const string Thug2WindowsBuild = "Tony Hawks Underground 2 (2004-10-4, Windows - Final)";
+    private const string RemixPspBuild = "Tony Hawk's Underground 2 Remix (2005-2-15, PSP - Final)";
 
     [CorpusFact]
     public void IsCompressedPre_WithPs1PreFile_ReturnsFalse()
@@ -30,27 +33,30 @@ public class CompressedPreArchiveTests(TestPaths paths)
     /// <summary>
     ///     The plain-v1 PRE parser has no magic and is the fall-through for
     ///     anything IsCompressedPre declines, so an UNKNOWN compressed version
-    ///     (a future 0xABCD0004) used to garbage-parse there - its first dword
+    ///     (a future 0xABCD0005) used to garbage-parse there - its first dword
     ///     is totalFileSize, not an entry count. It must refuse instead.
-    ///     Guard added 2026-08-04 (THPS3/THPS4 PS1 corpus bring-up).
+    ///     Guard added 2026-08-04 (THPS3/THPS4 PS1 corpus bring-up); the example
+    ///     version moved 0xABCD0004 -> 0xABCD0005 when the Remix PSP v4 shipped.
     /// </summary>
     [Fact]
     public void PlainPreParser_RefusesUnknownCompressedPreVersions()
     {
         var bytes = new byte[32];
         BitConverter.GetBytes(32).CopyTo(bytes, 0);            // totalFileSize
-        BitConverter.GetBytes(0xABCD0004u).CopyTo(bytes, 4);   // unknown version
+        BitConverter.GetBytes(0xABCD0005u).CopyTo(bytes, 4);   // unknown version
         BitConverter.GetBytes(1).CopyTo(bytes, 8);             // "numEntries"
 
         Assert.False(CompressedPreArchive.IsCompressedPre(bytes));
         var exception = Assert.Throws<InvalidDataException>(() => PreArchive.GetFileList(bytes));
-        Assert.Contains("0xABCD0004", exception.Message);
+        Assert.Contains("0xABCD0005", exception.Message);
     }
 
     [Theory]
     [InlineData(0x6F663273L, false)]
     [InlineData(0xABCD0002L, true)]
     [InlineData(0xABCD0003L, true)]
+    [InlineData(0xABCD0004L, true)]
+    [InlineData(0xABCD0005L, false)]
     public void IsCompressedPre_GeneratedHeader_RecognizesOnlySupportedVersions(long versionValue, bool expected)
     {
         var version = checked((uint)versionValue);
@@ -85,6 +91,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
     [Theory]
     [InlineData(0xABCD0002L, 0L, 0L)]
     [InlineData(0xABCD0003L, 0x11223344L, 0x55667788L)]
+    [InlineData(0xABCD0004L, 0x11223344L, 0x55667788L)]
     public void GetFileList_GeneratedArchive_ListsRawAndCompressedEntries(
         long versionValue, long expectedRawChecksum, long expectedCompressedChecksum)
     {
@@ -415,6 +422,54 @@ public class CompressedPreArchiveTests(TestPaths paths)
         Assert.True(totalEntries > 0);
     }
 
+    /// <summary>
+    ///     THUG2 Remix PSP ships every datap PRE as v4 (0xABCD0004): the v3
+    ///     layout plus one extra header u32 (an unclaimed expanded-size-like
+    ///     value the parser skips). Pins the full 157-file corpus: exact entry
+    ///     counts, the checksum rule (QbKey of the lowercased name with '/'
+    ///     canonicalized to '\' — forward-slash names hash their backslash
+    ///     form), and that every compressed payload LZSS-decodes to its
+    ///     declared size.
+    /// </summary>
+    [CorpusFact]
+    public void GetFileList_RemixPspV4Corpus_ParsesWithProvenChecksumsAndLzss()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var preFiles = paths.FindSampleFiles(RemixPspBuild, "*.pre")
+            .OrderBy(static f => f, StringComparer.Ordinal)
+            .ToList();
+        Assert.SkipWhen(preFiles.Count == 0, "Remix PSP build not present");
+        Assert.Equal(157, preFiles.Count);
+
+        var totalEntries = 0;
+        var compressedEntries = 0;
+        foreach (var preFile in preFiles)
+        {
+            Assert.True(CompressedPreArchive.IsCompressedPre(preFile));
+            var data = File.ReadAllBytes(preFile);
+            Assert.Equal(0xABCD0004u, BitConverter.ToUInt32(data, 4));
+
+            var entries = CompressedPreArchive.GetFileList(data);
+            foreach (var entry in entries)
+            {
+                totalEntries++;
+                var canonical = entry.FullName.Replace('/', '\\');
+                Assert.Equal(entry.Crc, NeversoftMultitool.Core.QbKey.QbKey.HashLower(canonical));
+
+                if (!entry.IsCompressed)
+                    continue;
+                compressedEntries++;
+                var payload = data.AsSpan((int)entry.Offset, (int)entry.CompressedSize).ToArray();
+                var decoded = LzssDecoder.Decode(payload, (int)entry.Size);
+                Assert.Equal(entry.Size, decoded.Length);
+            }
+        }
+
+        Assert.Equal(15_624, totalEntries);
+        Assert.Equal(8_100, compressedEntries);
+    }
+
     // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
@@ -470,7 +525,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
 
     private static byte[] BuildSyntheticPre(uint version)
     {
-        if (version is not VersionV2 and not VersionV3)
+        if (version is not VersionV2 and not VersionV3 and not VersionV4)
             throw new ArgumentOutOfRangeException(nameof(version));
 
         using var stream = new MemoryStream();
@@ -478,6 +533,8 @@ public class CompressedPreArchiveTests(TestPaths paths)
         writer.Write(0); // Patched with the completed archive size below.
         writer.Write(version);
         writer.Write(2);
+        if (version == VersionV4)
+            writer.Write(0xDEAD_BEEF); // v4 extension dword: unclaimed, must be skipped.
 
         WriteSyntheticEntry(writer, version, "folder\\raw.bin", [0x10, 0x20, 0x30], null, RawEntryChecksum);
         WriteSyntheticEntry(writer, version, "packed.bin", "Hello!!!"u8.ToArray(),
@@ -502,7 +559,7 @@ public class CompressedPreArchiveTests(TestPaths paths)
         writer.Write(compressedData?.Length ?? 0);
         writer.Write(nameFieldSize);
         writer.Write((short)0);
-        if (version == VersionV3)
+        if (version is VersionV3 or VersionV4)
             writer.Write(checksum);
 
         writer.Write(nameBytes);

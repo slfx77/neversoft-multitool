@@ -93,7 +93,7 @@ public static class RecursiveUnpacker
                 WadArchive.ExtractFiles(archivePath, outputDir, null, ct);
                 break;
             case ".pre" or ".prd" or ".prf" or ".prg" or ".prx":
-                ExtractPreFamily(archivePath, outputDir, ext, ct);
+                ExtractPreFamily(archivePath, outputDir, ct);
                 break;
             case ".pkr":
                 PkrArchive.ExtractFiles(archivePath, outputDir, null, ct);
@@ -137,9 +137,13 @@ public static class RecursiveUnpacker
         }
     }
 
-    private static void ExtractPreFamily(string archivePath, string outputDir, string ext, CancellationToken ct)
+    private static void ExtractPreFamily(string archivePath, string outputDir, CancellationToken ct)
     {
-        if (ext == ".prx" || CompressedPreArchive.IsCompressedPre(archivePath))
+        // Every genuine Neversoft .prx is a compressed PRE and passes the
+        // content check; a Sony PSP firmware .prx falls through to the plain
+        // parser's explicit refusal (the scan already skips them as
+        // "PRE3 (raw)", so this path only sees them via direct calls).
+        if (CompressedPreArchive.IsCompressedPre(archivePath))
             CompressedPreArchive.ExtractFiles(archivePath, outputDir, null, ct);
         else
             PreArchive.ExtractFiles(archivePath, outputDir, null, ct);

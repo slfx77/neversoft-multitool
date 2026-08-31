@@ -85,7 +85,10 @@ public static class ArchiveTypeDetector
         {
             ".wad" => "WAD",
             ".pre" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3" : "PRE",
-            ".prx" => "PRE3",
+            // PSP firmware ships Sony's own .prx (PlayStation Relocatable
+            // eXecutable) modules under Modules/, so the Neversoft Xbox
+            // compressed-PRE reading must be content-gated, not assumed.
+            ".prx" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3" : "PRE3 (raw)",
             ".prd" or ".prg" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3 (German)" : "PRE (German)",
             ".prf" => CompressedPreArchive.IsCompressedPre(filePath) ? "PRE3 (French)" : "PRE (French)",
             ".pkr" => "PKR",

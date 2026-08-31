@@ -5,23 +5,30 @@ using NeversoftMultitool.Core.BinaryIO;
 namespace NeversoftMultitool.Core.Formats.Archives;
 
 /// <summary>
-///     Extracts files from Neversoft PRE v2/v3 archives with LZSS compression.
-///     Used in THPS3, THPS4, THUG, THUG2, and THAW (PS2, Xbox, GameCube).
-///     Xbox variant uses .prx extension. Format documented in THUG source: Sys/File/PRE.cpp.
+///     Extracts files from Neversoft PRE v2/v3/v4 archives with LZSS compression.
+///     Used in THPS3, THPS4, THUG, THUG2, THAW (PS2, Xbox, GameCube) and THUG2
+///     Remix (PSP). Xbox variant uses .prx extension. Format documented in THUG
+///     source: Sys/File/PRE.cpp.
 ///     Header (12 bytes): totalFileSize(i32) + version(i32) + numEntries(i32)
+///     V4 (PSP) appends one more header u32 — close to (but not exactly derivable
+///     as) the archive's in-memory expanded size; the formula is unproven and the
+///     value is not needed for parsing, so it is read and ignored.
 ///     V2 per entry: dataSize(i32) + compressedDataSize(i32) + nameSize(i16) + reserved(i16)
 ///     + name(nameSize bytes) + data(pad4(actualSize))
-///     V3 per entry: dataSize(i32) + compressedDataSize(i32) + nameSize(i16) + reserved(i16)
+///     V3/V4 per entry: dataSize(i32) + compressedDataSize(i32) + nameSize(i16) + reserved(i16)
 ///     + checksum(u32) + name(nameSize bytes) + data(pad4(actualSize))
+///     The V3/V4 checksum is QbKey of the lowercased name with '/' canonicalized
+///     to '\' (measured exact over all 15,624 Remix PSP entries).
 /// </summary>
 public static class CompressedPreArchive
 {
     private const uint VersionV2 = 0xABCD0002; // THPS3/THPS4 (no checksum field)
     private const uint VersionV3 = 0xABCD0003; // THUG+ (has checksum field)
+    private const uint VersionV4 = 0xABCD0004; // THUG2 Remix PSP (extra header u32)
     private const int HeaderSize = 12;
 
     /// <summary>
-    ///     Returns true if the file is a compressed PRE archive (v2/v3, has 0xABCDxxxx version).
+    ///     Returns true if the file is a compressed PRE archive (v2/v3/v4, has 0xABCDxxxx version).
     /// </summary>
     public static bool IsCompressedPre(string filePath)
     {
@@ -30,7 +37,7 @@ public static class CompressedPreArchive
         using var reader = new BinaryReader(stream);
         reader.ReadInt32(); // totalFileSize
         var version = reader.ReadUInt32();
-        return version is VersionV2 or VersionV3;
+        return version is VersionV2 or VersionV3 or VersionV4;
     }
 
     /// <summary>
@@ -40,7 +47,7 @@ public static class CompressedPreArchive
     {
         if (data.Length < HeaderSize) return false;
         var version = BinaryPrimitives.ReadUInt32LittleEndian(data[4..]);
-        return version is VersionV2 or VersionV3;
+        return version is VersionV2 or VersionV3 or VersionV4;
     }
 
     public static List<ArchiveEntry> GetFileList(string prePath)
@@ -65,12 +72,20 @@ public static class CompressedPreArchive
         EnsureAvailable(stream, HeaderSize, "header");
         _ = reader.ReadInt32(); // totalFileSize (not needed for parsing)
         var version = reader.ReadUInt32();
-        if (version is not VersionV2 and not VersionV3)
+        if (version is not VersionV2 and not VersionV3 and not VersionV4)
             throw new InvalidDataException(
-                $"Not a PRE v3 archive: version 0x{version:X8} (expected 0xABCD0002 or 0xABCD0003)");
+                $"Not a compressed PRE archive: version 0x{version:X8} " +
+                "(expected 0xABCD0002, 0xABCD0003, or 0xABCD0004)");
 
         var numEntries = reader.ReadInt32();
-        var hasChecksum = version == VersionV3;
+        if (version == VersionV4)
+        {
+            // The PSP header's fourth dword is unclaimed (see class doc).
+            EnsureAvailable(stream, sizeof(uint), "v4 header extension");
+            _ = reader.ReadUInt32();
+        }
+
+        var hasChecksum = version is VersionV3 or VersionV4;
         var entryHeaderSize = hasChecksum ? 16 : 12;
         if (numEntries < 0 || numEntries > (stream.Length - stream.Position) / entryHeaderSize)
             throw new InvalidDataException(

@@ -39,7 +39,7 @@ public static class PreArchive
 
         // The plain-v1 layout has NO magic, so it is the fall-through for
         // anything IsCompressedPre declines. A compressed PRE whose version
-        // dword is 0xABCD-shaped but UNKNOWN (a future 0xABCD0004) would land
+        // dword is 0xABCD-shaped but UNKNOWN (a future 0xABCD0005) would land
         // here and garbage-parse: its first dword is totalFileSize, not an
         // entry count. Refuse it explicitly instead (guard added 2026-08-04
         // while bringing up the THPS3/THPS4 PS1 corpus).
@@ -51,7 +51,7 @@ public static class PreArchive
             {
                 throw new InvalidDataException(
                     $"Unsupported compressed-PRE version 0x{maybeVersion:X8} " +
-                    "(expected 0xABCD0002 or 0xABCD0003); refusing the plain-PRE fallback.");
+                    "(expected 0xABCD0002 through 0xABCD0004); refusing the plain-PRE fallback.");
             }
         }
 

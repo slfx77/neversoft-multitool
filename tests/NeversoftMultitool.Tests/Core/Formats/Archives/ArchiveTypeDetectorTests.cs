@@ -36,7 +36,7 @@ public sealed class ArchiveTypeDetectorTests
                 Assert.Null(ArchiveTypeDetector.DetectAssetType(path));
             }
 
-            File.WriteAllBytes(path, CreateCompressedPreHeader(0xABCD0004));
+            File.WriteAllBytes(path, CreateCompressedPreHeader(0xABCD0005));
             Assert.Null(ArchiveTypeDetector.DetectAssetType(path));
         }
         finally
@@ -57,13 +57,38 @@ public sealed class ArchiveTypeDetectorTests
 
         Assert.Null(ArchiveTypeDetector.DetectNestedAssetType(
             "nested.prx",
-            CreateCompressedPreHeader(0xABCD0004)));
+            CreateCompressedPreHeader(0xABCD0005)));
+    }
+
+    /// <summary>
+    ///     PSP builds ship Sony's own firmware .prx (PlayStation Relocatable
+    ///     eXecutable) modules under Modules/, which share only the extension
+    ///     with Neversoft's Xbox compressed-PRE .prx. They must classify as
+    ///     "(raw)" so the recursive unpacker skips them instead of erroring
+    ///     (13 such modules per PSP build).
+    /// </summary>
+    [Fact]
+    public void Classify_SonyFirmwarePrx_IsRawNotPre()
+    {
+        var path = CreateTempPath(".prx");
+        try
+        {
+            // A real module starts "~PSP"; any non-0xABCDxxxx dword behaves the same.
+            File.WriteAllBytes(path, [0x7E, 0x50, 0x53, 0x50, 0x06, 0x10, 0x01, 0x00, 0, 0, 0, 0, 0, 0, 0, 0]);
+            Assert.Equal("PRE3 (raw)", ArchiveTypeDetector.Classify(path));
+            Assert.Null(ArchiveTypeDetector.DetectAssetType(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Theory]
     [InlineData(0xABCD0002u, ".prx", 0)]
     [InlineData(0xABCD0003u, ".PRX", 0)]
     [InlineData(0xABCD0003u, ".PrX", 5)]
+    [InlineData(0xABCD0004u, ".prx", 0)]
     public void DetectAssetTypes_ValidPrxHeader_ReturnCompressedPre(
         uint version,
         string extension,
