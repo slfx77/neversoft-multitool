@@ -438,7 +438,7 @@ public sealed class FntFileTests(TestPaths paths)
         // that keeps its strokes whole, and the two layouts land on opposite orders.
         Assert.Equal(0, palettedDisagree);
         Assert.Equal(0, compactDisagree);
-        Assert.Equal(382, palettedAgree);
+        Assert.Equal(408, palettedAgree);
         Assert.Equal(1, compactAgree);
         Assert.Equal(0, noEvidence);
     }
@@ -543,14 +543,17 @@ public sealed class FntFileTests(TestPaths paths)
             });
         }
 
-        Assert.Equal(443, files.Length);
-        Assert.Equal(382, paletted);
+        // 443 through 2026-08-23; +26 paletted PS1 fonts with the THPS2 E3 demo
+        // and +16 THAW-class rejects with the Project 8 PSP builds (2026-08-24).
+        Assert.Equal(485, files.Length);
+        Assert.Equal(408, paletted);
         Assert.Equal(1, intensity);
-        // 48 THAW plus 12 THPS3-PS2 files share the extension and are genuinely other formats.
-        Assert.Equal(60, rejected);
-        Assert.Equal(19777, glyphs);
-        // Baseline is signed: 18 glyphs sit entirely below the text baseline.
-        Assert.Equal(18, negativeBaselines);
+        // 48 THAW, 12 THPS3-PS2 and 16 Project 8 PSP files share the extension
+        // and are genuinely other formats.
+        Assert.Equal(76, rejected);
+        Assert.Equal(20883, glyphs);
+        // Baseline is signed: 19 glyphs sit entirely below the text baseline.
+        Assert.Equal(19, negativeBaselines);
         // Both are Spider-Man sp_fnt01 copies (DC prototype and PC final).
         Assert.Equal(2, unreferencedMagentaEntries);
     }

@@ -53,9 +53,12 @@ public class QbFileTests(TestPaths paths)
         var totalScripts = 0;
         var totalGlobals = 0;
 
-        // 4,746 through 2026-08-19; +356 loose THPS4-era .qb when the THPS4 PC
-        // build (Aspyr two-CD install media) joined the corpus on 2026-08-20.
-        Assert.Equal(5_102, files.Length);
+        // 4,746 through 2026-08-19; +356 loose THPS4-era .qb with the THPS4 PC
+        // build on 2026-08-20; +819 when the THUG2 Remix PSP build joined on
+        // 2026-08-24 — the PSP port's .qb are the classic THPS3-THUG2 token
+        // stream and every one parses with the existing grammar; +427 more on
+        // 2026-08-26 when PRE v4 support extracted the Remix datap PREs.
+        Assert.Equal(6_348, files.Length);
 
         foreach (var file in files)
         {
@@ -78,11 +81,12 @@ public class QbFileTests(TestPaths paths)
         Assert.True(errors.Count == 0,
             $"Failed to parse {errors.Count}/{files.Length} files:\n{string.Join("\n", errors)}");
         Assert.Equal(files.Length, parsed);
-        // Aggregates re-pinned 2026-08-20 when the THPS4 PC build's 356 loose
-        // .qb joined the corpus: +1,808,108 tokens, +705 scripts, +286 globals.
-        Assert.Equal(18_941_748L, totalTokens);
-        Assert.Equal(63_247, totalScripts);
-        Assert.Equal(1_607_667, totalGlobals);
+        // Aggregates re-pinned 2026-08-24 when the THUG2 Remix PSP build's 819
+        // .qb joined the corpus, and again 2026-08-26 for the 427 PRE-extracted
+        // Remix .qb (+1,631,079 tokens, +5,677 scripts, +266,798 globals).
+        Assert.Equal(22_992_212L, totalTokens);
+        Assert.Equal(77_749, totalScripts);
+        Assert.Equal(2_259_078, totalGlobals);
     }
 
     [Fact]
@@ -202,9 +206,11 @@ public class QbFileTests(TestPaths paths)
         var totalOutputChars = 0L;
         var escapedQuotes = 0L;
 
-        // 4,746 through 2026-08-19; +356 loose THPS4-era .qb when the THPS4 PC
-        // build (Aspyr two-CD install media) joined the corpus on 2026-08-20.
-        Assert.Equal(5_102, files.Length);
+        // 4,746 through 2026-08-19; +356 loose THPS4-era .qb with the THPS4 PC
+        // build on 2026-08-20; +819 THUG2 Remix PSP .qb on 2026-08-24; +427
+        // PRE-extracted Remix .qb on 2026-08-26 — every one decompiles through
+        // the existing THPS3-THUG2 path.
+        Assert.Equal(6_348, files.Length);
 
         foreach (var file in files)
         {
@@ -228,12 +234,13 @@ public class QbFileTests(TestPaths paths)
         Assert.Equal(files.Length, decompiled);
 
         // Single-quoted local strings escape any quote they contain, one added
-        // character each. The corpus holds 198 of them (183 through 2026-08-19,
-        // +15 in the THPS4 PC build's loose .qb), which is exactly the
+        // character each. The corpus holds 228 of them (183 through 2026-08-19,
+        // +15 in the THPS4 PC build's loose .qb, +15 in the THUG2 Remix PSP
+        // build, +15 in the Remix PRE-extracted copies), which is exactly the
         // difference from the pre-escaping total — so the pin below is derived
         // from that cause rather than copied off a failure.
-        Assert.Equal(198L, escapedQuotes);
-        Assert.Equal(115_715_493L + escapedQuotes, totalOutputChars);
+        Assert.Equal(228L, escapedQuotes);
+        Assert.Equal(139_819_449L + escapedQuotes, totalOutputChars);
     }
 
     [Fact]

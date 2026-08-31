@@ -305,8 +305,10 @@ public sealed class PsxAnimationBankTests(TestPaths paths)
         }
 
         // Just over half the shipped direct clips are tweened, so the choice is
-        // not a corner case: it changes the last frame of 3,599 clips.
-        Assert.Equal(7_097, directClips);
+        // not a corner case: it changes the last frame of 3,599 clips. (The
+        // THPS2 E3 demo added 43 direct clips on 2026-08-24; the tweened set
+        // is unchanged, keeping the Apocalypse/Spider-Man-only claim intact.)
+        Assert.Equal(7_140, directClips);
         Assert.Equal(3_599, tweenedClips);
 
         // Apocalypse (1998) plus the whole Spider-Man lineage — PSX protos and

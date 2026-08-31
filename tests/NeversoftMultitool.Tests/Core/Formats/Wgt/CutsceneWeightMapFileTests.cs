@@ -213,7 +213,10 @@ public sealed class CutsceneWeightMapFileTests(TestPaths paths)
             .OrderBy(static file => file.RelativeWindowsPath, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(16, files.Length);
+        // 16 through 2026-08-23; +4 version-2 .wgt.ps2 rejects when the THUG2
+        // Remix PSP build joined on 2026-08-24 (the accepted v1 set is
+        // unchanged, so every accepted-set pin below still holds).
+        Assert.Equal(20, files.Length);
         using var pathContentHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var concatenatedContentHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var accepted = 0;
@@ -260,7 +263,7 @@ public sealed class CutsceneWeightMapFileTests(TestPaths paths)
         }
 
         Assert.Equal(12, accepted);
-        Assert.Equal(4, rejectedVersion2);
+        Assert.Equal(8, rejectedVersion2);
         Assert.Equal(4, ps2Accepted);
         Assert.Equal(8, xboxAccepted);
         Assert.Equal(8, uniquePayloads.Count);

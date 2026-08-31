@@ -236,7 +236,12 @@ public sealed class CasPolyRemovalFileTests(TestPaths paths)
             .OrderBy(static file => file.RelativeWindowsPath, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(13076, files.Length);
+        // 13,076 through 2026-08-23; +779 .cas.ps2 when the THUG2 Remix PSP
+        // build joined on 2026-08-24 — the PSP port's CAS metadata is the same
+        // strict little-endian version-2 layout and every file parses; +1,802
+        // more .cas.ps2 on 2026-08-26 when PRE v4 support extracted the Remix
+        // datap PREs in place (all parse under the same strict layout).
+        Assert.Equal(15657, files.Length);
         using var pathContentHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using var concatenatedContentHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var ps2FileCount = 0;
@@ -267,15 +272,15 @@ public sealed class CasPolyRemovalFileTests(TestPaths paths)
             concatenatedContentHash.AppendData(data);
         }
 
-        Assert.Equal(8134, ps2FileCount);
+        Assert.Equal(10715, ps2FileCount);
         Assert.Equal(4942, xboxFileCount);
-        Assert.Equal(145803, ps2EntryCount);
+        Assert.Equal(172773, ps2EntryCount);
         Assert.Equal(44106, xboxEntryCount);
-        Assert.Equal(1852608, byteCount);
-        Assert.Equal(189909, ps2EntryCount + xboxEntryCount);
-        Assert.Equal("533B728E5099B292888F10EF0B10B35E92FFD4F07CF21B1EF8C9D6A998B5B7C8",
+        Assert.Equal(2099340, byteCount);
+        Assert.Equal(216879, ps2EntryCount + xboxEntryCount);
+        Assert.Equal("49797FF7554DE2357786B643AD502DA98E17F3F744952A5ABE7FEB8C96ECD6A5",
             Convert.ToHexString(pathContentHash.GetHashAndReset()));
-        Assert.Equal("3FCDE1FB65DF4C1F0DC303F405767EC64281F3F5A1FF50EF673D5094DC04D019",
+        Assert.Equal("543AF0D4BC00DF1A1D71FCE215BD37723B566DED5E136B5B786CA356224E8002",
             Convert.ToHexString(concatenatedContentHash.GetHashAndReset()));
     }
 

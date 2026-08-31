@@ -235,9 +235,9 @@ public sealed class PsxAnimDumpCommandTests
 
         // Named sprite/effect tables across Apocalypse, THPS and the Spider-Man protos —
         // e.g. FONTSMLL, SHADOW, SMOKE, ribbon, Buttons, WebKnot, RhinoBol, Compass, Slime.
-        Assert.Equal(138, files);
-        Assert.Equal(474, groups);
-        Assert.Equal(2_630, anims);
+        Assert.Equal(139, files);
+        Assert.Equal(482, groups);
+        Assert.Equal(2_746, anims);
     }
 
     private sealed class TempDirectory : IDisposable
