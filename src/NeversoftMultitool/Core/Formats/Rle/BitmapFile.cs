@@ -3,6 +3,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Bmp;
 using SixLabors.ImageSharp.Formats.Tga;
+using SixLabors.ImageSharp.Formats.Tiff;
 using SixLabors.ImageSharp.PixelFormats;
 using NeversoftMultitool.Core.Formats.Texture.N64;
 
@@ -32,7 +33,18 @@ public static class BitmapFile
     public static bool IsStandardExtension(string path)
     {
         return path.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase)
-               || path.EndsWith(".tga", StringComparison.OrdinalIgnoreCase);
+               || path.EndsWith(".tga", StringComparison.OrdinalIgnoreCase)
+               || IsTiffExtension(path);
+    }
+
+    /// <summary>
+    ///     Authoring TIFFs shipped on disc (PG Wii 2,099, THAW GC 3,257,
+    ///     THAW PC 3,175). Most are mip chains — see <see cref="TiffMipChain" />.
+    /// </summary>
+    public static bool IsTiffExtension(string path)
+    {
+        return path.EndsWith(".tif", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".tiff", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsN64ImageExtension(string path)
@@ -85,6 +97,46 @@ public static class BitmapFile
             ImageWriter.WritePng(outputPath, result.Width, result.Height, result.RgbaPixels);
         else
             ImageWriter.WritePngRgb(outputPath, result.Width, result.Height, result.RgbPixels);
+    }
+
+    /// <summary>
+    ///     Writes the top image, then one <c>_mipN.png</c> companion per lower
+    ///     stored level — the same convention the N64 texture exporter uses.
+    ///     Only mip-chain TIFFs have lower levels; everything else writes one
+    ///     file and reports 1. A lower level that fails to decode is skipped
+    ///     rather than losing the top image, and is visible as a returned count
+    ///     below <see cref="GetStandardLevelCount" />.
+    /// </summary>
+    public static int SavePngWithMipLevels(
+        RleConversionResult result, byte[] data, string name, string outputPath)
+    {
+        SavePng(result, outputPath);
+
+        var levels = IsStandardExtension(name) ? GetStandardLevelCount(data, name) : 1;
+        if (levels <= 1) return 1;
+
+        var directory = Path.GetDirectoryName(outputPath) ?? string.Empty;
+        var stem = Path.GetFileNameWithoutExtension(outputPath);
+        var written = 1;
+        for (var level = 1; level < levels; level++)
+        {
+            try
+            {
+                using var image = DecodeStandardLevel(data, name, level);
+                var rgba = new byte[image.Width * image.Height * 4];
+                image.CopyPixelDataTo(rgba);
+                ImageWriter.WritePng(
+                    Path.Combine(directory, $"{stem}_mip{level}.png"),
+                    image.Width, image.Height, rgba);
+                written++;
+            }
+            catch (Exception)
+            {
+                // A damaged lower level must not cost the caller the top image.
+            }
+        }
+
+        return written;
     }
 
     private static RleConversionResult ConvertStandard(byte[] data, string name)
@@ -194,10 +246,42 @@ public static class BitmapFile
         // TGA has no magic bytes, so pick the decoder from the extension
         // instead of relying on ImageSharp's format sniffing.
         using var stream = new MemoryStream(data, false);
-        var options = new DecoderOptions();
+        // A mip-chain TIFF has differently sized pages, which an Image cannot
+        // hold, so every level is loaded on its own (MaxFrames = 1 keeps the
+        // decoder from walking into page 2 and throwing).
+        var options = IsTiffExtension(name) ? new DecoderOptions { MaxFrames = 1 } : new DecoderOptions();
+        if (IsTiffExtension(name))
+            return TiffDecoder.Instance.Decode<Rgba32>(options, stream);
+
         return name.EndsWith(".tga", StringComparison.OrdinalIgnoreCase)
             ? TgaDecoder.Instance.Decode<Rgba32>(options, stream)
             : BmpDecoder.Instance.Decode<Rgba32>(options, stream);
+    }
+
+    /// <summary>
+    ///     Decodes one page of a standard bitmap. Level 0 is the image itself;
+    ///     higher levels exist only for mip-chain TIFFs.
+    /// </summary>
+    public static Image<Rgba32> DecodeStandardLevel(byte[] data, string name, int level)
+    {
+        if (level == 0)
+            return DecodeStandard(data, name);
+
+        if (!IsTiffExtension(name))
+            throw new ArgumentOutOfRangeException(nameof(level), "Only TIFF carries additional levels");
+
+        return DecodeStandard(TiffMipChain.ExtractLevel(data, level), name);
+    }
+
+    /// <summary>
+    ///     Number of stored image levels: 1 for everything except a multi-page
+    ///     TIFF, which reports its whole mip chain.
+    /// </summary>
+    public static int GetStandardLevelCount(byte[] data, string name)
+    {
+        if (!IsTiffExtension(name)) return 1;
+
+        return Math.Max(1, TiffMipChain.GetLevelCount(data));
     }
 
     private static int DetectStandardWidth(byte[] data, string name)
@@ -208,6 +292,9 @@ public static class BitmapFile
         {
             using var stream = new MemoryStream(data, false);
             var options = new DecoderOptions();
+            if (IsTiffExtension(name))
+                return TiffDecoder.Instance.Identify(options, stream).Width;
+
             var info = name.EndsWith(".tga", StringComparison.OrdinalIgnoreCase)
                 ? TgaDecoder.Instance.Identify(options, stream)
                 : BmpDecoder.Instance.Identify(options, stream);

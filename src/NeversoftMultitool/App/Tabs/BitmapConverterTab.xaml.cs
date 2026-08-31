@@ -228,13 +228,16 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
                 var entry = entries[index];
                 dispatcher.TryEnqueue(() => entry.Status = ExtractionStatus.Processing);
 
-                var result = BitmapFile.Convert(entry.Source.ReadBytes(), entry.FileName,
+                var data = entry.Source.ReadBytes();
+                var result = BitmapFile.Convert(data, entry.FileName,
                     entry.WidthOverride ?? entry.EffectiveWidth);
 
                 if (result.Success)
                 {
                     var outputFile = Path.Combine(outputDir, outputPlans[index].RelativePngPath);
-                    BitmapFile.SavePng(result, outputFile);
+                    // Mip-chain TIFFs also write their lower levels as
+                    // _mipN.png companions (the N64 exporter's convention).
+                    BitmapFile.SavePngWithMipLevels(result, data, entry.FileName, outputFile);
                 }
 
                 var status = result.Success ? ExtractionStatus.Done : ExtractionStatus.Error;

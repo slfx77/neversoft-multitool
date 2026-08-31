@@ -12,7 +12,7 @@ public static class RleCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing .rle/.bmr/.zlb/.bmp/.tga files"
+            Description = "Path to directory containing .rle/.bmr/.zlb/.bmp/.tga/.tif files"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -71,7 +71,7 @@ public static class RleCommand
         if (rleFiles.Length == 0)
         {
             AnsiConsole.MarkupLine(
-                "[yellow]No .rle, .bmr, .zlb, .bmp, or .tga files found in the specified directory.[/]");
+                "[yellow]No .rle, .bmr, .zlb, .bmp, .tga, or .tif files found in the specified directory.[/]");
             return 0;
         }
 
@@ -98,8 +98,8 @@ public static class RleCommand
 
             var file = planned.File;
             var filename = Path.GetFileName(file);
-            var result = BitmapFile.Convert(
-                File.ReadAllBytes(file), filename, autoDetect ? null : width);
+            var data = File.ReadAllBytes(file);
+            var result = BitmapFile.Convert(data, filename, autoDetect ? null : width);
 
             if (result.Success)
             {
@@ -107,15 +107,16 @@ public static class RleCommand
                     ? output
                     : Path.Combine(output, planned.Subdirectory);
                 var outputFile = Path.Combine(plannedOutput, planned.Stem + ".png");
-                BitmapFile.SavePng(result, outputFile);
+                var levelsWritten = BitmapFile.SavePngWithMipLevels(result, data, filename, outputFile);
                 converted++;
 
                 if (verbose)
                 {
                     var autoTag = result.WidthAutoDetected ? " (auto)" : "";
+                    var mipTag = levelsWritten > 1 ? $" +{levelsWritten - 1} mip" : "";
                     AnsiConsole.MarkupLine(
                         $"  {Markup.Escape(filename)}: " +
-                        $"[green]{result.Width}x{result.Height}[/]{autoTag}");
+                        $"[green]{result.Width}x{result.Height}[/]{autoTag}{mipTag}");
                 }
             }
             else
