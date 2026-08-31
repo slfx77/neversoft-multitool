@@ -23,7 +23,11 @@ internal static class FormatProbeAudio
             ".kat" => ProbeExtensionOnlyFile(filePath, "KAT Sound Bank"),
             ".sfx" => ProbeSfxFile(filePath),
             ".pss" => ProbePssFile(filePath),
-            ".vid" => ProbeVidFile(filePath),
+            // The Wii builds' audio-only VID1 movies ship named .ogg, so the
+            // extension routes to the VID1 probe — which content-gates, so a
+            // genuine Ogg Vorbis file reports unsupported rather than decoding.
+            ".vid" or ".ogg" => ProbeVidFile(filePath),
+            ".at3" => ProbeAt3File(filePath),
             _ => ProbeHeaderlessAudio(filePath)
         };
     }
@@ -125,6 +129,20 @@ internal static class FormatProbeAudio
                 FormatProbe.FormatSupport.Unsupported,
                 "PSS Audio",
                 "PSS private-stream audio was not found");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeAt3File(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadHeader(filePath, 12, out var header, out var bytesRead) || bytesRead < 12)
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported, "ATRAC3 Audio", "File too small");
+
+        return At3Decoder.IsAt3(header)
+            ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "ATRAC3 Audio")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "ATRAC3 Audio",
+                "Not a RIFF/WAVE ATRAC3 container");
     }
 
     private static FormatProbe.FormatProbeResult ProbeVidFile(string filePath)

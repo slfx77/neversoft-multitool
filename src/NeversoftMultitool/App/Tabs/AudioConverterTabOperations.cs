@@ -7,7 +7,13 @@ namespace NeversoftMultitool;
 internal static class AudioConverterTabOperations
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".seq", ".pcm", ".snd", ".pss", ".vid", ".swav", ".strm", ".hwas"];
+    [
+        ".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".seq", ".pcm", ".snd", ".pss", ".vid",
+        ".swav", ".strm", ".hwas",
+        // PSP ATRAC3/ATRAC3plus and the Wii builds' audio-only VID1 movies,
+        // which ship named .ogg (content-gated on the VID1 magic downstream).
+        ".at3", ".ogg"
+    ];
 
     public static bool IsAudioFile(string path)
     {
@@ -48,6 +54,8 @@ internal static class AudioConverterTabOperations
             ".snd" => "SND",
             ".pss" => "PSS",
             ".vid" => "VID",
+            ".ogg" => "VID",
+            ".at3" => "AT3",
             ".kat" => "KAT",
             ".sfx" => "SFX",
             ".seq" => "SEQ",

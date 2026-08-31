@@ -9,14 +9,21 @@ namespace NeversoftMultitool.CLI;
 public static class AudioCommand
 {
     private static readonly string[] SupportedExtensions =
-        [".adx", ".xa", ".vab", ".kat", ".sfx", ".seq", ".vag", ".pcm", ".snd", ".pss", ".vid", ".swav", ".strm", ".hwas"];
+    [
+        ".adx", ".xa", ".vab", ".kat", ".sfx", ".seq", ".vag", ".pcm", ".snd", ".pss", ".vid",
+        ".swav", ".strm", ".hwas",
+        // PSP ATRAC3/ATRAC3plus, and the Wii builds' VID1 audio-only movies,
+        // which ship misnamed .ogg (their PAYLOAD really is Ogg Vorbis, so the
+        // name is honest one level down). Both routed 2026-08-26.
+        ".at3", ".ogg"
+    ];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
             Description =
-                "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .sfx, .pcm, .snd, .pss, .vid, .swav, .strm, .hwas)"
+                "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .sfx, .pcm, .snd, .pss, .vid, .at3, .ogg, .swav, .strm, .hwas)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -187,7 +194,11 @@ public static class AudioCommand
                 ".swav" or ".strm" or ".hwas" => NdsAudioDecoder.ConvertToWav(file, outputDirectory),
                 ".snd" => Thug2PcSndDecoder.ConvertToWav(file, outputDirectory),
                 ".pss" => PssAudioExtractor.ConvertToWav(file, outputDirectory),
-                ".vid" => Vid1AudioExtractor.ConvertToWav(file, outputDirectory),
+                // .ogg here is a VID1 audio-only movie, not Ogg Vorbis at the
+                // container level; ConvertVid1Audio gates on the magic so a real
+                // Vorbis file is skipped rather than failing the run.
+                ".vid" or ".ogg" => ConvertVid1Audio(file, outputDirectory),
+                ".at3" => At3Decoder.ConvertToWav(file, outputDirectory),
                 ".kat" => KatExtractor.ExtractToWav(file, outputDirectory),
                 ".sfx" => SfxExtractor.ExtractToWav(file, outputDirectory),
                 ".seq" => SeqExtractor.ConvertToWav(file, outputDirectory),
@@ -198,6 +209,7 @@ public static class AudioCommand
 
         if (extension == ".sfx")
             return SfxExtractor.ExtractToWav(file, outputStem, outputDirectory);
+
 
         // SEQ needs its same-stem sibling VAB, so it converts by path even when
         // the output stem is disambiguated.
@@ -221,7 +233,8 @@ public static class AudioCommand
                 ".swav" or ".strm" or ".hwas" => NdsAudioDecoder.ConvertToWav(data, outputStem, outputDirectory),
                 ".snd" => Thug2PcSndDecoder.ConvertToWav(data, outputStem, outputDirectory),
                 ".pss" => PssAudioExtractor.ConvertToWav(data, outputStem, outputDirectory),
-                ".vid" => Vid1AudioExtractor.ConvertToWav(data, outputStem, outputDirectory),
+                ".vid" or ".ogg" => ConvertVid1Audio(data, outputStem, outputDirectory),
+                ".at3" => At3Decoder.ConvertToWav(data, outputStem, outputDirectory),
                 ".kat" => KatExtractor.ExtractToWav(data, outputStem, outputDirectory),
                 "" => VagDecoder.ConvertToWav(data, outputStem, outputDirectory, sampleRate),
                 _ => new AudioConvertResult { ErrorMessage = "Unsupported format" }
@@ -231,5 +244,54 @@ public static class AudioCommand
         {
             return new AudioConvertResult { ErrorMessage = ex.Message };
         }
+    }
+
+    /// <summary>
+    ///     Converts a VID1 movie's audio. The Wii builds name their audio-only
+    ///     VID1 movies <c>.ogg</c>, so that extension routes here — but gated on
+    ///     the VID1 magic, because a genuine Ogg Vorbis file fed to the VID1
+    ///     reader fails hard ("VID1 chunk extends beyond the file") and would
+    ///     turn a harmless no-op into a red error for anyone pointing the tool
+    ///     at ordinary Vorbis audio. There is no real Ogg Vorbis anywhere in the
+    ///     57-build corpus, so the gate only ever protects outside content.
+    /// </summary>
+    private static AudioConvertResult ConvertVid1Audio(string file, string outputDirectory)
+    {
+        if (!IsVid1(file))
+            return NotVid1();
+
+        return Vid1AudioExtractor.ConvertToWav(file, outputDirectory);
+    }
+
+    private static AudioConvertResult ConvertVid1Audio(byte[] data, string outputStem, string outputDirectory)
+    {
+        if (data.Length < 4 || data[0] != 'V' || data[1] != 'I' || data[2] != 'D' || data[3] != '1')
+            return NotVid1();
+
+        return Vid1AudioExtractor.ConvertToWav(data, outputStem, outputDirectory);
+    }
+
+    private static bool IsVid1(string file)
+    {
+        try
+        {
+            using var stream = File.OpenRead(file);
+            Span<byte> magic = stackalloc byte[4];
+            return stream.Read(magic) == 4
+                   && magic[0] == 'V' && magic[1] == 'I' && magic[2] == 'D' && magic[3] == '1';
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    private static AudioConvertResult NotVid1()
+    {
+        return new AudioConvertResult
+        {
+            Skipped = true,
+            ErrorMessage = "Not a VID1 movie"
+        };
     }
 }
