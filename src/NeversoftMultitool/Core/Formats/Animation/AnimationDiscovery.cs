@@ -151,7 +151,11 @@ internal static class AnimationDiscovery
                || path.EndsWith(".ska.ps2", StringComparison.OrdinalIgnoreCase)
                || path.EndsWith(".ska.xbx", StringComparison.OrdinalIgnoreCase)
                || path.EndsWith(".ska.wpc", StringComparison.OrdinalIgnoreCase)
-               || path.EndsWith(".ska.ngc", StringComparison.OrdinalIgnoreCase);
+               || path.EndsWith(".ska.ngc", StringComparison.OrdinalIgnoreCase)
+               // Xbox 360 / PS3 (THAW, Project 8, Proving Ground) — the same
+               // version-0x28 THAW format the GameCube path reads big-endian.
+               || path.EndsWith(".ska.xen", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".ska.ps3", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsPsxAnimationBankFileName(string path)

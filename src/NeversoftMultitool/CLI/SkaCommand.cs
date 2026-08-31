@@ -14,7 +14,13 @@ namespace NeversoftMultitool.CLI;
 
 public static class SkaCommand
 {
-    private static readonly string[] SkaSuffixes = [".ska", ".ska.ps2", ".ska.xbx", ".ska.wpc", ".ska.ngc"];
+    // .ska.xen / .ska.ps3 are the Xbox 360 and PS3 builds of THAW, Project 8 and
+    // Proving Ground. They are the SAME version-0x28 THAW format the GameCube
+    // path already reads big-endian — a .ska.xen passed explicitly has always
+    // parsed and exported correctly — so they were only ever missing from the
+    // DISCOVERY list, which hid 51,279 files from directory scans and the GUI.
+    private static readonly string[] SkaSuffixes =
+        [".ska", ".ska.ps2", ".ska.xbx", ".ska.wpc", ".ska.ngc", ".ska.xen", ".ska.ps3"];
 
     // Q48/T48 compression tables (standardkeyQ.bin / standardkeyT.bin) are required to
     // decode quantised rotation/translation lookup keys. Without them, shared compressed
@@ -667,6 +673,22 @@ public static class SkaCommand
         return new Ps2Skeleton { Version = 2, Flags = 0, Bones = bones };
     }
 
+    /// <summary>
+    ///     Compression-table file names to try, in order. The PS3 builds suffix
+    ///     the table file itself (<c>standardkeyQ.bin.ps3</c>), so a name-exact
+    ///     search that only knows the bare form finds nothing and every
+    ///     compressed clip fails with "requires a T48 compression table".
+    /// </summary>
+    private static readonly (string Q, string T)[] CompressTableNames =
+    [
+        ("standardkeyQ.bin", "standardkeyT.bin"),
+        ("standardkeyq.bin", "standardkeyt.bin"),
+        ("standardkeyQ.bin.ps3", "standardkeyT.bin.ps3"),
+        ("standardkeyq.bin.ps3", "standardkeyt.bin.ps3"),
+        ("standardkeyQ.bin.xen", "standardkeyT.bin.xen"),
+        ("standardkeyq.bin.xen", "standardkeyt.bin.xen")
+    ];
+
     internal static SkaCompressTable? FindCompressTable(string skaFilePath)
     {
         var dir = Path.GetDirectoryName(Path.GetFullPath(skaFilePath));
@@ -682,22 +704,22 @@ public static class SkaCommand
             //   ../pre/Bits/anims/standardkey{Q,T}.bin (THUG2 Xbox: data/pre/Bits/anims/, tables
             //                                          under pre/ while cutscenes sit in data/)
             //   ../BIN/standardkey{Q,T}.bin         (reserved for future builds if any use it)
+            //   ../data/anims/standardkey{Q,T}.bin      (THAW/P8/PG Xbox 360: data/anims/)
+            //   ../DATA/ANIMS/standardkey{Q,T}.bin.ps3  (THAW/P8/PG PS3, which also
+            //                                            suffixes the table FILENAME)
             foreach (var subdir in new[]
                      {
                          "BIN", "bin", "anims", "Bits/anims", "bits/anims", "pre/anims", "pre/Bits/anims",
-                         "pre/bits/anims"
+                         "pre/bits/anims", "data/anims", "DATA/ANIMS"
                      })
             {
-                var qPath = Path.Combine(dir, subdir, "standardkeyQ.bin");
-                var tPath = Path.Combine(dir, subdir, "standardkeyT.bin");
-                if (!File.Exists(qPath))
+                foreach (var (qName, tName) in CompressTableNames)
                 {
-                    qPath = Path.Combine(dir, subdir, "standardkeyq.bin");
-                    tPath = Path.Combine(dir, subdir, "standardkeyt.bin");
-                }
+                    var qPath = Path.Combine(dir, subdir, qName);
+                    var tPath = Path.Combine(dir, subdir, tName);
+                    if (!File.Exists(qPath) || !File.Exists(tPath))
+                        continue;
 
-                if (File.Exists(qPath) && File.Exists(tPath))
-                {
                     var table = SkaCompressTable.TryLoad(qPath, tPath);
                     _tableCache[dir] = table;
                     return table;
