@@ -26,7 +26,9 @@ public class Ps2ImgV2DestrideTests
         var result = Ps2ImgV2File.Parse(data);
 
         Assert.False(result.Success);
-        Assert.Equal("IMG MXL must be zero", result.ErrorMessage);
+        // The message now names the offending word, because the THUG2 swizzle
+        // bits are accepted in that same field (see Ps2ImgV2GsSwizzleTests).
+        Assert.Equal("IMG MXL must be zero (found 0x00000001)", result.ErrorMessage);
         Assert.Empty(result.Textures);
     }
 
