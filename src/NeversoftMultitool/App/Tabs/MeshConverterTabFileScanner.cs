@@ -634,10 +634,15 @@ internal static class MeshConverterTabFileScanner
     /// </summary>
     private static MeshFileEntry? ScanGbaLevelFile(AssetSource source, string displayPath, string rootDir)
     {
-        // A level converts to one textured surface mesh.
+        // A level converts to one textured surface mesh. The later cartridges
+        // (THPS4 onwards) carve a shorter art record and have no collision grid, so
+        // they list here as picture-only levels and the 2D view is what they offer.
         return ScanGbaRecord(
-            source, displayPath, rootDir, GbaLevelCarver.LevelRecordSize, "GBA Level",
-            objectCount: 1, meshCount: 1);
+                   source, displayPath, rootDir, GbaLevelCarver.LevelRecordSize, "GBA Level",
+                   objectCount: 1, meshCount: 1)
+               ?? ScanGbaRecord(
+                   source, displayPath, rootDir, GbaLaterLevelArt.ArtRecordStride, "GBA Level (2D)",
+                   objectCount: 1, meshCount: 0);
     }
 
     /// <summary>Carved GBA character records — the shared skater mesh plus this

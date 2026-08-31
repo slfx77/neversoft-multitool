@@ -45,7 +45,7 @@ public static class GbaLevelCarver
         if (rom.Length < 0xC0 || rom[0x04] != 0x24 || rom[0x05] != 0xFF
             || rom[0x06] != 0xAE || rom[0x07] != 0x51)
             return false;
-        return GbaLevelImages.FindLevels(rom).Count > 0;
+        return GbaLevelImages.FindLevels(rom).Count > 0 || GbaLaterLevelArt.FindLevels(rom).Count > 0;
     }
 
     /// <summary>Path-based gate for the archive detector / unpacker.</summary>
@@ -103,6 +103,18 @@ public static class GbaLevelCarver
     /// <summary>The carved level list (names read from the ROM's own strings).</summary>
     public static List<CarvedLevel> ListLevels(ReadOnlySpan<byte> rom)
     {
+        var later = GbaLaterLevelArt.FindLevels(rom);
+        if (later.Count > 0)
+        {
+            // The later cartridges' level record carries no name string, so the
+            // carve numbers them rather than inventing one.
+            var named = new List<CarvedLevel>(later.Count);
+            foreach (var level in later)
+                named.Add(new CarvedLevel(
+                    level.Index, $"level{level.Index}", "", $"levels/{level.Index}_level{LevelSuffix}"));
+            return named;
+        }
+
         var levels = GbaLevelImages.FindLevels(rom);
         var result = new List<CarvedLevel>(levels.Count);
         for (var i = 0; i < levels.Count; i++)
@@ -125,6 +137,25 @@ public static class GbaLevelCarver
         var result = new List<(string, byte[])>();
         if (!IsVvLevelRom(rom))
             return result;
+
+        // THPS4 / THUG / THUG2 / Sk8land: a different art record, no collision grid
+        // and no character table, so the carve is the level records plus the ROM.
+        var later = GbaLaterLevelArt.FindLevels(rom);
+        if (later.Count > 0)
+        {
+            var carvedLater = ListLevels(rom);
+            for (var i = 0; i < later.Count && i < carvedLater.Count; i++)
+            {
+                var offset = later[i].ArtRecordOffset;
+                if (offset < 0 || offset + GbaLaterLevelArt.ArtRecordStride > rom.Length)
+                    continue;
+                result.Add((carvedLater[i].EntryName,
+                    rom.AsSpan(offset, GbaLaterLevelArt.ArtRecordStride).ToArray()));
+            }
+
+            result.Add((RomEntryPath, rom));
+            return result;
+        }
 
         var levels = GbaLevelImages.FindLevels(rom);
         var carved = ListLevels(rom);

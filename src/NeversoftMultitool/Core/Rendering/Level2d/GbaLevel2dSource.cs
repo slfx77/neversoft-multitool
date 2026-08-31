@@ -17,17 +17,23 @@ public sealed class GbaLevel2dSource : ILevel2dSource
     private static readonly Level2dLayer[] AllLayers =
         [Level2dLayer.Art, Level2dLayer.CollisionHeightfield, Level2dLayer.CollisionOverArt];
 
+    /// <summary>The later cartridges have art but no collision grid.</summary>
+    private static readonly Level2dLayer[] ArtOnly = [Level2dLayer.Art];
+
     private readonly byte[] _rom;
     private readonly int _trueRecordOffset;
+    private readonly GbaLaterLevelArt.LaterLevel? _later;
 
-    private GbaLevel2dSource(byte[] rom, int trueRecordOffset, string displayName)
+    private GbaLevel2dSource(
+        byte[] rom, int trueRecordOffset, string displayName, GbaLaterLevelArt.LaterLevel? later = null)
     {
         _rom = rom;
         _trueRecordOffset = trueRecordOffset;
         DisplayName = displayName;
+        _later = later;
     }
 
-    public IReadOnlyList<Level2dLayer> Layers => AllLayers;
+    public IReadOnlyList<Level2dLayer> Layers => _later == null ? AllLayers : ArtOnly;
 
     public string DisplayName { get; }
 
@@ -59,6 +65,21 @@ public sealed class GbaLevel2dSource : ILevel2dSource
     /// </remarks>
     public static GbaLevel2dSource? TryCreate(byte[] record, byte[] rom, string entryFileName)
     {
+        // A later cartridge's art record is bound by identity rather than a byte
+        // search: the ROM's own level list already states where each one lives.
+        if (record.Length == GbaLaterLevelArt.ArtRecordStride)
+        {
+            foreach (var level in GbaLaterLevelArt.FindLevels(rom))
+            {
+                var offset = level.ArtRecordOffset;
+                if (offset < 0 || offset + record.Length > rom.Length) continue;
+                if (!rom.AsSpan(offset, record.Length).SequenceEqual(record)) continue;
+                return new GbaLevel2dSource(rom, offset, $"level{level.Index}", level);
+            }
+
+            return null;
+        }
+
         var trueRecord = GbaLevelCarver.FindRecordOffset(rom, record);
         if (trueRecord < 0) return null;
 
@@ -87,6 +108,14 @@ public sealed class GbaLevel2dSource : ILevel2dSource
 
     private Level2dRender? RenderArt()
     {
+        if (_later is { } later)
+        {
+            // One bit deep and no colour surface, so this is ink coverage rather
+            // than the game's own palette (see GbaLaterLevelArt).
+            var ink = GbaLaterLevelArt.Render(_rom, later);
+            return ink == null ? null : new Level2dRender(ink.Value.Width, ink.Value.Height, ink.Value.Rgba);
+        }
+
         var art = GbaLevelImages.RenderColourSurface(_rom, ScanLevel());
         return art == null ? null : new Level2dRender(art.Value.Width, art.Value.Height, art.Value.Rgba);
     }

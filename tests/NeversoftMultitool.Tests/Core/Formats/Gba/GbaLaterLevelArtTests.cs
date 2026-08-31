@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.Gba;
+using NeversoftMultitool.Core.Rendering.Level2d;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Gba;
 
@@ -127,5 +128,39 @@ public sealed class GbaLaterLevelArtTests(TestPaths paths)
         var rom = Load(build, file);
         Assert.SkipWhen(rom == null, $"{build} ROM sample not available");
         Assert.Empty(GbaLaterLevelArt.FindLevels(rom));
+    }
+
+    /// <summary>
+    ///     The carve/2D route end to end: a later cartridge carves one entry per level
+    ///     plus the ROM companion, and each carved record binds back to its own level
+    ///     and renders. This is what the Levels tab walks.
+    /// </summary>
+    [CorpusTheory]
+    [MemberData(nameof(Carts))]
+    public void CarvedRecordsBindAndRender(string build, string file, int expectedLevels)
+    {
+        var rom = Load(build, file);
+        Assert.SkipWhen(rom == null, $"{build} ROM sample not available");
+
+        Assert.True(GbaLevelCarver.IsVvLevelRom(rom));
+        var carve = GbaLevelCarver.Carve(rom);
+        Assert.Equal(expectedLevels + 1, carve.Count); // levels + rom.gbarom
+        Assert.Contains(carve, e => e.Path == GbaLevelCarver.RomEntryPath);
+
+        var rendered = 0;
+        foreach (var (path, data) in carve)
+        {
+            if (path == GbaLevelCarver.RomEntryPath) continue;
+            Assert.EndsWith(GbaLevelCarver.LevelSuffix, path);
+            Assert.Equal(GbaLaterLevelArt.ArtRecordStride, data.Length);
+
+            var source = GbaLevel2dSource.TryCreate(data, rom, Path.GetFileName(path));
+            Assert.NotNull(source);
+            // No collision grid on these cartridges, so the art is the only layer.
+            Assert.Equal([Level2dLayer.Art], source.Layers);
+            if (source.Render(Level2dLayer.Art) != null) rendered++;
+        }
+
+        Assert.Equal(expectedLevels, rendered);
     }
 }
