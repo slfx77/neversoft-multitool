@@ -1,0 +1,927 @@
+{
+  "schema": "thug2-safedisc-alt-pfd3fc-v1",
+  "main_input_sha256": "5042a4d2484fc69c61ddd95c8305684411b3ac85c5496437f1b86248bb11de02",
+  "pfd_rows_sha256": "6183dd3faba576114e6987368e9d6e1b0ea811a7821efbdcc76d7c42651dc4f7",
+  "text_rva_lo": 4096,
+  "text_rva_hi_exclusive": 2379474,
+  "context_multiplier": 559775686,
+  "fragment_count": 113,
+  "authenticated_text_record_count": 291,
+  "inactive_padding_record_count": 178,
+  "unique_row_count": 113,
+  "touched_cc_run_count": 89,
+  "patch_byte_count": 287,
+  "control_histogram": {
+    "2": 92,
+    "3": 8,
+    "6": 12,
+    "7": 1
+  },
+  "output_sha256": "68da0ff4e983274259b32afce67cc4cc815c1551175e6266c9c0a24abfc4616a",
+  "records": [
+    {
+      "site_rva": 286205,
+      "row_index": 483,
+      "context": 4025103534,
+      "control": 2,
+      "digest": "b9779b4ba9a87541d4cf82662a9a5c4e",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 286207,
+      "row_index": 540,
+      "context": 849687610,
+      "control": 2,
+      "digest": "dc59b6bf9b8269bf642cc81d90d11a53",
+      "patch": "7556"
+    },
+    {
+      "site_rva": 327162,
+      "row_index": 191,
+      "context": 4222448988,
+      "control": 2,
+      "digest": "19943174495037ea2c6dab69aab36e57",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 327164,
+      "row_index": 453,
+      "context": 1047033064,
+      "control": 2,
+      "digest": "008b933ab66d228ac05a81cafd7c93fe",
+      "patch": "750d"
+    },
+    {
+      "site_rva": 327452,
+      "row_index": 98,
+      "context": 3348640680,
+      "control": 2,
+      "digest": "0d8395572f58232d4990fd22e189e6ae",
+      "patch": "3bc3"
+    },
+    {
+      "site_rva": 327459,
+      "row_index": 41,
+      "context": 2972103186,
+      "control": 2,
+      "digest": "6fec0f7711409e49ddae69ca0d29e217",
+      "patch": "7515"
+    },
+    {
+      "site_rva": 327658,
+      "row_index": 124,
+      "context": 2698315004,
+      "control": 2,
+      "digest": "5f6c8d7a3141782c2c2c0ee4c28815f8",
+      "patch": "3bc3"
+    },
+    {
+      "site_rva": 327660,
+      "row_index": 600,
+      "context": 3817866376,
+      "control": 2,
+      "digest": "c4ad1cea86c620c8430606b9810c7e02",
+      "patch": "7422"
+    },
+    {
+      "site_rva": 327724,
+      "row_index": 135,
+      "context": 988804616,
+      "control": 2,
+      "digest": "4369b035349d34663d70af31a55c6e9e",
+      "patch": "75b8"
+    },
+    {
+      "site_rva": 327802,
+      "row_index": 137,
+      "context": 1701635164,
+      "control": 6,
+      "digest": "f5ffabb8318b8aff1f14b0899ff0e1a2",
+      "patch": "8b15906d6900"
+    },
+    {
+      "site_rva": 327836,
+      "row_index": 560,
+      "context": 3554139304,
+      "control": 3,
+      "digest": "107a5e648de78c7f2e792cd38705dde7",
+      "patch": "8b4500"
+    },
+    {
+      "site_rva": 327891,
+      "row_index": 594,
+      "context": 4277030962,
+      "control": 3,
+      "digest": "83598ede87a7cd44eb4366536db724d3",
+      "patch": "8b4500"
+    },
+    {
+      "site_rva": 339072,
+      "row_index": 536,
+      "context": 1066658560,
+      "control": 2,
+      "digest": "c3ef0759981af05076d0c5316ffe04b8",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 339074,
+      "row_index": 265,
+      "context": 2186209932,
+      "control": 2,
+      "digest": "f091d0f269528662f7060db3a21428b1",
+      "patch": "750d"
+    },
+    {
+      "site_rva": 339170,
+      "row_index": 370,
+      "context": 90100940,
+      "control": 2,
+      "digest": "25499d39db9a879eddb1e7627675d981",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 339175,
+      "row_index": 196,
+      "context": 2888979370,
+      "control": 2,
+      "digest": "f6a71f914f58b4689f08fe02d6e99936",
+      "patch": "750b"
+    },
+    {
+      "site_rva": 339264,
+      "row_index": 105,
+      "context": 1169407872,
+      "control": 2,
+      "digest": "caeb62332c7e52ec265d6961d643f81d",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 339266,
+      "row_index": 269,
+      "context": 2288959244,
+      "control": 2,
+      "digest": "4408729f6e3775348090f98f8b71040c",
+      "patch": "750d"
+    },
+    {
+      "site_rva": 339529,
+      "row_index": 607,
+      "context": 3481076598,
+      "control": 2,
+      "digest": "a9601c0f8062535a64ec58b90f4efb08",
+      "patch": "740e"
+    },
+    {
+      "site_rva": 339695,
+      "row_index": 51,
+      "context": 1914559962,
+      "control": 2,
+      "digest": "075a5d7d1b17a7d511e0ec3a8571acfb",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 339700,
+      "row_index": 52,
+      "context": 418471096,
+      "control": 2,
+      "digest": "4aebd68d1b7d48a643b333afb409b7eb",
+      "patch": "744e"
+    },
+    {
+      "site_rva": 341011,
+      "row_index": 122,
+      "context": 4139955122,
+      "control": 2,
+      "digest": "02e30ba831ad472bbbfca28a88a3995c",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 341013,
+      "row_index": 220,
+      "context": 964539198,
+      "control": 6,
+      "digest": "c742328c50dbd9de3d855b61757b068a",
+      "patch": "8b0df8df6e00"
+    },
+    {
+      "site_rva": 341019,
+      "row_index": 157,
+      "context": 28226018,
+      "control": 2,
+      "digest": "67e157a74391660133dc8cad9398547c",
+      "patch": "7504"
+    },
+    {
+      "site_rva": 341138,
+      "row_index": 617,
+      "context": 2217023212,
+      "control": 6,
+      "digest": "02061db77bd5df4c51fadb53b52f9b79",
+      "patch": "8b0df8df6e00"
+    },
+    {
+      "site_rva": 341153,
+      "row_index": 152,
+      "context": 2023723910,
+      "control": 2,
+      "digest": "eef627c13f5ee08dfb660e21106c4310",
+      "patch": "85d2"
+    },
+    {
+      "site_rva": 341217,
+      "row_index": 395,
+      "context": 3489629446,
+      "control": 6,
+      "digest": "63970ef0cc49219e31f2da660f466dd3",
+      "patch": "8b0d1ce06e00"
+    },
+    {
+      "site_rva": 342358,
+      "row_index": 434,
+      "context": 2243560068,
+      "control": 2,
+      "digest": "98185275bb518e8b4fecf0efc15bf0bd",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 342360,
+      "row_index": 74,
+      "context": 3363111440,
+      "control": 6,
+      "digest": "907621b7275489b7859743beec385065",
+      "patch": "8b0df8df6e00"
+    },
+    {
+      "site_rva": 342371,
+      "row_index": 367,
+      "context": 930709394,
+      "control": 2,
+      "digest": "bfc1442fd9d6c3549e94afd876b7e6c5",
+      "patch": "752b"
+    },
+    {
+      "site_rva": 342702,
+      "row_index": 71,
+      "context": 1532867732,
+      "control": 6,
+      "digest": "00c789c918fdd35f4c3d71e73db7bf18",
+      "patch": "8b0df4df6e00"
+    },
+    {
+      "site_rva": 342708,
+      "row_index": 65,
+      "context": 596554552,
+      "control": 2,
+      "digest": "5f1158d91e40f97764fbb28a9992340a",
+      "patch": "85c9"
+    },
+    {
+      "site_rva": 342710,
+      "row_index": 338,
+      "context": 1716105924,
+      "control": 2,
+      "digest": "7053ed5cee499fb87f59be7b134c51db",
+      "patch": "752b"
+    },
+    {
+      "site_rva": 342864,
+      "row_index": 572,
+      "context": 2022215648,
+      "control": 2,
+      "digest": "ef675e4888e0a7f6019ff963e675a8a2",
+      "patch": "7507"
+    },
+    {
+      "site_rva": 343318,
+      "row_index": 20,
+      "context": 2757306628,
+      "control": 2,
+      "digest": "086f6c9b0bcd484ead2c90d2112fd67c",
+      "patch": "b001"
+    },
+    {
+      "site_rva": 343592,
+      "row_index": 405,
+      "context": 1517021936,
+      "control": 2,
+      "digest": "085e0522c5d921d796caf21e88943a58",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 343600,
+      "row_index": 279,
+      "context": 1700260128,
+      "control": 2,
+      "digest": "e710f7c47285dc6c2190714e685c63f2",
+      "patch": "750b"
+    },
+    {
+      "site_rva": 344154,
+      "row_index": 185,
+      "context": 2578344860,
+      "control": 2,
+      "digest": "1afb65a54859d6be99c2c21492442287",
+      "patch": "b001"
+    },
+    {
+      "site_rva": 344487,
+      "row_index": 3,
+      "context": 5087274,
+      "control": 2,
+      "digest": "61944d1101055955be03b993e1bfdfbb",
+      "patch": "b001"
+    },
+    {
+      "site_rva": 345026,
+      "row_index": 75,
+      "context": 1076471308,
+      "control": 2,
+      "digest": "b0df5503237e003adfda3a67d734c31f",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 749342,
+      "row_index": 58,
+      "context": 4041069364,
+      "control": 6,
+      "digest": "fd9e98d81c2230486f9d2d0dabd27b30",
+      "patch": "8b1538737800"
+    },
+    {
+      "site_rva": 749438,
+      "row_index": 246,
+      "context": 1944960372,
+      "control": 6,
+      "digest": "42ca64b264729bd8264b789f620386e1",
+      "patch": "8b1538737800"
+    },
+    {
+      "site_rva": 883607,
+      "row_index": 423,
+      "context": 395870154,
+      "control": 2,
+      "digest": "3639b846bd71453639a082df1c49c239",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 883609,
+      "row_index": 193,
+      "context": 1515421526,
+      "control": 2,
+      "digest": "c80cf3584e3988ca75c3136d76094023",
+      "patch": "756c"
+    },
+    {
+      "site_rva": 886954,
+      "row_index": 362,
+      "context": 1359350140,
+      "control": 2,
+      "digest": "5b91c105e33a0c09e3c555f8df7dc97a",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 923374,
+      "row_index": 73,
+      "context": 180080148,
+      "control": 2,
+      "digest": "7d975ef11d5008a29b749eea8940ad5b",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 923392,
+      "row_index": 316,
+      "context": 1666107904,
+      "control": 2,
+      "digest": "75079e55fe0d838866dee3e918276e0c",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 923483,
+      "row_index": 340,
+      "context": 1066087778,
+      "control": 2,
+      "digest": "37874bc7e92ae9b66dad5c374b51ea77",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 923726,
+      "row_index": 127,
+      "context": 3947593300,
+      "control": 2,
+      "digest": "4a79077d36ffa715d0b80c052e7f9baf",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 923929,
+      "row_index": 401,
+      "context": 1617940566,
+      "control": 2,
+      "digest": "bf5f8a5fcacb56769193b312a97d5c2a",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 923931,
+      "row_index": 429,
+      "context": 2737491938,
+      "control": 2,
+      "digest": "97fd09d7bece4cdc4de6d97622d8bfd1",
+      "patch": "7421"
+    },
+    {
+      "site_rva": 927499,
+      "row_index": 62,
+      "context": 2857346946,
+      "control": 2,
+      "digest": "b0a7f8ad19d0473a3558aece44a6f793",
+      "patch": "742e"
+    },
+    {
+      "site_rva": 1352212,
+      "row_index": 82,
+      "context": 3248572280,
+      "control": 2,
+      "digest": "c5dfb4d424e6c39ee99205aac3033ae8",
+      "patch": "8bcb"
+    },
+    {
+      "site_rva": 1353249,
+      "row_index": 326,
+      "context": 3915373702,
+      "control": 2,
+      "digest": "41f41926f01e56bbcd3b9d387bd0b3cf",
+      "patch": "8bcb"
+    },
+    {
+      "site_rva": 1353669,
+      "row_index": 70,
+      "context": 2797960542,
+      "control": 6,
+      "digest": "82bc7bf91879bf90db5c484981c618e8",
+      "patch": "8b0d00187d00"
+    },
+    {
+      "site_rva": 1353851,
+      "row_index": 153,
+      "context": 1597920290,
+      "control": 6,
+      "digest": "6149da823baed82a8095a3f0740eb0b2",
+      "patch": "8b0d00187d00"
+    },
+    {
+      "site_rva": 1354184,
+      "row_index": 561,
+      "context": 3319630000,
+      "control": 2,
+      "digest": "4f15f38a8e07126bb1600e60f63834e5",
+      "patch": "8bd8"
+    },
+    {
+      "site_rva": 1354529,
+      "row_index": 609,
+      "context": 3168713350,
+      "control": 6,
+      "digest": "236a055a870e465b4455814e8105e630",
+      "patch": "8b0d00187d00"
+    },
+    {
+      "site_rva": 1355844,
+      "row_index": 72,
+      "context": 539365528,
+      "control": 2,
+      "digest": "14bd23ec1cd81ed00be026100919ca13",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 1356968,
+      "row_index": 443,
+      "context": 2662011376,
+      "control": 2,
+      "digest": "c9a869dbb58e72805067d461ba27a76e",
+      "patch": "85c9"
+    },
+    {
+      "site_rva": 1356970,
+      "row_index": 580,
+      "context": 3781562748,
+      "control": 2,
+      "digest": "040d496585f921c499d918f5a7df5fdc",
+      "patch": "7407"
+    },
+    {
+      "site_rva": 1722230,
+      "row_index": 470,
+      "context": 1235537732,
+      "control": 2,
+      "digest": "31487f18acc64f78260dfd4b2110e306",
+      "patch": "7507"
+    },
+    {
+      "site_rva": 1722582,
+      "row_index": 273,
+      "context": 708083588,
+      "control": 2,
+      "digest": "79e689d06f7f7ef40d1563e0a7ce2222",
+      "patch": "b001"
+    },
+    {
+      "site_rva": 1808617,
+      "row_index": 346,
+      "context": 1540938550,
+      "control": 2,
+      "digest": "b54f9066ea5e40d9c6ba454f02458280",
+      "patch": "7516"
+    },
+    {
+      "site_rva": 1809055,
+      "row_index": 357,
+      "context": 1909553146,
+      "control": 2,
+      "digest": "10d9e402e64e552cacc3b28740c715e2",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 1809483,
+      "row_index": 475,
+      "context": 975378178,
+      "control": 2,
+      "digest": "a0aadcc9aeed1c1b9c48d1302e166f50",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 1809849,
+      "row_index": 454,
+      "context": 3989816342,
+      "control": 2,
+      "digest": "9d031f9db6a56ccda454c632f81fca03",
+      "patch": "741a"
+    },
+    {
+      "site_rva": 1810232,
+      "row_index": 134,
+      "context": 3635539280,
+      "control": 2,
+      "digest": "634c215934b7bc3e661c5fddbf242eba",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 1810537,
+      "row_index": 215,
+      "context": 2568431670,
+      "control": 2,
+      "digest": "2b908efd56d2903f54022a690fd5ac0d",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 1820599,
+      "row_index": 59,
+      "context": 34291850,
+      "control": 2,
+      "digest": "54dafdc91882965277bda8869a0de210",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 1820601,
+      "row_index": 542,
+      "context": 1153843222,
+      "control": 2,
+      "digest": "7f51487c9471f3f4c5d8aefcea1b7a8c",
+      "patch": "741c"
+    },
+    {
+      "site_rva": 1820749,
+      "row_index": 616,
+      "context": 2396266126,
+      "control": 2,
+      "digest": "d4e39fca82b09ad90d60c001d968f529",
+      "patch": "b001"
+    },
+    {
+      "site_rva": 1821255,
+      "row_index": 31,
+      "context": 2174921706,
+      "control": 2,
+      "digest": "623e0a420f7c38947f6087753686923d",
+      "patch": "7455"
+    },
+    {
+      "site_rva": 1821336,
+      "row_index": 106,
+      "context": 272112016,
+      "control": 3,
+      "digest": "faf222662c320c6120abf44753085efc",
+      "patch": "83c424"
+    },
+    {
+      "site_rva": 1821739,
+      "row_index": 343,
+      "context": 2523414082,
+      "control": 2,
+      "digest": "b224803fe83ef79ec7291f78ddce4b4f",
+      "patch": "b001"
+    },
+    {
+      "site_rva": 1849618,
+      "row_index": 491,
+      "context": 598610412,
+      "control": 2,
+      "digest": "faef624fa533be4efe8ee76f5abe378f",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 1849620,
+      "row_index": 257,
+      "context": 1718161784,
+      "control": 2,
+      "digest": "8c7100556a80d09b829433a25e276b7f",
+      "patch": "754d"
+    },
+    {
+      "site_rva": 1849686,
+      "row_index": 595,
+      "context": 8651396,
+      "control": 2,
+      "digest": "6465810d86b8749f466e54ca26c9df6c",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 1850210,
+      "row_index": 78,
+      "context": 1273334732,
+      "control": 2,
+      "digest": "c66da31120e1298eaa0b44da71ed610d",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 1850212,
+      "row_index": 359,
+      "context": 2392886104,
+      "control": 2,
+      "digest": "dd15dfa6e1bc51c5f3dd71c81cc9c7bd",
+      "patch": "7537"
+    },
+    {
+      "site_rva": 1850254,
+      "row_index": 126,
+      "context": 133661140,
+      "control": 2,
+      "digest": "73c7e19936c367651e7ce66c57aec674",
+      "patch": "750d"
+    },
+    {
+      "site_rva": 1850309,
+      "row_index": 564,
+      "context": 856552798,
+      "control": 2,
+      "digest": "780b31ad8995bfe52386b89ced30fb42",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 1850311,
+      "row_index": 581,
+      "context": 1976104170,
+      "control": 6,
+      "digest": "f27b7b5b81e6836649d1261075c1dee2",
+      "patch": "8b1d34516400"
+    },
+    {
+      "site_rva": 1850328,
+      "row_index": 457,
+      "context": 2902356240,
+      "control": 2,
+      "digest": "8619bc1cb1fd1aee32274b888c20c4fe",
+      "patch": "7410"
+    },
+    {
+      "site_rva": 1852364,
+      "row_index": 562,
+      "context": 144352200,
+      "control": 2,
+      "digest": "bc7abd308e319c745c1c09bcaed8b162",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 1852377,
+      "row_index": 168,
+      "context": 3126468822,
+      "control": 3,
+      "digest": "c708a05147b643e5fbb64bcb175575d4",
+      "patch": "8945e8"
+    },
+    {
+      "site_rva": 1852383,
+      "row_index": 320,
+      "context": 2190155642,
+      "control": 3,
+      "digest": "a02a89f0f50161d86a2696dd063e3265",
+      "patch": "8945ec"
+    },
+    {
+      "site_rva": 1853024,
+      "row_index": 435,
+      "context": 229117504,
+      "control": 2,
+      "digest": "d04843e1ba82e20765a29688dab158de",
+      "patch": "33c0"
+    },
+    {
+      "site_rva": 1853026,
+      "row_index": 342,
+      "context": 1348668876,
+      "control": 7,
+      "digest": "238b5b37eca5deb737b6042a4fa8c7e2",
+      "patch": "c7460400100000"
+    },
+    {
+      "site_rva": 1900507,
+      "row_index": 354,
+      "context": 2800388194,
+      "control": 2,
+      "digest": "3040f189e6f01561f8bc022fdb8fb8cf",
+      "patch": "7446"
+    },
+    {
+      "site_rva": 1900662,
+      "row_index": 171,
+      "context": 3666273604,
+      "control": 2,
+      "digest": "9682d7c44726ec9451d16305e75d0e09",
+      "patch": "742a"
+    },
+    {
+      "site_rva": 1900799,
+      "row_index": 81,
+      "context": 3046131258,
+      "control": 2,
+      "digest": "fd87ba7b24e677ba13ff9826b20fa413",
+      "patch": "7446"
+    },
+    {
+      "site_rva": 1900991,
+      "row_index": 11,
+      "context": 3148880570,
+      "control": 2,
+      "digest": "39d3946c044f293ed2f770449c20f60d",
+      "patch": "7407"
+    },
+    {
+      "site_rva": 1901429,
+      "row_index": 9,
+      "context": 3517495166,
+      "control": 3,
+      "digest": "b97002b6061f5f75610a417bff23b5cc",
+      "patch": "894508"
+    },
+    {
+      "site_rva": 1903623,
+      "row_index": 526,
+      "context": 3304703594,
+      "control": 3,
+      "digest": "73107a359e3773cbee9f544ec9e849ba",
+      "patch": "8b4dfc"
+    },
+    {
+      "site_rva": 1903638,
+      "row_index": 347,
+      "context": 3111404292,
+      "control": 2,
+      "digest": "345462e5e47d953c7a6bd7d35fd8ce60",
+      "patch": "751a"
+    },
+    {
+      "site_rva": 1903736,
+      "row_index": 101,
+      "context": 2134846672,
+      "control": 2,
+      "digest": "e1de58682c3bb7a069c4652bd86e7e79",
+      "patch": "33db"
+    },
+    {
+      "site_rva": 1903738,
+      "row_index": 575,
+      "context": 3254398044,
+      "control": 3,
+      "digest": "e62f61e68b1ade49d65047d6fbfcba4b",
+      "patch": "8945fc"
+    },
+    {
+      "site_rva": 1903745,
+      "row_index": 10,
+      "context": 2877860550,
+      "control": 2,
+      "digest": "ccd177a207ef50e1c77f2d866319b4bc",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 1918361,
+      "row_index": 466,
+      "context": 2646588246,
+      "control": 2,
+      "digest": "87124f66b2bd04e8b000cbf4182530d6",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 1918363,
+      "row_index": 533,
+      "context": 3766139618,
+      "control": 2,
+      "digest": "b746f41a9937052505dbc28362fb5fc4",
+      "patch": "740d"
+    },
+    {
+      "site_rva": 1931644,
+      "row_index": 114,
+      "context": 3558636008,
+      "control": 2,
+      "digest": "3f26899c326236b3b07aedceb4f819e8",
+      "patch": "3bc3"
+    },
+    {
+      "site_rva": 1931646,
+      "row_index": 368,
+      "context": 383220084,
+      "control": 2,
+      "digest": "d84ab650d94a33162ee2517292784b92",
+      "patch": "750b"
+    },
+    {
+      "site_rva": 1931671,
+      "row_index": 519,
+      "context": 1492710346,
+      "control": 2,
+      "digest": "04b238709ccfd4ba9b3cea8ef31d0d4e",
+      "patch": "3bc3"
+    },
+    {
+      "site_rva": 1931673,
+      "row_index": 38,
+      "context": 2612261718,
+      "control": 2,
+      "digest": "ddee035a1310791eddd264ad85016d27",
+      "patch": "7420"
+    },
+    {
+      "site_rva": 2053994,
+      "row_index": 531,
+      "context": 270348796,
+      "control": 2,
+      "digest": "e4bdf315997ea7187673e7ea2854c5f7",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 2054085,
+      "row_index": 544,
+      "context": 3965295966,
+      "control": 2,
+      "digest": "cc05c76497403094dc2ed8e91165498c",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 2054087,
+      "row_index": 514,
+      "context": 789880042,
+      "control": 2,
+      "digest": "761bcd6a9cac29041d3aca6f94b5bd3d",
+      "patch": "7434"
+    },
+    {
+      "site_rva": 2054450,
+      "row_index": 221,
+      "context": 2124991148,
+      "control": 2,
+      "digest": "a7de866b547d99e47087d7fdf29884c2",
+      "patch": "7511"
+    },
+    {
+      "site_rva": 2054489,
+      "row_index": 202,
+      "context": 2481406422,
+      "control": 2,
+      "digest": "8e7f14044da32267141e3a92cd5c5efc",
+      "patch": "8bd8"
+    },
+    {
+      "site_rva": 2065564,
+      "row_index": 384,
+      "context": 64353448,
+      "control": 2,
+      "digest": "ec4b0ae4cdabef36e4babaf65e8e8acc",
+      "patch": "85c0"
+    },
+    {
+      "site_rva": 2065566,
+      "row_index": 480,
+      "context": 1183904820,
+      "control": 2,
+      "digest": "ac160a66a91332cdc89ada3bd3053a02",
+      "patch": "740a"
+    },
+    {
+      "site_rva": 2065609,
+      "row_index": 364,
+      "context": 3779422838,
+      "control": 2,
+      "digest": "7f97ad82e23a11e2d4cf62cb59b4f374",
+      "patch": "740e"
+    }
+  ]
+}

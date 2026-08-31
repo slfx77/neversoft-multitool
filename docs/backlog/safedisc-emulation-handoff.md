@@ -274,8 +274,9 @@ The build-specific protected-only census is exact:
 - 287 restored bytes;
 - controls `{2: 92, 3: 8, 6: 12, 7: 1}`.
 
-`TestOutput/pfd_alt_cpu_recover.py` reproduces the scan in about three seconds.
-Its manifest is `TestOutput/pfd_alt_cpu_manifest.json`, SHA-256
+`tools/safedisc/pfd_alt_cpu_recover.py` reproduces the scan in about three
+seconds. It writes `TestOutput/pfd_alt_cpu_manifest.json` and compares it to the
+pinned `tools/safedisc/pfd_alt_cpu_manifest.json`, SHA-256
 `0ec909193fc5c9f78a8acebc38e2a3456e988d0f82cdcf2114b965e08d5654cc`.
 Applying only this Alt layer to the OEP runtime image yields SHA-256
 `68da0ff4e983274259b32afce67cc4cc815c1551175e6266c9c0a24abfc4616a`.
@@ -386,8 +387,10 @@ the legacy timing verdict, so no invented distance delay is required.
 | `tools/safedisc/thug2_safedisc_decrypt.py` | One-command protected-input loader run, protected/runtime restoration, completion gates, and standalone PE writer |
 | `tools/safedisc/safedisc_emu.py` | Unicorn loader/Win32/SCSI model, retail-disc profile, published v40 key repair, OEP checkpoint, and import-vector capture |
 | `tools/safedisc/safedisc_emu_selftest.py` | Focused emulator, disc, timing, SCSI, and SD3 regression tests |
-| `TestOutput/pfd_alt_cpu_recover.py` | Pure-CPU proof of the exact PFD Alt selector and 113-fragment population |
-| `TestOutput/ff15_runtime_selector_proof.py` | Runtime-only FF15 selector/permutation proof |
+| `tools/safedisc/pfd_alt_cpu_recover.py` | Pure-CPU proof of the exact PFD Alt selector and 113-fragment population |
+| `tools/safedisc/pfd_query_bb8_3fc.bin` | The 625-row PFD 3FC capture that proof authenticates against (SHA-gated) |
+| `tools/safedisc/pfd_alt_cpu_manifest.json` | Pinned expected manifest for that proof |
+| `tools/safedisc/ff15_runtime_selector_proof.py` | Runtime-only FF15 selector/permutation proof |
 | `tools/safedisc/thug2_cd3_recover.py` | Historical strict CD3 extraction for validation; not the decryptor |
 | `tools/safedisc/safedisc_string_decrypt.py` | Recovered SafeDisc string cipher |
 | `tools/safedisc/safedisc_deobfuscate.py` | Junk-jump linearizer and call-site analysis |
@@ -396,3 +399,16 @@ the legacy timing verdict, so no invented distance delay is required.
 The maintained suite is tracked under `tools/safedisc/`; runtime captures and
 work directories remain ignored under `TestOutput/`. Keep new regression
 probes fixture-free when possible.
+
+Both proofs read runtime state that is deliberately not tracked. They resolve it
+from exactly two retained paths, and a `TestOutput` sweep must preserve them:
+
+| Retained path | Needed by | Regenerate with |
+|---|---|---|
+| `TestOutput/THUG2_decrypted_end_to_end_v2.safedisc-work` | both proofs (`main.runtime.bin`, `heap.bin`, `~df394b.tmp.runtime.bin`) | `thug2_safedisc_decrypt.py` (a fresh run's work dir) |
+| `TestOutput/thug2_cd3_crack_oracle.exe` | `ff15_runtime_selector_proof.py` (required); `pfd_alt_cpu_recover.py` (optional) | `thug2_cd3_recover.py` against the CD3 image |
+
+Verified 2026-08-23 from the relocated scripts: the PFD proof reproduces
+`output_sha256 68da0ff4…4616a` with `reference_manifest_matches=True` and zero
+oracle mismatches, and the FF15 proof reports 19 selected / 18 changed sites
+with zero oracle mismatches.
