@@ -60,6 +60,17 @@
 
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.DiscNames.txt" LogicalName="QbKeyNames.DiscNames.txt" />
 
+    <!-- Project 8 PS3 disc names: the port hash-names every DATA file as
+         <QbKey(lowercased filename)>.CHK. Harvested from the sibling P8
+         X360/PS2/PSP trees, PG PS3's real-named loose tree, the VRAM-twin
+         suffix map (.tex→.tvx, .skin→.skiv, .img→.imv, .fnt→.fnv,
+         .pak→_vram.pak), tip/cam pattern fans, and the P8 PS3 DWARF ELF's
+         module strings — accepted only on re-hash (4,826 of 4,835 stems;
+         the 9 unresolved are 7 empty cutscene placeholder tables and 2
+         PS3-only SPU/SELF modules). Drives the corpus .CHK rename
+         (P8Ps3ChkNames) and joins the global first-wins dictionary. -->
+    <EmbeddedResource Include="Core\QbKey\QbKeyNames.P8Ps3Disc.txt" LogicalName="QbKeyNames.P8Ps3Disc.txt" />
+
     <!-- ScriptRefs sorts last so the first-wins loader prefers the proven dictionaries -->
     <EmbeddedResource Include="Core\QbKey\QbKeyNames.ScriptRefs.txt" LogicalName="QbKeyNames.ScriptRefs.txt" />
 

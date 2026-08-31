@@ -92,6 +92,41 @@ public sealed class XdvdfsFileSystemTests
         Assert.False(entry.IsDirectory);
     }
 
+    [Fact]
+    public void TryFindBase_Xgd2RedumpGamePartition_IsProbed()
+    {
+        // Full X360 XGD2 dumps front-load a video partition; the game
+        // partition's XDVDFS descriptor lands at 0xFD90000 + 32 sectors
+        // (measured on the Proving Ground X360 redump).
+        const long baseSector = 0xFD90000 / SectorSize;
+        using var source = new SparseMagicSectorSource(baseSector + 32);
+
+        Assert.True(XdvdfsFileSystem.TryFindBase(source, out var found));
+        Assert.Equal(baseSector, found);
+    }
+
+    /// <summary>Serves the XDVDFS magic at one LBA and zeros everywhere else.</summary>
+    private sealed class SparseMagicSectorSource(long magicLba) : IDiscSectorSource
+    {
+        public long SectorCount => magicLba + 2;
+        public bool HasRawSectors => false;
+
+        public byte ReadSector(long lba, Span<byte> buffer)
+        {
+            buffer.Clear();
+            if (lba == magicLba)
+                "MICROSOFT*XBOX*MEDIA"u8.CopyTo(buffer);
+            return 0;
+        }
+
+        public byte ReadSectorTail(long lba, Span<byte> buffer) =>
+            throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
+
     private static byte[] CreateSingleFileImage(
         int sectorCount, uint startSector, uint fileSize, int baseSector = 0)
     {

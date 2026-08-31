@@ -38,6 +38,11 @@ internal static class SampleGeneratorBuildOperations
         if (!Directory.Exists(researchDir))
             return new BuildResult(name, 0, 0, Missing: true);
 
+        // P8 PS3 ships hash-named *.CHK files; rename the re-hash-proven ones to
+        // their real names in the research tree so the mirror and unpacker see
+        // them (no-op for every other build).
+        SampleGeneratorChkRename.RenameChkFiles(researchDir);
+
         var fileCount = MirrorTree(researchDir, sampleDir);
 
         // Unpack archives in-place inside SampleBuilds (matches the unpack CLI/tab behavior).

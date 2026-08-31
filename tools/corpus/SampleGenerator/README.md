@@ -25,4 +25,4 @@ dotnet run --project tools/corpus/SampleGenerator -- --media-root D:\NeversoftMe
 
 All mirrored, disc-extracted, and MSI-derived file destinations are canonicalized and must remain strict descendants of their configured output directory. Run the focused checks with `dotnet run --project tools/corpus/SampleGenerator -- --self-test`.
 
-The MSI path requires Windows Installer COM support and `7z` on `PATH`. Building requires the .NET 10 SDK.
+The MSI path requires Windows Installer COM support and `7z` on `PATH`. PS3 Blu-ray images also shell to `7z` (DiscUtils cannot read their UDF 2.50 metadata partition; 7z warns with exit code 2 on these images, so success is judged by comparing extracted file count against the listing). Xbox 360 full XGD dumps are delegated to the main tool's XDVDFS reader, which probes the known game-partition bases (including the redump XGD2 base 0xFD90000). Building requires the .NET 10 SDK.

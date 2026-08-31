@@ -15,10 +15,17 @@ public static class XdvdfsFileSystem
     private const int SectorSize = 2048;
     private static readonly byte[] Magic = Encoding.ASCII.GetBytes("MICROSOFT*XBOX*MEDIA");
 
-    /// <summary>Known game-partition base sectors: XISO-only rips, XGD1, XGD2, XGD3.</summary>
+    /// <summary>
+    ///     Known game-partition base sectors: XISO-only rips, XGD2 redump
+    ///     (0xFD90000 — measured on the Proving Ground X360 full dump; the
+    ///     video partition occupies the front of the image), XGD1, and two
+    ///     historical layer-split candidates kept for older rips. Detection
+    ///     is magic-gated, so extra candidates cannot misfire.
+    /// </summary>
     private static readonly long[] CandidateBaseSectors =
     [
         0,
+        0xFD90000 / SectorSize,
         0x18300000 / SectorSize,
         0x1FB20000 / SectorSize,
         0x2EE80000 / SectorSize

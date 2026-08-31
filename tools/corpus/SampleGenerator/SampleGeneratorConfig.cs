@@ -118,6 +118,9 @@ internal static class SampleGeneratorConfig
         ("Tony Hawk's Pro Skater (1999-4-9, PSX - Prototype)", null, BuildMode.Directory),
         ("Tony Hawk's Pro Skater (1999-9-29, PSX - Final)", null, BuildMode.Directory),
         ("Tony Hawk's Pro Skater 2 (2000-3-29, PSX - Prototype)", null, BuildMode.Directory),
+        // E3 2000 kiosk demo, full bin/cue disc (volume id SK20509E; the PVD
+        // creation record is mastered with year 0000, month/day 05-09).
+        ("Tony Hawk's Pro Skater 2 (2000-5-9, PSX - Demo)", null, BuildMode.Iso),
         ("Tony Hawk's Pro Skater 2 (2000-6-2, PSX - Prototype)", null, BuildMode.Directory),
         ("Tony Hawk's Pro Skater 2 (2000-9-19, PSX - Final)", null, BuildMode.Directory),
         ("Tony Hawk's Pro Skater 2 (2000-11-15, DC - Final)", null, BuildMode.Directory),
@@ -179,6 +182,32 @@ internal static class SampleGeneratorConfig
         // 2352 BIN/CUE (both formats on one shelf; FindDiscImagePaths merges
         // them). Date from the CD1 PVD creation record (2003-07-18 13:57:29).
         ("Tony Hawk's Pro Skater 4 (2003-7-18, PC - Final)", null, BuildMode.Iso),
+
+        // PSP UMDs — plain ISO 9660 images; dates are the PVD creation
+        // records (the two Project 8 discs are the retail revisions labelled
+        // v1.00 and v2.03 by redump).
+        ("Tony Hawk's Underground 2 Remix (2005-2-15, PSP - Final)", null, BuildMode.Iso),
+        ("Tony Hawk's Project 8 (2006-10-14, PSP - Final)", null, BuildMode.Iso),
+        ("Tony Hawk's Project 8 (2007-2-16, PSP - Rev1)", null, BuildMode.Iso),
+
+        // Xbox 360 — American Wasteland was reconstructed from a GOD/SVOD
+        // container into a base-0 XISO (hash-tree verified: 6,413/6,413
+        // level-0 tables, 107k spot-checked blocks); Project 8 ships as a
+        // pre-extracted disc tree (the rar preserved no timestamps, so the
+        // date is the US release date); Proving Ground is a full XGD2 dump
+        // whose game partition sits at 0xFD90000. Dates otherwise come from
+        // the XDVDFS volume descriptor FILETIME.
+        ("Tony Hawk's American Wasteland (2005-10-29, X360 - Final)", null, BuildMode.Iso),
+        ("Tony Hawk's Project 8 (2006-11-7, X360 - Final)", null, BuildMode.Directory),
+        ("Tony Hawk's Proving Ground (2007-8-30, X360 - Final)", null, BuildMode.Iso),
+
+        // PS3 — decrypted Blu-ray images (UDF 2.50; extraction shells to 7z
+        // because DiscUtils cannot read the metadata partition). Dates are
+        // the UDF volume creation records. Proving Ground keeps real
+        // filenames (mostly .xen assets plus .ps3); Project 8 ships its data
+        // as hash-named .CHK chunks.
+        ("Tony Hawk's Project 8 (2006-10-5, PS3 - Final)", null, BuildMode.Iso),
+        ("Tony Hawk's Proving Ground (2007-8-31, PS3 - Final)", null, BuildMode.Iso),
 
         // Wii — RVZ discs converted to ISO externally (DolphinTool), read
         // natively via the encrypted-partition path (WiiDisc + WiiPartitionStream).

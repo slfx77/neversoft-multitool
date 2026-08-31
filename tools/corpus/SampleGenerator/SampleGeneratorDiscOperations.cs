@@ -248,6 +248,119 @@ internal static class SampleGeneratorDiscOperations
         }
     }
 
+    /// <summary>
+    ///     Known nonzero game-partition byte offsets in full Xbox 360 XGD dumps
+    ///     (the base-0 XISO case is handled by <see cref="SampleGeneratorXboxIsoOperations" />).
+    ///     0xFD90000 is the redump XGD2 layout, measured on the Proving Ground
+    ///     X360 dump; the rest mirror the main tool's historical candidates.
+    /// </summary>
+    private static readonly long[] Xbox360GamePartitionBases =
+        [0xFD90000, 0x18300000, 0x1FB20000, 0x2EE80000];
+
+    private static bool IsXbox360XgdIso(string imagePath)
+    {
+        try
+        {
+            using var fs = File.OpenRead(imagePath);
+            Span<byte> buf = stackalloc byte[20];
+            foreach (var partitionBase in Xbox360GamePartitionBases)
+            {
+                var magicPos = partitionBase + 0x10000;
+                if (magicPos + buf.Length > fs.Length) continue;
+                fs.Position = magicPos;
+                fs.ReadExactly(buf);
+                if (buf.SequenceEqual("MICROSOFT*XBOX*MEDIA"u8)) return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsPs3DiscImage(string imagePath)
+    {
+        try
+        {
+            using var fs = File.OpenRead(imagePath);
+            if (fs.Length < 0x800 + 12) return false;
+            fs.Position = 0x800;
+            Span<byte> buf = stackalloc byte[12];
+            fs.ReadExactly(buf);
+            return buf.SequenceEqual("PlayStation3"u8);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Extracts a PS3 disc image by shelling to 7z. 7z exits with code 2 on
+    ///     these images (a header warning for the redump trailer) even though
+    ///     every file extracts, so success is judged by comparing the extracted
+    ///     file count against the archive listing instead of the exit code.
+    /// </summary>
+    private static int ExtractPs3Disc(string imagePath, string destDir)
+    {
+        var expected = ListPs3FileCount(imagePath);
+        if (expected == 0)
+            throw new InvalidDataException($"7z listed no files inside {Path.GetFileName(imagePath)}.");
+
+        Run7z(["x", imagePath, $"-o{destDir}", "-y"]);
+
+        var extracted = Directory.EnumerateFiles(destDir, "*", SearchOption.AllDirectories).Count();
+        if (extracted < expected)
+        {
+            throw new InvalidDataException(
+                $"PS3 extraction incomplete for {Path.GetFileName(imagePath)}: " +
+                $"{extracted} of {expected} listed files.");
+        }
+
+        return extracted;
+    }
+
+    private static int ListPs3FileCount(string imagePath)
+    {
+        var output = Run7z(["l", "-ba", imagePath]);
+        var count = 0;
+        foreach (var line in output.Split('\n'))
+        {
+            // Listing rows: "2006-10-05 22:28:00 .....  1536  2048  PS3_DISC.SFB";
+            // the attribute column carries 'D' for directories.
+            if (line.Length < 25) continue;
+            var attr = line.Substring(20, 5);
+            if (attr.Contains('.') && !attr.Contains('D')) count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>Runs 7z tolerating nonzero exits (PS3 images warn); returns stdout.</summary>
+    private static string Run7z(IReadOnlyList<string> arguments)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "7z",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (var argument in arguments)
+            psi.ArgumentList.Add(argument);
+
+        using var process = System.Diagnostics.Process.Start(psi)
+            ?? throw new InvalidOperationException("Could not start 7z.");
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        errorTask.GetAwaiter().GetResult();
+        return outputTask.GetAwaiter().GetResult();
+    }
+
     private static bool IsRawSectorImage(string path)
     {
         try
@@ -310,6 +423,23 @@ internal static class SampleGeneratorDiscOperations
         // Detect by file content (magic), not by path heuristics.
         if (SampleGeneratorXboxIsoOperations.IsXboxIso(imagePath))
             return SampleGeneratorXboxIsoOperations.ExtractFiles(imagePath, destDir);
+
+        // Xbox 360 full XGD dumps front-load a video partition, so the game
+        // partition's XDVDFS descriptor sits past one of the known nonzero
+        // bases — delegate to the main tool's XDVDFS reader, which probes them.
+        if (IsXbox360XgdIso(imagePath))
+        {
+            NeversoftMultitool.Core.Formats.DiscImage.DiscImageArchive.ExtractFiles(
+                imagePath, destDir, null, default);
+            return Directory.EnumerateFiles(destDir, "*", SearchOption.AllDirectories).Count();
+        }
+
+        // PS3 Blu-ray images (UDF 2.50 with a metadata partition): DiscUtils'
+        // UdfReader rejects them ("Only EFE implemented for Metadata file
+        // entry") and the ISO 9660 stub PVD names no files, so extraction
+        // shells to 7z, which reads UDF 2.50.
+        if (IsPs3DiscImage(imagePath))
+            return ExtractPs3Disc(imagePath, destDir);
 
         // GameCube discs use a proprietary FST, NOT ISO 9660. Detect first and route
         // directly to the GC walker so we don't waste time on a CDReader that will throw.
