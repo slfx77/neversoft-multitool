@@ -557,15 +557,40 @@ public sealed class FormatProbeTextureTests
         }
     }
 
+    /// <summary>
+    ///     <c>.tex.xen</c> became supported on 2026-08-27 (the FACECAA7 next-gen
+    ///     dictionary), so the extension alone is no longer a rejection — but a
+    ///     file that does NOT carry the magic still is.
+    /// </summary>
     [Fact]
-    public void ProbeTexture_XenTex_Unsupported()
+    public void ProbeTexture_XenTexWithoutMagic_Unsupported()
     {
         var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.xen", [0x00]);
         try
         {
             var result = FormatProbe.ProbeTexture(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
-            Assert.Contains("cross-platform TEX", result.UnsupportedReason!, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("FACECAA7", result.UnsupportedReason!, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_XenTexDictionary_Supported()
+    {
+        var header = new byte[0x1C];
+        header[0] = 0xFA; header[1] = 0xCE; header[2] = 0xCA; header[3] = 0xA7;
+        header[4] = 1;      // Xenon
+        header[5] = 0x1C;   // header size, echoed at +0x18
+        header[0x1B] = 0x1C;
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.xen", header);
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
         }
         finally
         {

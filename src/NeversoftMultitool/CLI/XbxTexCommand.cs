@@ -2,6 +2,8 @@
 using System.Diagnostics;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.Formats.Texture.NextGen;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 using Spectre.Console;
@@ -13,14 +15,18 @@ public static class XbxTexCommand
     private static readonly string[] ImageSuffixes = [".img.xbx", ".img.wpc", ".img.ngc", ".img"];
 
     private static readonly string[] SupportedSuffixes =
-        [".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc", ".tex.ngc", ".img.ngc", ".stex", ".tex", ".img"];
+    [
+        ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc", ".tex.ngc", ".img.ngc", ".stex", ".tex", ".img",
+        // Next-gen FACECAA7 dictionaries (THAW/P8/PG on Xbox 360 and PS3).
+        ".tex.xen", ".stex.xen", ".tex.ps3", ".stex.ps3"
+    ];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
             Description =
-                "Path to an Xbox/PC TEX/IMG file (.tex.xbx, .img.xbx, .tex.wpc, .img.wpc, .stex, extracted .tex) or directory"
+                "Path to an Xbox/PC/next-gen TEX/IMG file (.tex.xbx, .img.xbx, .tex.wpc, .img.wpc, .stex, .tex.xen, .tex.ps3, extracted .tex) or directory"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -154,6 +160,8 @@ public static class XbxTexCommand
                 if (!result.Success)
                     result = NgcTexFile.Parse(file); // THAW GameCube .tex.ngc
                 if (!result.Success)
+                    result = ParseNextGenTex(file); // FACECAA7 (Xbox 360 / PS3)
+                if (!result.Success)
                 {
                     failed++;
                     if (verbose)
@@ -216,5 +224,18 @@ public static class XbxTexCommand
     {
         var name = Path.GetFileName(path);
         return OrdinalFileName.HasAnySuffix(name, SupportedSuffixes);
+    }
+
+    /// <summary>
+    ///     Parses a next-gen FACECAA7 dictionary, supplying the PS3 VRAM twin
+    ///     when there is one — a PS3 dictionary holds no pixels of its own.
+    /// </summary>
+    private static Ps2TexResult ParseNextGenTex(string file)
+    {
+        var data = File.ReadAllBytes(file);
+        if (!NextGenTexFile.IsNextGenTex(data))
+            return Ps2TexResult.Fail("Not a FACECAA7 texture dictionary");
+
+        return NextGenTexFile.Parse(data, NextGenVramTwinLocator.TryLoad(file, data));
     }
 }

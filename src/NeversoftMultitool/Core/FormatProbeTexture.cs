@@ -15,9 +15,13 @@ internal static class FormatProbeTexture
     private static readonly string[] XboxImgSuffixes = [".img.xbx", ".img.wpc"];
     private static readonly string[] NgcTexSuffixes = [".tex.ngc", ".img.ngc"];
     private static readonly string[] N64TexSuffixes = [".tex.n64", ".img.n64"];
-    private static readonly string[] CrossPlatformTexSuffixes = [".tex.xen", ".tex.ps3", ".tex.dat"];
+    private static readonly string[] CrossPlatformTexSuffixes =
+        [".tex.xen", ".stex.xen", ".tex.ps3", ".stex.ps3", ".tex.dat"];
     private static readonly string[] CrossPlatformImgSuffixes = [".img.xen", ".img.ps3"];
-    private static readonly string[] Ps2TextureSuffixes = [".tex.ps2", ".img.ps2"];
+    // The Remix PSP suffixes route through the same parser: .tex.psp is the
+    // PS2 v5 TEX format verbatim (GS swizzle + CSM1 CLUTs included) and
+    // .img.psp is content-discriminated to PspImgFile inside Ps2TexFile.Parse.
+    private static readonly string[] Ps2TextureSuffixes = [".tex.ps2", ".img.ps2", ".tex.psp", ".img.psp"];
 
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
@@ -47,12 +51,7 @@ internal static class FormatProbeTexture
         }
 
         if (OrdinalFileName.HasAnySuffix(name, CrossPlatformTexSuffixes))
-        {
-            return new FormatProbe.FormatProbeResult(
-                FormatProbe.FormatSupport.Unsupported,
-                "Cross-Platform TEX",
-                "Xenon/PS3 cross-platform TEX textures are not yet supported");
-        }
+            return ProbeNextGenTexFile(filePath);
 
         if (OrdinalFileName.HasAnySuffix(name, CrossPlatformImgSuffixes))
         {
@@ -317,6 +316,38 @@ internal static class FormatProbeTexture
                 "No full-screen BIOS-LZ77 images (this cart packs its art differently)");
     }
 
+    /// <summary>
+    ///     Next-gen FACECAA7 dictionaries. A PS3 file is reported as partially
+    ///     supported when its VRAM twin cannot be found, because the dictionary
+    ///     itself carries no pixels — that is a missing companion, not a bad file.
+    /// </summary>
+    private static FormatProbe.FormatProbeResult ProbeNextGenTexFile(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
+            return HeaderReadFailure();
+
+        if (!Formats.Texture.NextGen.NextGenTexFile.IsNextGenTex(data))
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Next-Gen TEX",
+                "Not a FACECAA7 texture dictionary");
+        }
+
+        var isPs3 = OrdinalFileName.HasSuffix(Path.GetFileName(filePath), ".ps3");
+        if (isPs3 && Formats.Texture.NextGen.NextGenVramTwinLocator.TryResolve(filePath, data) == null)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.PartiallySupported,
+                "Next-Gen TEX (PS3)",
+                "Pixel data lives in a .tvx VRAM twin that was not found beside this file");
+        }
+
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Supported,
+            isPs3 ? "Next-Gen TEX (PS3)" : "Next-Gen TEX (Xbox 360)");
+    }
+
     private static FormatProbe.FormatProbeResult ProbeN64TexFile(string filePath)
     {
         if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
@@ -339,6 +370,16 @@ internal static class FormatProbeTexture
             return FileTooSmall();
 
         var version = BinaryProbeReader.ReadUInt32(header);
+
+        // The PSP builds ship deliberate 4-byte all-zero placeholder files.
+        if (version == 0 && bytesRead == 4)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "PSP TEX (empty stub)",
+                "Authored 4-byte placeholder with no texture data");
+        }
+
         var version16 = (ushort)(version & 0xFFFF);
         if (version16 == 6 && bytesRead >= 12)
         {

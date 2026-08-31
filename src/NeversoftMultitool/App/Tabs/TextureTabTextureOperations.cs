@@ -22,7 +22,7 @@ internal static class TextureTabTextureOperations
     [
         ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
         ".tex.ps2", ".img.ps2", ".tex.ngc", ".img.ngc", ".stex",
-        ".tex.n64"
+        ".tex.n64", ".tex.psp", ".img.psp"
     ];
 
     private static readonly string[] NgcTexExtensions = [".tex.ngc", ".img.ngc"];
@@ -32,7 +32,10 @@ internal static class TextureTabTextureOperations
     // ParseXbxTextures dispatches by content, mirroring the CLI xbxtex/ps2tex routing.
     private static readonly string[] XboxTexExtensions = [".tex.xbx", ".tex.wpc", ".stex"];
     private static readonly string[] XboxImgExtensions = [".img.xbx", ".img.wpc"];
-    private static readonly string[] Ps2TexExtensions = [".tex.ps2", ".img.ps2", ".tex", ".img"];
+    // .tex.psp/.img.psp (THUG2 Remix PSP) ride the PS2 route: PSP TEX is the
+    // PS2 v5 format verbatim; PSP IMG is content-discriminated to PspImgFile.
+    private static readonly string[] Ps2TexExtensions =
+        [".tex.ps2", ".img.ps2", ".tex.psp", ".img.psp", ".tex", ".img"];
 
     // A DS texture bank is named by the loader's own template. Keying on the whole
     // suffix rather than the bare .bin every DS asset carries costs nothing: every

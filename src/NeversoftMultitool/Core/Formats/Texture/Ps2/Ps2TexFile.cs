@@ -36,6 +36,12 @@ public static class Ps2TexFile
     {
         try
         {
+            // The PSP builds ship deliberate 4-byte all-zero placeholder files
+            // (4,210 of Remix's 5,450 .tex.psp; all 599 P8 PSP .tex.psp).
+            // They are authored empties, not errors.
+            if (data.Length == 4 && BitConverter.ToUInt32(data, 0) == 0)
+                return new Ps2TexResult([]);
+
             if (data.Length < 8)
                 return Ps2TexResult.Fail("File too small");
 
@@ -44,6 +50,12 @@ public static class Ps2TexFile
             // Version 4 is shared between THUG TEX dictionaries and THAW IMG files.
             if (version == 4 && IsThawImg(data))
                 return ParseThawImg(data);
+
+            // Version 2 is shared between PS2 v2 IMG and the Remix PSP IMG
+            // re-encode; the PSP build word at +4 discriminates (measured:
+            // all 4,515 PSP files carry it, none of 12,558 PS2 v2 files do).
+            if (version == 2 && Psp.PspImgFile.IsPspImg(data))
+                return Psp.PspImgFile.Parse(data);
 
             return version switch
             {
