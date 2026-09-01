@@ -12,6 +12,10 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     <para>The palette/ramp binding remains unknown. Each authored face group
 ///     therefore receives an unlit debug colour; the source face byte remains available from
 ///     <see cref="GbaDhjModel.Face" /> and is not presented as RGB.</para>
+///
+///     <para>Without morph targets this writes the plain single-pose export.
+///     With them, the same base mesh carries one pose clip's records as glTF
+///     morph targets — see <see cref="GbaDhjAnimatedModelWriter" />.</para>
 /// </summary>
 internal static class GbaDhjModelGeometryWriter
 {
@@ -29,15 +33,31 @@ internal static class GbaDhjModelGeometryWriter
         Rgb(0x58, 0xB5, 0xCB)
     ];
 
+    /// <summary>
+    ///     Assembles one pose into a document.  <paramref name="morphTargets" />,
+    ///     when supplied, must be expressed as deltas from <paramref name="pose" />
+    ///     in SOURCE-VERTEX order; the clip's remaining pose records then ride on
+    ///     this same base mesh as glTF morph targets.
+    /// </summary>
     internal static ModelDocument Build(
         ReadOnlySpan<byte> rom,
         GbaDhjModel.ModelInfo model,
         GbaDhjModel.PoseFrame pose,
-        string name)
+        string name,
+        GbaMorphTargets? morphTargets = null)
     {
         var vertices = GbaDhjModel.ReadVertices(rom, model);
         var posedVertices = ApplyPose(vertices, model.VertexCounts, pose);
         var faces = GbaDhjModel.ReadFaces(rom, model);
+
+        // The glTF writer keys a morph delta by the base vertex's (position,
+        // normal) pair, so a source vertex has to resolve to exactly one such
+        // pair or two corners that move apart would claim the same delta and the
+        // mesh would be written un-morphed. Per-face normals break that; an
+        // area-summed per-vertex normal restores it. The single-pose export keeps
+        // its flat per-face normals unchanged.
+        var normals = morphTargets == null ? null : AverageVertexNormals(posedVertices, faces);
+
         var document = new ModelDocument
         {
             Name = name,
@@ -58,6 +78,7 @@ internal static class GbaDhjModelGeometryWriter
 
             var primitiveVertices = new List<ModelVertex>();
             var indices = new List<int>();
+            var sources = morphTargets == null ? null : new List<int>();
             foreach (var face in group)
             {
                 var a = ToGlb(posedVertices[face.V0]);
@@ -67,16 +88,27 @@ internal static class GbaDhjModelGeometryWriter
                 normal = normal.LengthSquared() < 1e-12f
                     ? Vector3.UnitY
                     : Vector3.Normalize(normal);
+
+                var before = primitiveVertices.Count;
                 ModelDocumentGeometryAdapter.AddTriangle(
                     primitiveVertices,
                     indices,
-                    new ModelVertex(a, normal, Vector4.One, Vector2.Zero),
-                    new ModelVertex(b, normal, Vector4.One, Vector2.Zero),
-                    new ModelVertex(c, normal, Vector4.One, Vector2.Zero));
+                    new ModelVertex(a, normals == null ? normal : normals[face.V0], Vector4.One, Vector2.Zero),
+                    new ModelVertex(b, normals == null ? normal : normals[face.V1], Vector4.One, Vector2.Zero),
+                    new ModelVertex(c, normals == null ? normal : normals[face.V2], Vector4.One, Vector2.Zero));
+
+                // A degenerate triangle the adapter dropped emits no corners, so
+                // it must contribute no source indices either.
+                if (sources == null || primitiveVertices.Count == before)
+                    continue;
+                sources.Add(face.V0);
+                sources.Add(face.V1);
+                sources.Add(face.V2);
             }
 
             ModelDocumentGeometryAdapter.AddPrimitive(
-                mesh, $"group_{groupIndex:D2}", materialIndex, primitiveVertices, indices);
+                mesh, $"group_{groupIndex:D2}", materialIndex, primitiveVertices, indices,
+                morphTargets: sources == null ? null : morphTargets!.ForPrimitive(sources));
         }
 
         ModelDocumentGeometryAdapter.AddMeshNode(document, name, mesh);
@@ -149,6 +181,34 @@ internal static class GbaDhjModelGeometryWriter
     // scale as the existing THPS2 GBA model conversion.
     internal static Vector3 ToGlb(Vector3 position) =>
         new(position.X * Scale, -position.Z * Scale, -position.Y * Scale);
+
+    /// <summary>
+    ///     Area-summed per-source-vertex normals over the posed base mesh, in GLB
+    ///     space.  Only used by the animated path; see <see cref="Build" />.
+    /// </summary>
+    private static Vector3[] AverageVertexNormals(
+        Vector3[] posedVertices, GbaDhjModel.Face[] faces)
+    {
+        var normals = new Vector3[posedVertices.Length];
+        foreach (var face in faces)
+        {
+            var a = ToGlb(posedVertices[face.V0]);
+            var normal = Vector3.Cross(
+                ToGlb(posedVertices[face.V1]) - a, ToGlb(posedVertices[face.V2]) - a);
+            if (normal.LengthSquared() < 1e-12f)
+                continue;
+            normal = Vector3.Normalize(normal);
+            normals[face.V0] += normal;
+            normals[face.V1] += normal;
+            normals[face.V2] += normal;
+        }
+
+        for (var i = 0; i < normals.Length; i++)
+            normals[i] = normals[i].LengthSquared() < 1e-12f
+                ? Vector3.UnitY
+                : Vector3.Normalize(normals[i]);
+        return normals;
+    }
 
     private static float ToRadians(byte angle) => angle * (2f * MathF.PI / 256f);
 

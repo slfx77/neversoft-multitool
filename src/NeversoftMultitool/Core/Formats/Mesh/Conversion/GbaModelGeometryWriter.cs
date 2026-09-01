@@ -73,7 +73,7 @@ internal static class GbaModelGeometryWriter
 
             ModelDocumentGeometryAdapter.AddPrimitive(
                 mesh, $"m{material:D2}", materialIndex, vertices, indices,
-                morphTargets: sources == null ? null : BuildTargets(morphTargets, sources));
+                morphTargets: sources == null ? null : morphTargets!.ForPrimitive(sources));
         }
 
         ModelDocumentGeometryAdapter.AddMeshNode(document, native.CharacterName, mesh);
@@ -131,28 +131,6 @@ internal static class GbaModelGeometryWriter
         sources.Add(s0);
         sources.Add(s1);
         sources.Add(s2);
-    }
-
-    /// <summary>
-    ///     Redistributes source-vertex deltas onto one primitive's own corners.
-    /// </summary>
-    private static ModelMorphTarget[] BuildTargets(GbaMorphTargets morphTargets, List<int> sources)
-    {
-        var targets = new ModelMorphTarget[morphTargets.DeltasByTarget.Length];
-        for (var t = 0; t < targets.Length; t++)
-        {
-            var source = morphTargets.DeltasByTarget[t];
-            var deltas = new Vector3[sources.Count];
-            for (var v = 0; v < sources.Count; v++)
-                deltas[v] = source[sources[v]];
-            targets[t] = new ModelMorphTarget
-            {
-                Name = $"{morphTargets.ClipName}_f{morphTargets.Frames[t]}",
-                PositionDeltas = deltas
-            };
-        }
-
-        return targets;
     }
 
     private static Vector3[] AverageVertexNormals(

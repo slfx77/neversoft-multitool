@@ -52,7 +52,7 @@ time. Run `git status --short` before editing and preserve unrelated work.
 | THUG | `BTOE` | Unknown | Unknown | Unknown | None |
 | THUG2 | `B2TE` | Unknown; an old loose header-like hit did not close | Unknown | Unknown | None |
 | Sk8land | `BH9E` | Unknown | Unknown | Unknown | None |
-| DHJ | `BXSE` | 24 closed 13-part rider variants | 94-clip pose directory decodes; no animated export | Debug group colours only | `gba-dhj-model`, one selected pose |
+| DHJ | `BXSE` | 24 closed 13-part rider variants | 93 bounded clips export as morph targets; clip 93 still unbounded | Debug group colours only | `gba-dhj-model`, one pose or `--animate` |
 
 Do not infer a shared rider format merely because THPS4 through Sk8land share
 parts of their level-art/collision design. No rider-container equivalence has
@@ -97,13 +97,21 @@ document alone.
 - `src/NeversoftMultitool/Core/Formats/Gba/GbaDhjModel.cs` contains the closed
   DHJ rider and pose-directory readers.
 - `src/NeversoftMultitool/Core/Formats/Mesh/Conversion/GbaDhjModelGeometryWriter.cs`
-  assembles one DHJ pose and emits a static `ModelDocument`.
+  assembles one DHJ pose and emits a `ModelDocument`, optionally carrying morph
+  targets.
+- `src/NeversoftMultitool/Core/Formats/Mesh/Conversion/GbaDhjAnimatedModelWriter.cs`
+  turns one bounded pose clip into those morph targets and a weights track, and
+  owns the stated frame-rate export policy.
 - `src/NeversoftMultitool/CLI/GbaDhjModelCommand.cs` exposes the standalone
-  `gba-dhj-model` command; `Program.cs` registers it.
+  `gba-dhj-model` command and its `--animate` opt-in; `Program.cs` registers it.
 - `tests/NeversoftMultitool.Tests/Core/Formats/Gba/GbaDhjModelTests.cs` pins the
   DHJ corpus and pose assembly.
-- `tests/NeversoftMultitool.Tests/CLI/GbaDhjModelCommandTests.cs` pins the current
-  one-pose CLI behavior and its selection errors.
+- `tests/NeversoftMultitool.Tests/Core/Formats/Gba/GbaDhjAnimationTests.cs` pins
+  the animated export: target census and naming, per-corner reproduction of every
+  pose record, the base-repeating record that adds no target, the unbounded-clip
+  refusal, and the unchanged single-pose route.
+- `tests/NeversoftMultitool.Tests/CLI/GbaDhjModelCommandTests.cs` pins both CLI
+  routes and their selection errors.
 - `tests/NeversoftMultitool.Tests/Core/Formats/Gba/GbaSkaterModelTests.cs`, test
   `LaterGamesDoNotClaimTheThps2MorphTargetComplex`, pins the later-cart negative.
 - `tools/research/gba-3d/FINDINGS.md`, section “3D rider/model audit,” is the
@@ -411,15 +419,52 @@ Subsequent logged pose reads advance by `0x50` at frames 4562, 4564, 4567, and s
 on. The observed 2–3 video-frame cadence proves that “one pose record per 60 Hz
 tick” would be an unjustified exporter assumption.
 
+### Animated export (shipped)
+
+`gba-dhj-model --animate` exports a whole bounded pose clip as glTF **morph
+targets**, mirroring the THPS2 cart's `GbaAnimatedModelWriter`:
+`GbaDhjAnimatedModelWriter.TryBuild` poses the rider at every record of the clip
+through the same `GbaDhjModelGeometryWriter.ApplyPose` the single-pose route
+uses, takes each record's vertex delta from the clip's own frame 0, dedupes
+targets by POSE rather than by frame, and drops a record whose pose IS the base
+(an all-zero target is dropped on write and would shift every later target's
+index). The clip's records become a one-hot weights track.
+
+Morph targets over fully posed vertices were chosen deliberately over a
+one-joint-per-part skin: they sidestep the handedness trap recorded below, and
+they preserve the faces that connect vertices from different rigid parts.
+
+The rate is an explicit **export policy**, stated as such in the writer's doc
+comment. The retained trace advances the pose pointer every 2–3 video frames, so
+one record per 59.7275 Hz tick would be unjustified; the exporter therefore emits
+one key per pose RECORD at 30 records/second — the fastest cadence actually
+observed — which makes an exported clip an upper bound on playback speed rather
+than an invented number.
+
+`TryBuild` returns null for an out-of-range clip and for the unbounded final
+clip, and the command refuses rather than falling back to a single pose; it also
+refuses an explicit `--frame` combined with `--animate`, since an animated clip
+is always based on its own frame 0.
+
+Measured on model 19: clip 79 → 12 keys / 11 targets, clip 18 → 24 keys / 22
+targets (its frame 1 repeats frame 0 and contributes none), clip 90 → 26 keys /
+25 targets whose per-target displacement ramps smoothly 2 → 41 → 0 units. Every
+export is Khronos-clean (0 errors, 0 warnings; the 13 infos are `TEXCOORD_0` on
+the untextured debug materials). Pinned by
+`tests/.../Core/Formats/Gba/GbaDhjAnimationTests.cs` and the command tests.
+
 ### Current export limitations
 
 `gba-dhj-model` defaults to clip 79/frame 0 and can export one or all 24 variants
-at any bounded clip/frame. It emits all faces, one unlit diagnostic material per
-authored face group, and recomputed flat triangle normals.
+at any bounded clip/frame, or a whole bounded clip with `--animate`. It emits all
+faces, one unlit diagnostic material per authored face group, and flat triangle
+normals (the animated route substitutes per-vertex normals, which glTF morphing
+requires so a delta resolves to one base vertex).
 
 It does **not**:
 
-- Emit animation tracks.
+- Prove playback timing: the exported rate is a policy, the per-clip `u32`
+  trailer is undecoded, and loop/transition behaviour is unknown.
 - Decode or use the stored normal bytes.
 - Use `shadeCode` at all; group colour is not game colour.
 - Resolve outfit/variant palette or ramp bindings.
@@ -430,9 +475,10 @@ It does **not**:
 
 ## DHJ remaining experiments
 
-### 1. Animated export
+### 1. Animation playback semantics
 
-First close playback semantics rather than assigning an arbitrary rate:
+The morph-target export above ships; what remains is closing playback semantics
+so the exported rate stops being a policy:
 
 - Trace the animation-update code that writes/advances descriptor `+0x08` and
   identify timer, loop, and transition fields around `0x02036B88`.
@@ -446,14 +492,13 @@ exactly at ASCII resource header `JBOG` at `0xEAB9E8`. The shipping parser leave
 its count as `-1` because this boundary has not been made structural/corpus-safe.
 Confirm the `JBOG` owner/length or trace clip 93 playback before changing that.
 
-For output, a full posed-vertex morph track is the simplest correctness-first
-implementation and naturally preserves faces that connect vertices from
-different parts. A compact one-joint-per-part skin is possible because vertex
-group membership is known, but do not convert the stored Euler bytes naively:
-the engine Y-stage reflection and the export-space reflection cancel only after
-the complete matrix transform. Derive a proper export-space rotation matrix,
-verify determinant/handedness, then decompose to a quaternion. Morph targets are
-the safer first milestone and already have a THPS2 implementation to study.
+A compact one-joint-per-part skin remains possible because vertex group
+membership is known, and would shrink the exports considerably, but do not
+convert the stored Euler bytes naively: the engine Y-stage reflection and the
+export-space reflection cancel only after the complete matrix transform. Derive a
+proper export-space rotation matrix, verify determinant/handedness, then
+decompose to a quaternion. The shipped morph-target export is the oracle to check
+any such skin against — it reproduces every record exactly.
 
 ### 2. Stored normals
 
@@ -526,6 +571,15 @@ dotnet run --project .\src\NeversoftMultitool\NeversoftMultitool.csproj `
   --framework net10.0 -- `
   gba-dhj-model $dhj --index 19 --clip 79 --frame 0 `
   -o .\TestOutput\gba-dhj-model-check -v
+```
+
+Export the same clip as morph-target animation (12 keys, 11 targets):
+
+```powershell
+dotnet run --project .\src\NeversoftMultitool\NeversoftMultitool.csproj `
+  --framework net10.0 -- `
+  gba-dhj-model $dhj --index 19 --clip 79 --animate `
+  -o .\TestOutput\gba-dhj-model-anim -v
 ```
 
 Reconfirm the live model-19 container from its sentinel:
@@ -616,8 +670,9 @@ BizHawk 2.6.3 caveats are recorded in `tools/vendor/bizhawk/README.md`:
    assume one shared VV rider format before consumer evidence.
 4. **Close one VV-era format end to end:** source mesh, faces, pose/animation,
    appearance binding, content locator, tests, then export integration.
-5. **Finish DHJ animation timing/tracks:** use the already closed geometry and
-   live clip-90 trace; keep final clip 93 unbounded until its boundary is proven.
+5. **Finish DHJ animation timing:** the morph-target tracks ship; what is left is
+   the playback rule behind them — trace the descriptor's pose advance, decode the
+   per-clip trailer, and keep final clip 93 unbounded until its boundary is proven.
 6. **Finish DHJ normals and appearance:** trace stored-normal and shade consumers;
    diagnostic group colours must remain visibly labeled until then.
 7. **Find DHJ non-rider objects from the closed course bank first:**

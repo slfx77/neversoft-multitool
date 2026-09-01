@@ -155,4 +155,29 @@ internal static class GbaAnimatedModelWriter
 ///     One clip's morph targets in SOURCE-VERTEX order, for the geometry writer
 ///     to redistribute onto each primitive's own corners.
 /// </summary>
-internal sealed record GbaMorphTargets(int[] Frames, Vector3[][] DeltasByTarget, string ClipName);
+internal sealed record GbaMorphTargets(int[] Frames, Vector3[][] DeltasByTarget, string ClipName)
+{
+    /// <summary>
+    ///     Redistributes source-vertex deltas onto one primitive's own corners.
+    ///     <paramref name="sources" /> is the source-vertex index behind each of
+    ///     the primitive's emitted corners, in the same order.
+    /// </summary>
+    internal ModelMorphTarget[] ForPrimitive(IReadOnlyList<int> sources)
+    {
+        var targets = new ModelMorphTarget[DeltasByTarget.Length];
+        for (var t = 0; t < targets.Length; t++)
+        {
+            var source = DeltasByTarget[t];
+            var deltas = new Vector3[sources.Count];
+            for (var v = 0; v < sources.Count; v++)
+                deltas[v] = source[sources[v]];
+            targets[t] = new ModelMorphTarget
+            {
+                Name = $"{ClipName}_f{Frames[t]}",
+                PositionDeltas = deltas
+            };
+        }
+
+        return targets;
+    }
+}
