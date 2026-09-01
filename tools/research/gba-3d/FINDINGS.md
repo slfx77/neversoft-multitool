@@ -1427,6 +1427,128 @@ occlusion-mask-only renders were therefore assets, not level extraction.
 | Full course viewing | Complete indexed banks parse for all 11 packages; all non-degenerate perspective triangles and texture/palette materials export. |
 | Course collision | Exact sequential collision/edge paths export as documented viewer ribbons; equal edge arrays also get a filled viewer proxy. |
 
+## MEASURED (2026-09-01): the THPS3/THPS4 riders ARE real-time 3D, on a library
+## THPS2 also ships
+
+The rider hunt on THPS3-through-Sk8land had stalled at two *output* anchors, one
+transform stage downstream of any geometry. Walking each one back closes the
+question and, unexpectedly, ties three carts together.
+
+### The renderers
+
+**THPS3.** Every frame: ROM `0x0800CED0` calls `0x08029514` with the skater object,
+which reads `[obj+0x08]` as an upload descriptor and calls the wrapper `0x080205C8`;
+that loads dest `[desc+0x0C]` = `0x06010AC0` (OBJ tile 86) and src `[desc+0x08]`,
+then indirect-calls the pointer in `[0x020012D0]`. Behind it is an IWRAM ARM 3D
+library (ROM image `0x087FAD34`): vertex transform `0x087FCC90`, backface cull plus
+a 192-bucket depth sort `0x087FCBDC`, bucket walk `0x087FCEC4`, triangle rasterizers
+`0x087FCFC4` / `0x087FD2C4`. **THPS4 is the same library relocated** (transform at
+`0x087EEAF4`), driven by wrapper ROM `0x0803171C` through descriptor EWRAM
+`0x02031688` to OBJ destination `0x060109A0`.
+
+**The transform is a 3x3 integer matrix.** Read it directly:
+
+```text
+ldrsb sb/sl/fp,[r3],[r3,#1],[r3,#2]   signed-byte translation
+ldm   r0!,{r4,r5,r6}                  4 vertices packed as 3 signed bytes each
+mul   r7,[r2+0x00],x ; mla [r2+0x04],y ; mla [r2+0x08],z ; add sb ; asr #24
+mul   r7,[r2+0x14],z ; mla [r2+0x10],y ; mla [r2+0x0C],x ; add sl
+mul   r7,[r2+0x18],  ; mla [r2+0x1C]   ; mla [r2+0x20]   ; add fp
+```
+
+so the matrix is nine words at `[r2]..[r2+0x20]` and a model vertex is **three
+signed bytes**. Pre-rendering is refuted by measurement on both carts: THPS4's
+4096-byte raster appears nowhere in ROM, and 104 de-swizzled raster rows searched
+whole-ROM yield one chance hit.
+
+### The library is shared, and it dates back to THPS2
+
+An exact 52-byte signature of that transform occurs **twice in THPS2**
+(`0x080001B0`, `0x080009E8`), once in THPS3 (`0x087FCC90`), once in THPS4
+(`0x087EEAF4`), and **not at all** in THUG, THUG2, Sk8land or DHJ. Those three
+later carts nonetheless carry ordinary ARM code in the same quantity as THPS3/THPS4
+(52 `bx lr`, 3 `stmfd sp!,{lr}`, 10 `stmfd sp!,{r4..lr}` each, against THPS3's
+54/3/7), so their 3D library is an **evolved build of the same thing, not an absent
+one** — which is a static lead for the three carts that have no runtime capture at
+all, and it does not need an emulator.
+
+### A refuted negative worth remembering
+
+A structural sweep concluded THPS3/THPS4 contain no rotation, on the grounds that a
+"complete 2x2 multiply grid (two coefficient registers x two coordinate registers)"
+fires 9 times in DHJ and only once in each of THPS3/THPS4 — and that single hit is a
+palette fade. The sweep was careful, corroborated against runtime IWRAM captures,
+and **wrong**, because the premise does not survive this codegen: the transform
+reloads *every* coefficient into `r3` (`mul r7,r3,lr` / `mla r7,r3,r8,r7`), so two
+distinct coefficient registers never coexist and the grid never forms. The
+disassembly above settles it. **A structural detector's negative is only ever as
+strong as its premise; when a negative contradicts a positive walk, disassemble.**
+
+That sweep's positive results stand and correct an earlier claim here: six of the
+seven carts share a byte-identical 32-bit Q30 quarter-sine table (1024 entries,
+amplitude 2^30, period 4096) at THPS2 `0x08751F18` / THPS3 `0x080AFA58` / THPS4
+`0x080AF460` / THUG `0x080CF578` / THUG2 `0x080E3C94` / Sk8land `0x080FE1B0`, and it
+is **DHJ that lacks it**. An earlier pass that found "only DHJ has a sine table"
+had simply guessed the wrong (length, amplitude) pairs, and the inference drawn from
+it — that the later carts therefore had no runtime 3D — was doubly wrong.
+
+### Corrections to previously recorded THPS3 anchors
+
+- `0x08049AE8` is **not** the copy routine; it is a `bx r3` interworking veneer. The
+  real target is whatever `[0x020012D0]` holds, which is `0x03004678` in every dump.
+- "R3 = 3 at the final upload" was a misreading: R3 is that routine pointer. R2 =
+  `0x1C0` is right, and is the OBJ tile-row skip for a 1D-mapped 64x64 8bpp sprite.
+- The source buffer is IWRAM **`0x030057E0`**, not EWRAM `0x020194C8`; the latter
+  appears in no descriptor in any retained dump.
+- The rider's caller is **`0x0802951A`**, not `0x08020A86` — that one is a UI tween.
+
+### Leads for the next sitting
+
+THPS3 has a model directory at ROM `0x08161CA4` (6 records x 0x14) with the rider at
+header `0x08169B80`; THPS4's rider is an `S3D` version-6 model at `0x080C8550`, and
+`S3D`+v6 occurs in THPS4 alone among the six. Neither is closed to this document's
+evidence standard yet.
+
+## CLOSED (2026-09-01): three Downhill Jam questions
+
+**The final pose clip is bounded.** The four spare bytes per clip are not a trailing
+playback value, as recorded — they are a **prefix stating that clip's frame count**,
+and the directory offsets point past it. Measured on the shipped US ROM: the u32 at
+`ClipOffsets[i] - 4` equals clip i's derived frame count for **93/93** bounded clips,
+while reading it as a trailer of clip i matches only **11/93** (chance) and matches
+the *next* clip's count 92/92. Clip 0's copy sits at `0xE71990`, exactly where the
+94-entry offset table ends, with no preceding clip to have trailed it — which
+refutes the trailer reading outright. The final clip's prefix at `0xEAB214` states
+25, and `0xEAB218 + 25*0x50 = 0xEAB9E8` lands byte-exactly on the first `JBOG`.
+(`JBOG` is real and structural: 24 records, the tag is `GOBJ` stored little-endian,
+`+0x04` is a constant `0x20`, `+0x08`/`+0x0C` are the vertex/face counts, and every
+rider model in the ROM sits at `+0x38` of one.)
+
+**The stored per-vertex u16 is a texture coordinate, not a normal.** Byte `+6` is U
+and byte `+7` is V into a 32x32 8bpp page. Three independent proofs: the rider
+transform copies the field **verbatim without rotating it** (a normal on a rigid part
+would have to rotate), the level renderer injects the same u16 *per corner* from a
+14-byte face record, and the sole consumer — the rasterizer — splits it into low and
+high bytes, builds affine screen-space gradients and fetches `texbase[V*stride + U]`.
+Geometry agrees: model 19 group 0 is the skateboard deck, a flat 6-vertex plane with
+one geometric normal, yet its six stored values are all distinct and vary linearly
+with position (V tracks length x = -59,-46,51,67 -> 0,4,27,31; U tracks width
+y = -13,0,+10 -> 19,25,31, both centreline apex vertices taking the exact midpoint
+25). 44 candidate normal decodes score 74.54 degrees mean error against a shuffled
+control of 77.44 — no fit at all.
+
+**The placed-object record is decoded.** 16 bytes:
+`{s16 X, s16 Y, s16 Z, u8 Type, u8 runtimeFlags, u16 runtimeCounter, 6 pad}`, of
+which only `+0x00..+0x06` are authored. The missing link was the index: **chunk
+record `+0x20` and `+0x24` are s32 object indices into this bank** (-1 = none),
+1,395 references across all 11 courses with zero out of range. Positions are world
+XYZ in the vertex bank's own space (the engine subtracts the camera's X/Y/Z from
+exactly those three halfwords and hands them to the same projection routine the
+course triangles use); all 1,344 objects lie inside their own course's vertex AABB,
+and the median distance to the nearest centre-line point is 71.2 units against a
+control median of 1,607-8,613. There is **no along-track distance field** — the
+ordering is carried by the referencing chunk index, not by anything in the record.
+
 ## Next steps (current, in order)
 
 1. **THPS3-through-Sk8land rider models.** The THPS2 model complex is absent and
