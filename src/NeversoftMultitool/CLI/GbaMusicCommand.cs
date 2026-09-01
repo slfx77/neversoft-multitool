@@ -7,8 +7,8 @@ namespace NeversoftMultitool.CLI;
 
 /// <summary>
 ///     Renders the sequenced music from a GAX Sound Engine GBA ROM to WAV. The note
-///     sequence is decoded faithfully (<see cref="GbaGaxMusic" />); tempo and timbre
-///     are documented approximations (<see cref="GaxRenderer" />).
+///     sequence, instruments and PCM waves are decoded by <see cref="GbaGaxMusic" />
+///     and <see cref="GaxRenderer" />.
 /// </summary>
 public static class GbaMusicCommand
 {
@@ -79,7 +79,7 @@ public static class GbaMusicCommand
         var headers = GbaGaxMusic.FindSongHeaders(rom);
         if (headers.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]No GAX songs found[/] (this ROM may use a later GAX header layout)");
+            AnsiConsole.MarkupLine("[yellow]No structurally valid GAX songs found[/]");
             return 0;
         }
 
@@ -93,12 +93,16 @@ public static class GbaMusicCommand
             if (song >= 0 && i != song)
                 continue;
             cancellationToken.ThrowIfCancellationRequested();
-            // The mix rate is call-site in the game: the boot/title song (address
-            // order 0) plays at 18158 Hz, everything else at 15769 Hz.
-            var options = new GaxRenderer.Options
-            {
-                RequestedRateHz = i == 0 ? GaxRenderer.TitleRateHz : GaxRenderer.DefaultRateHz
-            };
+            // GAX 2/3 store the requested rate per song. GAX 1.99 does not, so its
+            // two THPS2 call-site values remain the generation-specific fallback.
+            int requestedRate;
+            if (headers[i].MixingRate > 0)
+                requestedRate = headers[i].MixingRate;
+            else if (i == 0)
+                requestedRate = GaxRenderer.TitleRateHz;
+            else
+                requestedRate = GaxRenderer.DefaultRateHz;
+            var options = new GaxRenderer.Options { RequestedRateHz = requestedRate };
             var pcm = GaxRenderer.RenderSong(rom, headers[i], options, out var sampleRate);
             if (pcm.Length == 0)
                 continue;
@@ -108,13 +112,15 @@ public static class GbaMusicCommand
             if (verbose)
                 AnsiConsole.MarkupLine(
                     $"  song_{i:D2}.wav  hdr 0x{headers[i].Address:X8}  {headers[i].ChannelCount} ch  "
-                    + $"{headers[i].OrderLength} patterns  {pcm.Length / sampleRate}s @ {sampleRate} Hz");
+                    + $"{headers[i].OrderLength} patterns  {headers[i].Layout}  "
+                    + $"{pcm.Length / sampleRate}s @ {sampleRate} Hz");
         }
 
         AnsiConsole.MarkupLine($"Rendered [green]{rendered}[/] songs to [green]{Markup.Escape(dir)}[/]");
         AnsiConsole.MarkupLine(
-            "[grey]Real timbre: instrument PCM waves, envelopes, vibrato and the songs' own tempo, "
-            + "via the frame-faithful GAX engine port.[/]");
+            "[grey]Source timbre: instrument PCM waves, envelopes, vibrato and the songs' own tempo. "
+            + "The GAX 1.99 path is frame/reference validated; GAX 2/3 are structurally "
+            + "ported and have not yet been emulator-byte-compared.[/]");
         return 0;
     }
 }

@@ -8,7 +8,7 @@ namespace NeversoftMultitool.CLI;
 /// <summary>
 ///     Extracts the PCM sound samples from a GAX Sound Engine GBA ROM to WAV
 ///     (the Vicarious Visions Tony Hawk GBA line and other GAX titles). The
-///     samples are located by the wave set's self-validating contiguity anchor;
+///     samples are located from the complete self-validating sparse wave tables;
 ///     see <see cref="GbaGaxAudio" />.
 /// </summary>
 public static class GbaGaxCommand
@@ -76,27 +76,45 @@ public static class GbaGaxCommand
         }
 
         AnsiConsole.MarkupLine($"[blue]{Markup.Escape(banner)}[/]");
-        if (!GbaGaxAudio.TryFindWaveSet(rom, out var tableOffset, out var samples))
+        var waveSets = GbaGaxAudio.FindWaveSets(rom);
+        if (waveSets.Count == 0)
         {
-            AnsiConsole.MarkupLine("[red]No GAX wave set found[/] (no contiguous sample table)");
+            AnsiConsole.MarkupLine("[red]No GAX wave set found[/] (no structurally valid sample table)");
             return 1;
         }
 
         AnsiConsole.MarkupLine(
-            $"Wave set at [green]0x{tableOffset:X}[/]: [green]{samples.Count}[/] samples");
+            $"Found [green]{waveSets.Count}[/] wave sets with "
+            + $"[green]{waveSets.Sum(set => set.Samples.Count)}[/] populated samples");
 
         var dir = outputDir ?? Path.Combine("TestOutput", Path.GetFileNameWithoutExtension(input) + "-gax");
         Directory.CreateDirectory(dir);
         var written = 0;
-        foreach (var sample in samples)
+        foreach (var waveSet in waveSets)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var pcm = GbaGaxAudio.DecodeToPcm16(GbaGaxAudio.GetSampleBytes(rom, sample));
-            var path = Path.Combine(dir, $"sample_{sample.Index:D3}.wav");
-            WavWriter.WritePcm16(path, rate, 1, pcm);
-            written++;
             if (verbose)
-                AnsiConsole.MarkupLine($"  sample_{sample.Index:D3}.wav  0x{sample.Address:X8}  {sample.Size} bytes");
+            {
+                AnsiConsole.MarkupLine(
+                    $"  bank {waveSet.Index:D2} at 0x{waveSet.TableOffset:X}: "
+                    + $"{waveSet.Samples.Count}/{waveSet.SlotCount} populated slots, {waveSet.Encoding}");
+            }
+
+            foreach (var sample in waveSet.Samples)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var pcm = GbaGaxAudio.DecodeToPcm16(
+                    GbaGaxAudio.GetSampleBytes(rom, sample),
+                    waveSet.Encoding);
+                var fileName = $"bank_{waveSet.Index:D2}_sample_{sample.Index:D3}.wav";
+                var path = Path.Combine(dir, fileName);
+                WavWriter.WritePcm16(path, rate, 1, pcm);
+                written++;
+                if (verbose)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"    {fileName}  0x{sample.Address:X8}  {sample.Size} bytes");
+                }
+            }
         }
 
         AnsiConsole.MarkupLine($"Extracted [green]{written}[/] WAV samples to [green]{Markup.Escape(dir)}[/]");

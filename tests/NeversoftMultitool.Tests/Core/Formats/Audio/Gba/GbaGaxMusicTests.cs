@@ -101,22 +101,73 @@ public sealed class GbaGaxMusicTests(TestPaths paths)
             Convert.ToHexStringLower(SHA256.HashData(bytes)));
     }
 
-    // Only THPS2 (GAX v1.99, 20-byte song header) decodes with this layout; the
-    // later carts ship GAX 2.11/3.x with a different header, so the v1.99 scanner
-    // finds none — a pin on the version divergence.
+    // The common pattern grammar survives all three engine generations. These
+    // exact counts and first-song note totals pin each generation's distinct
+    // header/order indirection without relying on game-specific addresses.
     [CorpusTheory]
-    [InlineData("Tony Hawk's Pro Skater 2 (2001-6-11, GBA - Final)", 11)]
-    [InlineData("Tony Hawk's Pro Skater 3 (2002-3-15, GBA - Final)", 0)]
-    [InlineData("Tony Hawk's Pro Skater 4 (2002-10-23, GBA - Final)", 0)]
-    [InlineData("Tony Hawk's Underground (2003-10-27, GBA - Final)", 0)]
-    [InlineData("Tony Hawk's Underground 2 (2004-10-4, GBA - Final)", 0)]
-    [InlineData("Tony Hawk's American Sk8land (2005-10-18, GBA - Final)", 0)]
-    [InlineData("Tony Hawk's Downhill Jam (2006-11-7, GBA - Final)", 0)]
-    public void SongCountAcrossTheGbaLine(string build, int expected)
+    [InlineData("Tony Hawk's Pro Skater 2 (2001-6-11, GBA - Final)", 11,
+        GbaGaxMusic.GaxSongLayout.Version1, 615)]
+    [InlineData("Tony Hawk's Pro Skater 3 (2002-3-15, GBA - Final)", 14,
+        GbaGaxMusic.GaxSongLayout.Version2, 621)]
+    [InlineData("Tony Hawk's Pro Skater 4 (2002-10-23, GBA - Final)", 10,
+        GbaGaxMusic.GaxSongLayout.Version3, 1034)]
+    [InlineData("Tony Hawk's Underground (2003-10-27, GBA - Final)", 7,
+        GbaGaxMusic.GaxSongLayout.Version3, 1039)]
+    [InlineData("Tony Hawk's Underground 2 (2004-10-4, GBA - Final)", 6,
+        GbaGaxMusic.GaxSongLayout.Version3, 17)]
+    [InlineData("Tony Hawk's American Sk8land (2005-10-18, GBA - Final)", 9,
+        GbaGaxMusic.GaxSongLayout.Version3, 1488)]
+    [InlineData("Tony Hawk's Downhill Jam (2006-11-7, GBA - Final)", 11,
+        GbaGaxMusic.GaxSongLayout.Version3, 487)]
+    public void DecodesSongsAcrossTheGbaLine(
+        string build,
+        int expectedSongCount,
+        GbaGaxMusic.GaxSongLayout expectedLayout,
+        int expectedFirstSongNotes)
     {
         var path = paths.FindSampleFiles(build, "*.gba").FirstOrDefault();
         Assert.SkipWhen(path == null, $"{build} ROM sample not available");
         var rom = File.ReadAllBytes(path!);
-        Assert.Equal(expected, GbaGaxMusic.FindSongHeaders(rom).Count);
+        var headers = GbaGaxMusic.FindSongHeaders(rom);
+
+        Assert.Equal(expectedSongCount, headers.Count);
+        Assert.All(headers, header =>
+        {
+            Assert.Equal(expectedLayout, header.Layout);
+            Assert.Equal(header.ChannelCount, header.ChannelOrderAddresses.Count);
+            Assert.True(header.SampleAddress >= 0x08000000);
+            if (expectedLayout == GbaGaxMusic.GaxSongLayout.Version1)
+                Assert.Equal(0, header.MixingRate);
+            else
+                Assert.InRange(header.MixingRate, 5735, 42049);
+        });
+        Assert.Equal(expectedFirstSongNotes, Analyze(rom, headers[0]).Played);
+    }
+
+    [CorpusTheory]
+    [InlineData("Tony Hawk's Pro Skater 2 (2001-6-11, GBA - Final)")]
+    [InlineData("Tony Hawk's Pro Skater 3 (2002-3-15, GBA - Final)")]
+    [InlineData("Tony Hawk's Pro Skater 4 (2002-10-23, GBA - Final)")]
+    [InlineData("Tony Hawk's Underground (2003-10-27, GBA - Final)")]
+    [InlineData("Tony Hawk's Underground 2 (2004-10-4, GBA - Final)")]
+    [InlineData("Tony Hawk's American Sk8land (2005-10-18, GBA - Final)")]
+    [InlineData("Tony Hawk's Downhill Jam (2006-11-7, GBA - Final)")]
+    public void FirstSongRendererMakesProgressAcrossTheGbaLine(string build)
+    {
+        var path = paths.FindSampleFiles(build, "*.gba").FirstOrDefault();
+        Assert.SkipWhen(path == null, $"{build} ROM sample not available");
+        var rom = File.ReadAllBytes(path!);
+        var header = Assert.Single(GbaGaxMusic.FindSongHeaders(rom).Take(1));
+        var requestedRate = header.MixingRate > 0 ? header.MixingRate : GaxRenderer.TitleRateHz;
+
+        var pcm = GaxRenderer.RenderSong(
+            rom,
+            header,
+            new GaxRenderer.Options { RequestedRateHz = requestedRate, MaxSeconds = 1 },
+            out var sampleRate);
+
+        Assert.InRange(sampleRate, 5735, 42049);
+        Assert.InRange(pcm.Length, 1, sampleRate);
+        Assert.Contains(pcm, sample => sample != 0);
     }
 }

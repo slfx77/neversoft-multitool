@@ -8,10 +8,10 @@ namespace NeversoftMultitool.Core.Formats.Audio.Gba;
 ///     placeholder (and its rows-per-second tempo policy) is gone — tempo now comes
 ///     from the song's own speed effects at the driver's 59.7275 fps tick.
 ///
-///     <para>The one remaining policy is the <b>requested mix rate</b>, which is
-///     call-site in the game rather than song data: THPS2 plays its title song at
-///     18158 Hz and everything else at 15769 Hz. The output sample rate is the true
-///     hardware rate derived from the ROM's own rate-config table.</para>
+///     <para>The one remaining GAX 1.x policy is the <b>requested mix rate</b>,
+///     which is call-site state rather than song data: THPS2 plays its title song
+///     at 18158 Hz and everything else at 15769 Hz. GAX 2/3 store that request in
+///     each song header. The output is always the corresponding hardware rate.</para>
 /// </summary>
 public static class GaxRenderer
 {

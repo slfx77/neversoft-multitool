@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace NeversoftMultitool.Core.Formats.Audio.Gba;
 
 /// <summary>
-///     The GAX v1.99 synthesis engine, ported instruction-faithfully from the ROM's
+///     The GAX synthesis engine. Its v1.99 path was ported instruction-faithfully from the ROM's
 ///     own driver (sequencer 0x08036050, row interpreter 0x080362FC, note-on
 ///     0x080364CC, instrument set 0x08036508, perf list 0x08036550, per-tick slides
 ///     0x080366F0, envelope 0x08036A7C, vibrato 0x08036B44, window slide 0x08036B84,
@@ -16,15 +16,15 @@ namespace NeversoftMultitool.Core.Formats.Audio.Gba;
 ///     (two songs, both mix rates) matched exactly on wave address, resample step,
 ///     position, envelope, and volumes, and its audio scores 0.927 log-spectrogram
 ///     correlation against the emulator's real output — and this port reproduces
-///     that reference's PCM byte-for-byte.</para>
+///     that reference's PCM byte-for-byte. GAX 2/3 retain the same sequencer and
+///     mixer model but use generation-specific headers, instrument records, sample
+///     signedness and static-table locations.</para>
 ///
-///     <para>Engine tables are discovered from the ROM, not hardcoded: the rate
-///     config sits at banner+0x50 (12 × {rateHz, timerPeriod}), the pitch table at
-///     config+0x60 (<c>table[p] = 523.251 Hz × 2^(p/384) × 2048</c>, pitch unit =
-///     1/32 semitone), and the vibrato sine directly after it. Waves are 1-based
-///     records in the song's <c>sampleAddr</c> table — indexed directly, because the
-///     contiguity scan that locates the sample <i>bank</i> undercounts the record
-///     table (101 of 133 on THPS2). Note the order-list transpose byte <b>is</b>
+///     <para>Engine tables are discovered from the ROM: GAX 1/2 carry the rate
+///     config near the banner followed by the pitch table; GAX 3 carries its pitch
+///     table at banner+0x50 and uses the driver's fixed rate/period pairs. Waves
+///     are 1-based records in the song's <c>sampleAddr</c> table and are indexed
+///     directly, preserving sparse table slots. Note the order-list transpose byte <b>is</b>
 ///     applied — at mix time, per the current order position (an earlier static
 ///     reading claimed otherwise; the live captures settled it).</para>
 /// </summary>
@@ -34,6 +34,13 @@ internal sealed class GaxSynth
     private const double FramesPerSecond = 59.7275;
     private const int PitchTableLength = 0xEF4;
 
+    private static readonly (int Rate, int TimerPeriod)[] SupportedMixRates =
+    [
+        (5735, 2926), (9079, 1848), (10513, 1596), (11469, 1463), (13380, 1254),
+        (15769, 1064), (18158, 924), (21025, 798), (26760, 627),
+        (31537, 532), (36316, 462), (40138, 418), (42049, 399)
+    ];
+
     private readonly byte[] _rom;
     private readonly uint[] _pitchTable;
     private readonly sbyte[] _sineTable;
@@ -42,10 +49,9 @@ internal sealed class GaxSynth
     private readonly int _samplesPerFrame;
     private readonly ulong _stepFactor;
     private readonly GbaGaxMusic.GaxSongHeader _header;
-    private readonly int _orderStride;
-    private readonly int _headerOffset;
     private readonly int _waveBaseOffset;
     private readonly int _masterVolume;
+    private readonly bool _unsignedSamples;
     private readonly Channel[] _channels;
     private readonly Sequencer _seq = new();
 
@@ -56,43 +62,65 @@ internal sealed class GaxSynth
     {
         _rom = rom;
         _header = header;
-        _headerOffset = (int)(header.Address - RomBase);
-        _orderStride = header.OrderLength * 4;
-
-        // The song's wave table is the header's sampleAddr field at +0x10 — the same
-        // wave-set base every header is located by.
-        var sampleAddress = BinaryPrimitives.ReadUInt32LittleEndian(rom.AsSpan(_headerOffset + 0x10, 4));
-        _waveBaseOffset = (int)(sampleAddress - RomBase);
+        _waveBaseOffset = (int)(header.SampleAddress - RomBase);
+        _unsignedSamples = header.Layout == GbaGaxMusic.GaxSongLayout.Version3;
 
         var banner = rom.AsSpan().IndexOf("GAX Sound Engine "u8);
         if (banner < 0)
             throw new InvalidDataException("No GAX engine banner in this ROM");
 
-        // Rate config (banner+0x50): first of 12 entries with rate >= requested.
-        var config = banner + 0x50;
-        _mixRate = 0;
-        for (var i = 0; i < 12; i++)
+        _pitchTable = new uint[PitchTableLength];
+        _sineTable = new sbyte[64];
+        if (header.Layout == GbaGaxMusic.GaxSongLayout.Version1)
         {
-            var rate = (int)ReadU32(config + i * 8);
-            var period = (int)ReadU32(config + i * 8 + 4);
-            _mixRate = rate;
-            _timerPeriod = period;
-            if (rate >= requestedRateHz)
-                break;
+            // GAX 1.99 stores 12 u32 rate/period pairs, then the 0xEF4-entry
+            // pitch table and 64-byte vibrato sine table, directly after its banner.
+            var config = banner + 0x50;
+            var selectedRate = 0;
+            var selectedPeriod = 0;
+            for (var i = 0; i < 12; i++)
+            {
+                var rate = (int)ReadU32(config + i * 8);
+                var period = (int)ReadU32(config + i * 8 + 4);
+                selectedRate = rate;
+                selectedPeriod = period;
+                if (rate >= requestedRateHz)
+                    break;
+            }
+
+            _mixRate = selectedRate;
+            _timerPeriod = selectedPeriod;
+            var pitchTableOffset = config + 0x60;
+            for (var i = 0; i < PitchTableLength; i++)
+                _pitchTable[i] = ReadU32(pitchTableOffset + i * 4);
+
+            var sineOffset = pitchTableOffset + PitchTableLength * 4;
+            for (var i = 0; i < 64; i++)
+                _sineTable[i] = (sbyte)_rom[sineOffset + i];
+        }
+        else
+        {
+            // GAX 2/3 no longer place those tables after the banner. The driver
+            // computes the same equal-tempered 1/32-semitone table; generating it
+            // reproduces every v1.99 ROM value exactly and avoids interpreting
+            // nearby function pointers as resample steps. Their rate/period pairs
+            // are fixed driver constants (GAX 3 adds the 9079 Hz entry).
+            (_mixRate, _timerPeriod) = SelectMixRate(
+                requestedRateHz,
+                includeGax3Rate: header.Layout == GbaGaxMusic.GaxSongLayout.Version3);
+            for (var i = 0; i < PitchTableLength; i++)
+            {
+                // p=0 is C5: three semitones (96 pitch units) above A4=440 Hz.
+                _pitchTable[i] = (uint)Math.Floor(
+                    440.0 * 2048.0 * Math.Pow(2.0, (i + 96) / 384.0));
+            }
+
+            for (var i = 0; i < 64; i++)
+                _sineTable[i] = (sbyte)Math.Round(Math.Sin(i * Math.Tau / 64.0) * 127.0);
         }
 
         _samplesPerFrame = (int)((long)_mixRate * 1000 / 59727);
         _stepFactor = (1UL << 32) / (uint)_mixRate;
-
-        var pitchTableOffset = config + 0x60;
-        _pitchTable = new uint[PitchTableLength];
-        for (var i = 0; i < PitchTableLength; i++)
-            _pitchTable[i] = ReadU32(pitchTableOffset + i * 4);
-
-        var sineOffset = pitchTableOffset + 0x3BD0;
-        _sineTable = new sbyte[64];
-        for (var i = 0; i < 64; i++)
-            _sineTable[i] = (sbyte)rom[sineOffset + i];
 
         _channels = new Channel[header.ChannelCount];
         for (var i = 0; i < _channels.Length; i++)
@@ -101,7 +129,10 @@ internal sealed class GaxSynth
         // Output stage master (0x08036FC4). A music-only render uses the song's own
         // channel count (in-game the SFX system registers 2 more).
         var n = header.ChannelCount;
-        _masterVolume = n == 1 ? 0x40 : 68 * (n + 8);
+        var channelMaster = n == 1 ? 0x40 : 68 * (n + 8);
+        _masterVolume = header.Layout == GbaGaxMusic.GaxSongLayout.Version1
+            ? channelMaster
+            : channelMaster * header.MasterVolume / 0x100;
     }
 
     /// <summary>
@@ -145,6 +176,12 @@ internal sealed class GaxSynth
             return;
         if (s.Tick == 0)
         {
+            if (s.SpeedModHigh != 0 && s.SpeedModLow != 0)
+            {
+                s.Speed = s.SpeedModPhase == 0 ? s.SpeedModHigh : s.SpeedModLow;
+                s.SpeedModPhase ^= 1;
+            }
+
             if (s.BreakFlag != 0)
             {
                 s.BreakFlag = 0;
@@ -181,10 +218,9 @@ internal sealed class GaxSynth
         }
     }
 
-    // The per-channel order list precedes the header at stride orderLen*4 — proven
-    // equal to the engine's own per-channel data pointers for all 11 THPS2 songs.
+    // Discovery normalizes all three storage layouts to explicit order addresses.
     private int OrderEntryOffset(Channel ch, int orderPos) =>
-        _headerOffset - _header.ChannelCount * _orderStride + ch.Index * _orderStride + orderPos * 4;
+        (int)(_header.ChannelOrderAddresses[ch.Index] - RomBase) + orderPos * 4;
 
     // ---- channel frame update (0x0803622C) ----
     private void ChannelFrame(Channel ch, int[] buffer)
@@ -321,6 +357,21 @@ internal sealed class GaxSynth
                 }
 
                 break;
+            case 7: // alternate the high/low nibble as ticks-per-row
+            {
+                var high = param >> 4;
+                var low = param & 0x0F;
+                if (high != 0 && low != 0)
+                {
+                    _seq.SpeedModHigh = high;
+                    _seq.SpeedModLow = low;
+                    _seq.SpeedModPhase = 1;
+                    _seq.Speed = high;
+                    _seq.Tick = high - 1;
+                }
+
+                break;
+            }
             case 0xA:
                 ch.VolSlide = (byte)param;
                 break;
@@ -334,6 +385,8 @@ internal sealed class GaxSynth
                 _seq.BreakFlag = 1; // target row is stored but never read by v1.99
                 break;
             case 0xF:
+                _seq.SpeedModHigh = 0;
+                _seq.SpeedModLow = 0;
                 _seq.Speed = param;
                 _seq.Tick = param - 1;
                 break;
@@ -597,10 +650,17 @@ internal sealed class GaxSynth
         if (instr == null || (short)ch.PerfPitch == -1 || ch.WaveIndex > 3)
             return;
         var sampleNumber = instr.SampleIndex(ch.WaveIndex);
-        var waveAddress = ReadU32(_waveBaseOffset + sampleNumber * 8);
-        var waveSize = (int)ReadU32(_waveBaseOffset + sampleNumber * 8 + 4);
-        if (waveAddress == 0)
+        var tableEntry = _waveBaseOffset + sampleNumber * 8;
+        if (sampleNumber == 0 || tableEntry < 0 || tableEntry + 8 > _rom.Length)
             return;
+        var waveAddress = ReadU32(tableEntry);
+        var rawWaveSize = ReadU32(tableEntry + 4);
+        if (waveAddress < RomBase
+            || rawWaveSize == 0
+            || rawWaveSize > (uint)_rom.Length
+            || (ulong)waveAddress + rawWaveSize > (ulong)RomBase + (uint)_rom.Length)
+            return;
+        var waveSize = (int)rawWaveSize;
         var rec = instr.Wave(ch.WaveIndex);
 
         var pitch = (short)ch.PerfPitch + ch.VibValue;
@@ -632,9 +692,11 @@ internal sealed class GaxSynth
         var waveOffset = (int)(waveAddress - RomBase);
         var pos = ch.Position;
         var written = 0;
+        var noProgressPasses = 0;
 
         while (written < _samplesPerFrame)
         {
+            var writtenBeforePass = written;
             if (ch.Direction > 0)
             {
                 long end = hasForwardLoop ? rec.LoopEnd
@@ -645,7 +707,9 @@ internal sealed class GaxSynth
                 {
                     while (written < _samplesPerFrame && pos < endFp)
                     {
-                        buffer[written] += (sbyte)_rom[waveOffset + (int)(pos >> 11)] * volume >> 8;
+                        var raw = _rom[waveOffset + (int)(pos >> 11)];
+                        var source = _unsignedSamples ? raw - 128 : (sbyte)raw;
+                        buffer[written] += source * volume >> 8;
                         pos += step;
                         written++;
                     }
@@ -683,7 +747,9 @@ internal sealed class GaxSynth
                 {
                     while (written < _samplesPerFrame && pos > endFp)
                     {
-                        buffer[written] += (sbyte)_rom[waveOffset + (int)(pos >> 11)] * volume >> 8;
+                        var raw = _rom[waveOffset + (int)(pos >> 11)];
+                        var source = _unsignedSamples ? raw - 128 : (sbyte)raw;
+                        buffer[written] += source * volume >> 8;
                         pos -= step;
                         written++;
                     }
@@ -694,9 +760,39 @@ internal sealed class GaxSynth
                 ch.Direction = 1; // flip back to forward
                 pos += 2 * step;
             }
+
+            if (written == writtenBeforePass)
+            {
+                // A malformed or generation-mismatched loop can bounce between
+                // two boundaries without consuming an output sample. The GBA
+                // driver drops such a voice; do the same instead of spinning.
+                noProgressPasses++;
+                if (noProgressPasses >= 4)
+                {
+                    ch.PerfPitch = 0xFFFF;
+                    ch.PerfSlide = 0;
+                    break;
+                }
+            }
+            else
+            {
+                noProgressPasses = 0;
+            }
         }
 
         ch.Position = pos;
+    }
+
+    private static (int Rate, int TimerPeriod) SelectMixRate(int requestedRateHz, bool includeGax3Rate)
+    {
+        foreach (var entry in SupportedMixRates)
+        {
+            if (!includeGax3Rate && entry.Rate == 9079)
+                continue;
+            if (entry.Rate >= requestedRateHz)
+                return entry;
+        }
+        return SupportedMixRates[^1];
     }
 
     private uint ReadU32(int offset) => BinaryPrimitives.ReadUInt32LittleEndian(_rom.AsSpan(offset, 4));
@@ -709,40 +805,79 @@ internal sealed class GaxSynth
             return cached;
         var pointer = ReadU32((int)(_header.InstrumentAddress - RomBase) + index * 4);
         InstrumentRef? instr = null;
-        if (pointer >= RomBase && pointer < RomBase + (uint)_rom.Length && _rom[pointer - RomBase] == 0)
-            instr = new InstrumentRef(_rom, (int)(pointer - RomBase));
+        if (pointer >= RomBase
+            && (ulong)pointer < (ulong)RomBase + (uint)_rom.Length
+            && _rom[(int)(pointer - RomBase)] == 0)
+            instr = new InstrumentRef(_rom, (int)(pointer - RomBase), _header.Layout);
         _instrumentCache[index] = instr;
         return instr;
     }
 
     /// <summary>An instrument, read in place from the ROM (offsets per the port spec).</summary>
-    private sealed class InstrumentRef(byte[] rom, int offset)
+    private sealed class InstrumentRef
     {
-        public byte VibratoDelay => rom[offset + 8];
-        public byte VibratoDepth => rom[offset + 9];
-        public byte VibratoSpeed => rom[offset + 10];
-        public int EnvelopeAddress => (int)(BinaryPrimitives.ReadUInt32LittleEndian(rom.AsSpan(offset + 0x7C, 4)) - RomBase);
-        public byte EnvelopeSustain => rom[EnvelopeAddress + 1];
-        public byte PerfSpeed => rom[offset + 0x84];
-        public byte PerfLength => rom[offset + 0x85];
-        public int PerfList => (int)(BinaryPrimitives.ReadUInt32LittleEndian(rom.AsSpan(offset + 0x88, 4)) - RomBase);
+        private readonly byte[] _rom;
+        private readonly int _offset;
+        private readonly bool _compactVersion3;
 
-        public int SampleIndex(int slot) => rom[offset + 1 + slot];
+        public InstrumentRef(byte[] rom, int offset, GbaGaxMusic.GaxSongLayout layout)
+        {
+            _rom = rom;
+            _offset = offset;
+            _compactVersion3 = layout == GbaGaxMusic.GaxSongLayout.Version3
+                               && offset + 0x18 <= rom.Length
+                               && IsRomPointer(ReadU32(offset + 0x0C))
+                               && IsRomPointer(ReadU32(offset + 0x14))
+                               && rom[offset + 0x10] != 0
+                               && rom[offset + 0x11] != 0;
+        }
+
+        public byte VibratoDelay => _rom[_offset + 8];
+        public byte VibratoDepth => _rom[_offset + 9];
+        public byte VibratoSpeed => _rom[_offset + 10];
+        public int EnvelopeAddress => (int)(ReadU32(_offset + (_compactVersion3 ? 0x0C : 0x7C)) - RomBase);
+        public byte EnvelopeSustain => _rom[EnvelopeAddress + 1];
+        public byte PerfSpeed => _rom[_offset + (_compactVersion3 ? 0x10 : 0x84)];
+        public byte PerfLength => _rom[_offset + (_compactVersion3 ? 0x11 : 0x85)];
+        public int PerfList => (int)(ReadU32(_offset + (_compactVersion3 ? 0x14 : 0x88)) - RomBase);
+
+        public int SampleIndex(int slot) => _rom[_offset + 1 + slot];
 
         public WaveRecord Wave(int slot)
         {
-            var at = offset + 0x0C + slot * 28;
+            if (_compactVersion3)
+            {
+                var compactAt = _offset + 0x18 + slot * 24;
+                return new WaveRecord(
+                    _rom[compactAt + 2],
+                    _rom[compactAt + 3],
+                    ReadU32(compactAt + 4),
+                    ReadU32(compactAt + 8),
+                    ReadU32(compactAt + 12),
+                    ReadU32(compactAt + 16),
+                    BinaryPrimitives.ReadUInt16LittleEndian(_rom.AsSpan(compactAt + 22, 2)),
+                    BinaryPrimitives.ReadUInt16LittleEndian(_rom.AsSpan(compactAt + 20, 2)),
+                    BinaryPrimitives.ReadInt16LittleEndian(_rom.AsSpan(compactAt, 2)));
+            }
+
+            var legacyAt = _offset + 0x0C + slot * 28;
             return new WaveRecord(
-                rom[at],
-                rom[at + 1],
-                BinaryPrimitives.ReadUInt32LittleEndian(rom.AsSpan(at + 4, 4)),
-                BinaryPrimitives.ReadUInt32LittleEndian(rom.AsSpan(at + 8, 4)),
-                BinaryPrimitives.ReadUInt32LittleEndian(rom.AsSpan(at + 12, 4)),
-                BinaryPrimitives.ReadUInt32LittleEndian(rom.AsSpan(at + 16, 4)),
-                BinaryPrimitives.ReadUInt32LittleEndian(rom.AsSpan(at + 20, 4)),
-                BinaryPrimitives.ReadUInt16LittleEndian(rom.AsSpan(at + 24, 2)),
-                BinaryPrimitives.ReadInt16LittleEndian(rom.AsSpan(at + 26, 2)));
+                _rom[legacyAt],
+                _rom[legacyAt + 1],
+                ReadU32(legacyAt + 4),
+                ReadU32(legacyAt + 8),
+                ReadU32(legacyAt + 12),
+                ReadU32(legacyAt + 16),
+                ReadU32(legacyAt + 20),
+                BinaryPrimitives.ReadUInt16LittleEndian(_rom.AsSpan(legacyAt + 24, 2)),
+                BinaryPrimitives.ReadInt16LittleEndian(_rom.AsSpan(legacyAt + 26, 2)));
         }
+
+        private uint ReadU32(int offset) =>
+            BinaryPrimitives.ReadUInt32LittleEndian(_rom.AsSpan(offset, 4));
+
+        private bool IsRomPointer(uint address) =>
+            address >= RomBase && (ulong)address < (ulong)RomBase + (uint)_rom.Length;
     }
 
     private readonly record struct WaveRecord(
@@ -755,6 +890,9 @@ internal sealed class GaxSynth
         public int Row = 20000;
         public int Playing = 1;
         public int Speed = 6;
+        public int SpeedModHigh;
+        public int SpeedModLow;
+        public int SpeedModPhase;
         public int Tick;
         public int NewRow;
         public int NewPattern;
