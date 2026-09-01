@@ -14,6 +14,8 @@ N64 tool's lui/ori site listing.
 Usage:
     gba_disasm.py <game> <hex_addr> <count> [--thumb]
     gba_disasm.py <game> --find-word 0x03007FFF     literal pools + ldr sites
+    gba_disasm.py <game> --callers 0x080205C8       every BL site reaching it
+    gba_disasm.py <game> --stores 0x02036B88 --window 0x30   pools for a struct
     gba_disasm.py <game> --func <hex_addr> [--thumb] enclosing function
     gba_disasm.py <game> --header                    decoded cartridge header
 
@@ -131,6 +133,63 @@ def find_word(data: bytes, want: int) -> None:
             print(f"    ldr @ {site:#010x} ({mode})")
 
 
+def find_callers(data: bytes, target: int) -> None:
+    """Every call site that reaches `target`, the ARM analogue of an xref list.
+
+    Walking a consumer backwards is how these ROMs give up their formats: a
+    packed asset's grammar is stated by the routine that reads it, and the way
+    in is usually "who calls the decompressor / the uploader". Thumb BL is a
+    HALFWORD PAIR, so the two halves must be read together - scanning for a
+    single opcode finds nothing.
+    """
+    thumb: list[int] = []
+    for a in range(0, len(data) - 3, 2):
+        hi = struct.unpack_from("<H", data, a)[0]
+        if (hi >> 11) != 0x1E:                     # F000-F7FF: BL high half
+            continue
+        lo = struct.unpack_from("<H", data, a + 2)[0]
+        if (lo >> 11) not in (0x1F, 0x1D):         # F800 BL / E800 BLX
+            continue
+        off = hi & 0x7FF
+        if off & 0x400:
+            off -= 0x800
+        dest = (ROM_BASE + a + 4) + (off << 12) + ((lo & 0x7FF) << 1)
+        if dest == target:
+            thumb.append(ROM_BASE + a)
+
+    arm: list[int] = []
+    for a in range(0, len(data) - 3, 4):
+        word = struct.unpack_from("<I", data, a)[0]
+        if (word & 0x0F000000) != 0x0B000000:      # BL (any condition)
+            continue
+        off = word & 0x00FFFFFF
+        if off & 0x00800000:
+            off -= 0x01000000
+        if ROM_BASE + a + 8 + (off << 2) == target:
+            arm.append(ROM_BASE + a)
+
+    print(f"{len(thumb) + len(arm)} call sites reach {target:#010x}")
+    for site in thumb:
+        print(f"  bl @ {site:#010x} (thumb)")
+    for site in arm:
+        print(f"  bl @ {site:#010x} (arm)")
+
+
+def find_stores(data: bytes, target: int, window: int = 0) -> None:
+    """Literal-pool sites for an address, i.e. the code that can reach it.
+
+    A RAM address is never an immediate; code loads it from a literal pool, so
+    the pools holding it (and optionally nearby addresses, via `window`) are
+    the candidate producers and consumers of whatever lives there.
+    """
+    for value in range(target, target + window + 1, 4):
+        pools = [i for i in range(0, len(data) - 3, 4)
+                 if struct.unpack_from("<I", data, i)[0] == value]
+        if pools:
+            print(f"== {value:#010x}")
+            find_word(data, value)
+
+
 THUMB_PUSH_LR = (0xB500, 0xFF00)   # push {..., lr}
 THUMB_POP_PC = (0xBD00, 0xFF00)    # pop {..., pc}
 ARM_PUSH_LR = (0xE92D4000, 0xFFFF4000)  # stmfd sp!, {..., lr}
@@ -211,6 +270,10 @@ def main() -> None:
     ap.add_argument("--find-word", help="list literal pools holding this value + ldr sites")
     ap.add_argument("--func", help="disassemble the whole enclosing function")
     ap.add_argument("--header", action="store_true", help="decode the cartridge header")
+    ap.add_argument("--callers", help="list every BL site that reaches this address")
+    ap.add_argument("--stores", help="literal-pool sites for a RAM/ROM address")
+    ap.add_argument("--window", type=int, default=0,
+                    help="with --stores, also scan this many bytes past the address")
     args = ap.parse_args()
 
     data, key = load(args.game)
@@ -220,6 +283,12 @@ def main() -> None:
         return
     if args.find_word:
         find_word(data, int(args.find_word, 16))
+        return
+    if args.callers:
+        find_callers(data, int(args.callers, 16))
+        return
+    if args.stores:
+        find_stores(data, int(args.stores, 16), args.window)
         return
     if args.func:
         start, end = func_bounds(data, int(args.func, 16), args.thumb)
