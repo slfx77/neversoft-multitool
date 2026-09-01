@@ -285,10 +285,11 @@ public sealed class MeshModelParser : IModelParser
     }
 
     /// <summary>
-    ///     A carved GBA level: the 0x15C table record plus its <c>rom.gbarom</c>
+    ///     A carved GBA level: its generation's native record plus its <c>rom.gbarom</c>
     ///     companion (the record's pointers, art pools, and the ROM-executed collision
     ///     height functions all dereference into the ROM). The record's ROM offset is
-    ///     recovered by content — its bytes occur exactly once at the level table.
+    ///     recovered by matching its bytes against structurally discovered level-table
+    ///     entries.
     /// </summary>
     private static ModelDocument ParseGbaLevel(MeshImportRequest request)
     {

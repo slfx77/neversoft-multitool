@@ -6,14 +6,16 @@ namespace NeversoftMultitool.Core.Formats.Gba;
 ///     Carves a Vicarious Visions GBA Tony Hawk ROM into per-level assets so the
 ///     archive/mesh pipelines can browse it (the N64 <c>.z64</c> route's little
 ///     sibling). A carved entry <c>levels/&lt;N&gt;_&lt;name&gt;.lvl.gba</c> is the
-///     level's 0x15C table record — every field a converter needs (art, palette,
-///     collision, name) hangs off it — and <c>rom.gbarom</c> is the ROM itself,
+///     level's native table record — every field a converter needs hangs off it —
+///     and <c>rom.gbarom</c> is the ROM itself,
 ///     carried as a companion because the record's pointers, tile pools, and the
 ///     collision height functions (<see cref="GbaThumbCpu" /> executes them out of
 ///     ROM code) all dereference into it.
 ///
-///     <para>Levels are named from the ROM: record <c>+0x00</c> points at the level's
-///     name string and <c>+0x04</c> at its location ("Warehouse" / "Troy, NY").</para>
+///     <para>THPS2 levels are named from the ROM: record <c>+0x00</c> points at the
+///     level's name string and <c>+0x04</c> at its location ("Warehouse" / "Troy,
+///     NY"). The later record families do not expose an equivalent decoded name
+///     field, so their carved entries use stable table indices.</para>
 /// </summary>
 public static class GbaLevelCarver
 {
@@ -29,15 +31,16 @@ public static class GbaLevelCarver
     /// <summary>Carved level records carry this suffix (routes to the mesh pipeline).</summary>
     public const string LevelSuffix = ".lvl.gba";
 
-    /// <summary>The level-table record stride — also the exact length of a carved
-    ///     <c>.lvl.gba</c> entry, which is what the GUI scanner gates on.</summary>
+    /// <summary>THPS2's level-table record stride and carved-record length.
+    ///     THPS3 and the later games expose their own native stride constants.</summary>
     public const int LevelRecordSize = 0x15C;
 
     public readonly record struct CarvedLevel(int Index, string Name, string Location, string EntryName);
 
     /// <summary>
     ///     True when this is a GBA ROM whose Vicarious Visions level table is present
-    ///     (currently THPS2; the later carts restructured their level data).
+    ///     (THPS2 through American Sk8land; each generation keeps its native
+    ///     level-record shape).
     /// </summary>
     public static bool IsVvLevelRom(ReadOnlySpan<byte> rom)
     {
@@ -45,7 +48,9 @@ public static class GbaLevelCarver
         if (rom.Length < 0xC0 || rom[0x04] != 0x24 || rom[0x05] != 0xFF
             || rom[0x06] != 0xAE || rom[0x07] != 0x51)
             return false;
-        return GbaLevelImages.FindLevels(rom).Count > 0 || GbaLaterLevelArt.FindLevels(rom).Count > 0;
+        return GbaLevelImages.FindLevels(rom).Count > 0
+               || GbaThps3LevelArt.FindLevels(rom).Count > 0
+               || GbaLaterLevelArt.FindLevels(rom).Count > 0;
     }
 
     /// <summary>Path-based gate for the archive detector / unpacker.</summary>
@@ -103,6 +108,16 @@ public static class GbaLevelCarver
     /// <summary>The carved level list (names read from the ROM's own strings).</summary>
     public static List<CarvedLevel> ListLevels(ReadOnlySpan<byte> rom)
     {
+        var thps3 = GbaThps3LevelArt.FindLevels(rom);
+        if (thps3.Count > 0)
+        {
+            var named = new List<CarvedLevel>(thps3.Count);
+            foreach (var level in thps3)
+                named.Add(new CarvedLevel(
+                    level.Index, $"level{level.Index}", "", $"levels/{level.Index}_level{LevelSuffix}"));
+            return named;
+        }
+
         var later = GbaLaterLevelArt.FindLevels(rom);
         if (later.Count > 0)
         {
@@ -129,7 +144,7 @@ public static class GbaLevelCarver
     }
 
     /// <summary>
-    ///     The carve: one 0x15C record entry per level, plus the ROM companion.
+    ///     The carve: one generation-native record per level, plus the ROM companion.
     ///     Returns empty when the ROM is not a supported level ROM.
     /// </summary>
     public static List<(string Path, byte[] Data)> Carve(byte[] rom)
@@ -138,8 +153,28 @@ public static class GbaLevelCarver
         if (!IsVvLevelRom(rom))
             return result;
 
-        // THPS4 / THUG / THUG2 / Sk8land: a different art record, no collision grid
-        // and no character table, so the carve is the level records plus the ROM.
+        // THPS3: the older all-8bpp art record. The same 0x70-byte parent also
+        // carries its collision-complex pointers, so one carved record routes both
+        // the authored surface and the ROM-evaluated level mesh.
+        var thps3 = GbaThps3LevelArt.FindLevels(rom);
+        if (thps3.Count > 0)
+        {
+            var carvedThps3 = ListLevels(rom);
+            for (var i = 0; i < thps3.Count && i < carvedThps3.Count; i++)
+            {
+                var offset = thps3[i].LevelRecordOffset;
+                if (offset < 0 || offset + GbaThps3LevelArt.LevelRecordStride > rom.Length)
+                    continue;
+                result.Add((carvedThps3[i].EntryName,
+                    rom.AsSpan(offset, GbaThps3LevelArt.LevelRecordStride).ToArray()));
+            }
+
+            result.Add((RomEntryPath, rom));
+            return result;
+        }
+
+        // THPS4 / THUG / THUG2 / Sk8land: a different art record. The carve is
+        // the level records plus the ROM companion.
         var later = GbaLaterLevelArt.FindLevels(rom);
         if (later.Count > 0)
         {
@@ -195,16 +230,37 @@ public static class GbaLevelCarver
 
     /// <summary>
     ///     The true-record file offset a carved <c>.lvl.gba</c> record occupies in its
-    ///     ROM companion, recovered by content: the record's own bytes appear exactly
-    ///     once at the level-table stride, so matching them locates the level without
-    ///     any side-channel. Returns -1 when the record is not from this ROM.
+    ///     ROM companion, recovered by matching its content against the generation's
+    ///     structurally discovered level table. Returns -1 when no matching native
+    ///     record belongs to this ROM.
     /// </summary>
     public static int FindRecordOffset(ReadOnlySpan<byte> rom, ReadOnlySpan<byte> record)
     {
-        if (record.Length != LevelRecordSize)
+        if (record.Length == GbaLaterLevelArt.ArtRecordStride)
+        {
+            foreach (var level in GbaLaterLevelArt.FindLevels(rom))
+            {
+                if (!rom.Slice(level.ArtRecordOffset, record.Length).SequenceEqual(record))
+                    continue;
+                return level.LevelRecordOffset;
+            }
+
             return -1;
-        var at = rom.IndexOf(record);
-        return at;
+        }
+
+        if (record.Length == GbaThps3LevelArt.LevelRecordStride)
+        {
+            foreach (var level in GbaThps3LevelArt.FindLevels(rom))
+            {
+                if (!rom.Slice(level.LevelRecordOffset, record.Length).SequenceEqual(record))
+                    continue;
+                return level.LevelRecordOffset;
+            }
+
+            return -1;
+        }
+
+        return record.Length == LevelRecordSize ? rom.IndexOf(record) : -1;
     }
 
     private static string? TryReadString(ReadOnlySpan<byte> rom, int pointerOffset)

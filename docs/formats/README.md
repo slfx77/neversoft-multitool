@@ -14,6 +14,7 @@ who is not already familiar with the format can trust them.
 
 | Format | Games | Role | Status |
 |---|---|---|---|
+| [GBA Tony Hawk support matrix](gba-tony-hawk-support.md) | THPS2 through Downhill Jam (GBA) | Level art, collision meshes, riders and audio | Mixed: exact decoded coverage and remaining per-title gaps documented |
 | [GBA GAX audio](gba-gax-audio.md) | THPS2 through Downhill Jam (GBA) | Sparse PCM sample extraction and sequenced-song rendering | Complete structural coverage across the seven-cart corpus; later generations not yet emulator-byte-compared |
 | [THAW worldzone MDL](thaw-worldzone-mdl.md) | THAW (PS2) | Level geometry (streets, buildings) | Incomplete: runtime-side decomp mostly verified, on-disk preamble fields partly speculative |
 | [THUG2 PC SND](thug2-pc-snd.md) | THUG2 (Windows) | Continuous 4-bit IMA-family sound effects | Complete: executable-derived and corpus-validated |

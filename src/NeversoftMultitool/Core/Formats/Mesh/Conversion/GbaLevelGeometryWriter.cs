@@ -6,20 +6,24 @@ using NeversoftMultitool.Core.Formats.Texture.Gba;
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 /// <summary>
-///     Builds a THPS2 GBA level as a <b>textured 3D model</b>: the engine-exact
-///     collision surface (each cell's real shape — quarter-pipes curve, ramps
-///     slope — computed by executing the ROM's height functions, see
-///     <see cref="GbaCollisionSurface" />) with the level's own pre-baked isometric
-///     art applied as the texture.
+///     Builds a Vicarious Visions GBA level as a <b>textured 3D model</b>: the
+///     cartridge-derived collision surface (quarter-pipes curve and ramps slope,
+///     computed by executing the ROM's height functions) with the level's own
+///     pre-baked isometric art applied as the texture. THPS3 functions that depend
+///     on unavailable live scene state are evaluated with the documented
+///     deterministic empty-scene contribution.
 ///
-///     <para>The texture mapping is the engine's own art transform: each surface
+///     <para>For THPS2, the texture mapping is the engine's own art transform: each surface
 ///     point <c>(wx, wy, z)</c> samples the art pixel the game draws it with —
 ///     <c>artX = X0 + 16(wy − wx)</c>, <c>artY = Y0 + 8(wx + wy) − 16z</c>, the
 ///     per-level origin being the ROM field at the record's <c>+0x64/+0x68</c>. The
 ///     projection is the iso view direction, so front-facing surfaces are textured
 ///     exactly; surfaces the iso view grazes (steep walls parallel to the view)
 ///     stretch their art strip, which is the honest limit of a single pre-rendered
-///     view. Vertical skirts between cells make ledges and walls solid.</para>
+///     view. THPS3 through American Sk8land use the same isometric basis, but no
+///     equivalent stored origin has yet been identified; their projected collision
+///     bounds are centred on the art canvas. Vertical skirts between cells make
+///     ledges and walls solid.</para>
 ///
 ///     <para>The one-cell out-of-bounds kill-wall ring (base height above
 ///     <see cref="GbaCollisionRenderer.OutOfBoundsHeight" />) is omitted, exactly as
@@ -59,14 +63,47 @@ internal static class GbaLevelGeometryWriter
         var rom = native.Rom;
         var trueRecord = native.TrueRecordOffset;
 
-        var grid = GbaCollisionSurface.TryLoad(rom, trueRecord)
-                   ?? throw new InvalidDataException("The level record's collision fields do not validate");
+        GbaLaterLevelArt.LaterLevel? later = null;
+        foreach (var candidate in GbaLaterLevelArt.FindLevels(rom))
+            if (candidate.LevelRecordOffset == trueRecord)
+            {
+                later = candidate;
+                break;
+            }
 
-        // The level's art, composited from the ROM, becomes the model's texture.
-        var scanLevel = new GbaLevelImages.GbaLevel(
-            (uint)(0x08000000 + trueRecord + 0x144), 0, 0, 0);
-        var art = GbaLevelImages.RenderColourSurface(rom, scanLevel)
+        GbaThps3LevelArt.Thps3Level? thps3 = null;
+        foreach (var candidate in GbaThps3LevelArt.FindLevels(rom))
+            if (candidate.LevelRecordOffset == trueRecord)
+            {
+                thps3 = candidate;
+                break;
+            }
+
+        IGbaCollisionGrid grid;
+        GbaLevelImages.GbaLevelRender art;
+        if (later is { } laterLevel)
+        {
+            grid = GbaLaterCollisionSurface.TryLoad(rom, laterLevel)
+                   ?? throw new InvalidDataException("The later level's collision complex does not validate");
+            art = GbaLaterLevelArt.RenderColourSurface(rom, laterLevel)
+                  ?? throw new InvalidDataException("The later level's art layers do not decode");
+        }
+        else if (thps3 is { } thps3Level)
+        {
+            grid = GbaThps3CollisionSurface.TryLoad(rom, thps3Level)
+                   ?? throw new InvalidDataException("The THPS3 level's collision complex does not validate");
+            art = GbaThps3LevelArt.RenderColourSurface(rom, thps3Level)
+                  ?? throw new InvalidDataException("The THPS3 level's art layers do not decode");
+        }
+        else
+        {
+            grid = GbaCollisionSurface.TryLoad(rom, trueRecord)
+                   ?? throw new InvalidDataException("The level record's collision fields do not validate");
+            var scanLevel = new GbaLevelImages.GbaLevel(
+                (uint)(0x08000000 + trueRecord + 0x144), 0, 0, 0);
+            art = GbaLevelImages.RenderColourSurface(rom, scanLevel)
                   ?? throw new InvalidDataException("The level's art layers do not decode");
+        }
 
         document.Textures.Add(new ModelTexture
         {
@@ -82,17 +119,20 @@ internal static class GbaLevelGeometryWriter
             TextureIndex = document.Textures.Count - 1
         });
 
-        var origin = GbaLevelArtProjection.TryReadOrigin(rom, trueRecord)
-                     ?? throw new InvalidDataException("The level record carries no art origin");
-
-        // The collision grid is a rectangle but the authored art is not — School II
-        // has a deep notch between its building wings — so cells the art never
-        // draws would emit as flat black slabs.
-        var undrawn = GbaLevelArtCoverage.BuildUndrawnMask(art.Rgba, art.Width, art.Height);
+        // THPS2 stores the exact art origin, so its transparency can safely remove
+        // collision quads the authored isometric view never draws (School II has a
+        // deep notch between its building wings). THPS3/later origins are not decoded:
+        // its centred projection is useful as a texture preview, but must never be
+        // allowed to delete real collision geometry.
+        var hasExactArtOrigin = later == null && thps3 == null;
+        var undrawn = hasExactArtOrigin
+            ? GbaLevelArtCoverage.BuildUndrawnMask(art.Rgba, art.Width, art.Height)
+            : null;
 
         // The out-of-bounds ring is the level's real boundary: the engine's own
-        // kill wall, standing about 34 world units up where the playfield sits near
-        // zero. It is omitted by default because a wall that tall drawn around the
+        // kill wall, standing above 30 world units while the playfield remains at
+        // or below 29.9998 in the complete later corpus. It is omitted by default
+        // because a wall that tall drawn around the
         // level entombs it - which is also why the boundary reads as "flat" without
         // it. Behind a switch it becomes real geometry.
         var showBoundary = visibilityOverrides != null
@@ -125,6 +165,11 @@ internal static class GbaLevelGeometryWriter
                 values[i] = samples[i] / Fixed;
             heights[index] = values;
         }
+
+        var origin = hasExactArtOrigin
+            ? GbaLevelArtProjection.TryReadOrigin(rom, trueRecord)
+              ?? throw new InvalidDataException("The level record carries no art origin")
+            : CentreProjectionOnArt(grid, heights, live, art);
 
         var vertices = new List<ModelVertex>();
         var indices = new List<int>();
@@ -242,6 +287,38 @@ internal static class GbaLevelGeometryWriter
         }
     }
 
+    private static (double X, double Y) CentreProjectionOnArt(
+        IGbaCollisionGrid grid,
+        double[][] heights,
+        bool[] live,
+        GbaLevelImages.GbaLevelRender art)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+        var step = Sub + 1;
+        for (var gy = 0; gy < grid.Height; gy++)
+        for (var gx = 0; gx < grid.Width; gx++)
+        {
+            var index = gy * grid.Width + gx;
+            if (!live[index])
+                continue;
+            var values = heights[index];
+            foreach (var (i, j) in (ReadOnlySpan<(int, int)>)[(0, 0), (Sub, 0), (0, Sub), (Sub, Sub)])
+            {
+                var (wx, wy) = GbaLevelArtProjection.CellSamplePosition(gx, gy, i, j, Sub);
+                var projected = GbaLevelArtProjection.Project((0, 0), wx, wy, values[j * step + i]);
+                minX = Math.Min(minX, projected.X);
+                maxX = Math.Max(maxX, projected.X);
+                minY = Math.Min(minY, projected.Y);
+                maxY = Math.Max(maxY, projected.Y);
+            }
+        }
+
+        if (minX > maxX)
+            throw new InvalidDataException("The collision complex has no drawable cells");
+        return ((art.Width - minX - maxX) / 2.0, (art.Height - minY - maxY) / 2.0);
+    }
+
     // World (wx, wy horizontal; z up) → GLB right-handed Y-up: (X, Y, Z) = (wy, z, wx)·Scale.
     // UV = the engine's art transform, normalised into the art image.
     private static ModelVertex SurfaceVertex(
@@ -291,7 +368,4 @@ internal static class GbaLevelGeometryWriter
         ModelDocumentGeometryAdapter.AddTriangle(vertices, indices, With(a), With(b), With(c));
         ModelDocumentGeometryAdapter.AddTriangle(vertices, indices, With(a), With(c), With(d));
     }
-
-    private static int ReadS32(ReadOnlySpan<byte> rom, int offset) =>
-        rom[offset] | (rom[offset + 1] << 8) | (rom[offset + 2] << 16) | (rom[offset + 3] << 24);
 }

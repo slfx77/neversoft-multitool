@@ -1,27 +1,31 @@
 namespace NeversoftMultitool.Core.Formats.Gba;
 
 /// <summary>
-///     A minimal ARMv4T THUMB interpreter, just large enough to <b>execute the THPS2
-///     GBA collision height accessors straight out of the ROM</b> rather than
+///     A minimal ARMv4T THUMB interpreter, just large enough to <b>execute the
+///     Vicarious Visions GBA collision height accessors straight out of the ROM</b> rather than
 ///     hand-transcribing them.
 ///
 ///     <para>The engine stores a level's collision surface as a per-cell shape byte plus
 ///     a material index, and the material's vtable slot 0 is a <i>function</i> that
-///     computes the surface height at a sub-cell offset. There are 27 distinct such
-///     functions; reimplementing them by hand would be 27 chances to introduce a subtly
+///     computes the surface height at a sub-cell offset. THPS2 alone has 27 distinct
+///     such functions; reimplementing them by hand would be 27 chances to introduce a subtly
 ///     wrong ramp, so this runs the real code instead. (The same approach is used
 ///     elsewhere in this repo to validate the N64 ERZ decoders against ROM MIPS code.)</para>
 ///
 ///     <para>Scope is deliberately narrow: only the instruction forms these accessors
 ///     actually execute are decoded — measured as <b>44 distinct forms / 30 mnemonics</b>
-///     over all 8,520 cells of all 9 levels. Anything outside that set throws rather
+///     over all 8,520 THPS2 cells, then extended against every referenced object in
+///     all 37 THPS4-through-Sk8land levels. Anything outside that set throws rather
 ///     than silently computing a wrong height, so a decode gap can never masquerade as
-///     a flat surface. Three ROM routines are supplied as hooks instead of being
-///     executed: divide-by-cell, signed divide, and the BIOS integer square root.</para>
+///     a flat surface. Pure arithmetic ROM/IWRAM veneers are supplied as hooks instead
+///     of being executed: divide-by-cell, remainder, signed divide, and the BIOS
+///     integer square root.</para>
 ///
-///     <para>The memory model is equally narrow — ROM reads, the 32-byte cell record at
-///     <see cref="RecordAddress" />, and a small stack. There is no MMIO and no DMA;
-///     these are pure leaf computations over their arguments and the cell record.</para>
+///     <para>The memory model is equally narrow — ROM reads, a 32-byte THPS2 record
+///     or 40-byte later height object at <see cref="RecordAddress" />, explicitly
+///     named loader-published function/object-bank/scalar addresses, and a small
+///     stack. Every other RAM read fails closed. There is no MMIO and no DMA; these
+///     are pure computations over their arguments and authored record.</para>
 /// </summary>
 internal sealed class GbaThumbCpu
 {
@@ -29,16 +33,39 @@ internal sealed class GbaThumbCpu
     private const uint StackTop = 0x03007F00;
     private const int StackBytes = 0x100;
 
-    /// <summary>Where the 32-byte cell record is mapped for the accessor to read.</summary>
+    /// <summary>Where the current cell record or height object is mapped for the accessor.</summary>
     public const uint RecordAddress = 0x02000000;
 
     /// <summary>The world span of one collision cell in 20.12 fixed point (3 units).</summary>
     public const int CellSpan = 0x3000;
 
-    // ROM routines supplied as hooks rather than executed.
+    // THPS2 ROM routines supplied as hooks rather than executed.
     private const uint HookDivideByCell = 0x08037950; // bx r1, r1 = *(0x03001E9C)
     private const uint HookSignedDivide = 0x08001F6C;
     private const uint HookSqrt = 0x08001088;         // BIOS SWI 0x08
+
+    // THUG/THUG2/Sk8land use IWRAM veneers whose targets are populated at runtime.
+    private const uint HookLaterDivideByCell = 0x08000344;
+    private const uint HookLaterRemainder = 0x0800034C;
+    private const uint HookLaterSqrt = 0x080003C0;
+    private const uint HookLaterSignedDivide = 0x080003CC;
+
+    // THPS4 predates that veneer layout.
+    private const uint HookThps4DivideByCell = 0x080004A0;
+    private const uint HookThps4SignedDivide = 0x080004B0;
+    private const uint HookThps4Sqrt = 0x08048968;
+
+    // THPS3's IWRAM veneer at 0x080004E0 divides by the fixed 0x3000 cell
+    // span. The level query and several interpolating height objects share it.
+    private const uint HookThps3DivideByCell = 0x080004E0;
+
+    // Two THPS3 height-object types consult live gameplay state: one asks the
+    // dynamic-geometry manager for a height and one tests whether a named level
+    // object exists. An offline level has neither live manager, so these hooks
+    // model the same false result returned by an empty runtime scene.
+    private const uint HookThps3DynamicHeightQuery = 0x0804568C;
+    private const uint HookThps3ObjectIdExists = 0x08010CBC;
+    private const uint HookThps3ObjectByteExists = 0x08010D00;
 
     // A runtime function pointer the accessors load; the divide hook supplies its
     // behaviour, so only a non-null placeholder is needed here.
@@ -49,18 +76,42 @@ internal sealed class GbaThumbCpu
     private readonly uint[] _r = new uint[16];
     private readonly byte[] _stack = new byte[StackBytes];
     private readonly byte[] _record = new byte[64];
+    private readonly byte[] _runtimeObjectBankPointer = new byte[4];
+    private readonly byte[] _runtimeWordPointer = new byte[4];
+    private readonly byte[] _runtimeByte = new byte[1];
+    private uint _runtimeObjectBank;
+    private uint _runtimeObjectBankAddress;
+    private IReadOnlyDictionary<uint, uint>? _runtimeWords;
+    private IReadOnlyDictionary<uint, byte>? _runtimeBytes;
     private bool _n, _z, _c, _v;
 
     /// <summary>
     ///     Executes one height accessor. <paramref name="a0" />/<paramref name="a1" /> are
     ///     the sub-cell offsets (already put through the shape transform) and
-    ///     <paramref name="record" /> is the 32-byte cell record. Returns r0 as signed.
+    ///     <paramref name="record" /> is the cell or 40-byte surface record mapped at
+    ///     <see cref="RecordAddress" />. Optional runtime snapshots are address-exact;
+    ///     supplying a value never permits another EWRAM address. Returns r0 as signed.
     /// </summary>
-    public int Run(ReadOnlySpan<byte> rom, uint entry, int a0, int a1, ReadOnlySpan<byte> record)
+    public int Run(
+        ReadOnlySpan<byte> rom,
+        uint entry,
+        int a0,
+        int a1,
+        ReadOnlySpan<byte> record,
+        uint runtimeObjectBank = 0,
+        IReadOnlyDictionary<uint, uint>? runtimeWords = null,
+        uint runtimeObjectBankAddress = 0,
+        IReadOnlyDictionary<uint, byte>? runtimeBytes = null)
     {
         Array.Clear(_stack);
         Array.Clear(_record);
         record[..Math.Min(record.Length, _record.Length)].CopyTo(_record);
+        _runtimeObjectBank = runtimeObjectBank;
+        _runtimeObjectBankAddress = runtimeObjectBankAddress;
+        _runtimeWords = runtimeWords;
+        _runtimeBytes = runtimeBytes;
+        for (var i = 0; i < _runtimeObjectBankPointer.Length; i++)
+            _runtimeObjectBankPointer[i] = (byte)(runtimeObjectBank >> (8 * i));
 
         Array.Clear(_r);
         _r[0] = (uint)a0;
@@ -77,7 +128,17 @@ internal sealed class GbaThumbCpu
                 throw new InvalidDataException("THUMB accessor exceeded its step budget");
             if (pc is 0xFFFFFFF0 or 0xFFFFFFF1)
                 return (int)_r[0];
-            pc = Step(rom, pc & ~1u);
+            try
+            {
+                pc = Step(rom, pc & ~1u);
+            }
+            catch (InvalidDataException exception)
+            {
+                throw new InvalidDataException(
+                    $"THUMB execution failed at 0x{pc & ~1u:X8} " +
+                    $"(r0=0x{_r[0]:X8}, r1=0x{_r[1]:X8}, r2=0x{_r[2]:X8}, r3=0x{_r[3]:X8})",
+                    exception);
+            }
         }
     }
 
@@ -239,6 +300,21 @@ internal sealed class GbaThumbCpu
         if ((op & 0xF000) == 0xD000)
         {
             var cond = (op >> 8) & 0xF;
+            if (cond == 0xF) // Format 17: software interrupt
+            {
+                switch ((byte)op)
+                {
+                    case 0x06: // BIOS Div
+                        SignedDivide();
+                        return next;
+                    case 0x08: // BIOS Sqrt
+                        _r[0] = IntegerSqrt(_r[0]);
+                        return next;
+                    default:
+                        throw new InvalidDataException(
+                            $"unsupported GBA BIOS SWI 0x{(byte)op:X2} at 0x{pc:X8}");
+                }
+            }
             if (cond >= 0xE)
                 throw new InvalidDataException($"unsupported conditional branch 0x{op:X4} at 0x{pc:X8}");
             var target = unchecked(pc + 4 + (uint)((sbyte)(byte)op * 2));
@@ -335,24 +411,38 @@ internal sealed class GbaThumbCpu
         return pcValue;
     }
 
-    // A BL either lands on one of the three hooked ROM routines, or is a genuine call
+    // A BL either lands on one of the hooked ROM routines, or is a genuine call
     // (several accessors compose others).
     private uint CallOrHook(ReadOnlySpan<byte> rom, uint target, uint returnTo)
     {
         switch (target)
         {
             case HookDivideByCell:
+            case HookLaterDivideByCell:
+            case HookThps4DivideByCell:
+            case HookThps3DivideByCell:
                 _r[0] = unchecked((uint)((int)_r[0] / CellSpan));
                 return returnTo;
             case HookSignedDivide:
+            case HookLaterSignedDivide:
+            case HookThps4SignedDivide:
+                SignedDivide();
+                return returnTo;
+            case HookLaterRemainder:
             {
-                var a = (int)_r[0];
-                var b = (int)_r[1];
-                _r[0] = b == 0 ? 0u : unchecked((uint)(a / b));
+                var divisor = (int)_r[1];
+                _r[0] = divisor == 0 ? 0u : unchecked((uint)((int)_r[0] % divisor));
                 return returnTo;
             }
             case HookSqrt:
-                _r[0] = (uint)Math.Sqrt(_r[0]);
+            case HookLaterSqrt:
+            case HookThps4Sqrt:
+                _r[0] = IntegerSqrt(_r[0]);
+                return returnTo;
+            case HookThps3DynamicHeightQuery:
+            case HookThps3ObjectIdExists:
+            case HookThps3ObjectByteExists:
+                _r[0] = 0;
                 return returnTo;
             default:
                 if (target < RomBase || target >= RomBase + (uint)rom.Length)
@@ -360,6 +450,34 @@ internal sealed class GbaThumbCpu
                 _r[14] = returnTo | 1;
                 return target;
         }
+    }
+
+    private void SignedDivide()
+    {
+        var numerator = (int)_r[0];
+        var denominator = (int)_r[1];
+        if (denominator == 0)
+        {
+            _r[0] = _r[1] = _r[3] = 0;
+            return;
+        }
+
+        var quotient = numerator / denominator;
+        _r[0] = unchecked((uint)quotient);
+        _r[1] = unchecked((uint)(numerator % denominator));
+        _r[3] = unchecked((uint)Math.Abs((long)quotient));
+    }
+
+    private static uint IntegerSqrt(uint value)
+    {
+        // A double represents every 32-bit integer exactly. Correct a possible
+        // boundary rounding anyway so this remains the BIOS integer operation.
+        var root = (uint)Math.Sqrt(value);
+        while ((ulong)(root + 1) * (root + 1) <= value)
+            root++;
+        while ((ulong)root * root > value)
+            root--;
+        return root;
     }
 
     private uint Shift(int kind, uint value, int amount)
@@ -469,6 +587,46 @@ internal sealed class GbaThumbCpu
         {
             offset = 0;
             return _dividePointer;
+        }
+
+        // A caller may publish a tiny, explicit snapshot of runtime scalar
+        // state needed by an otherwise pure height accessor. Resolve it before
+        // the explicit object-bank mapping below so a title-specific global can
+        // never be mistaken for that bank pointer.
+        if (size == 4
+            && _runtimeWords != null
+            && _runtimeWords.TryGetValue(address, out var modelledWord))
+        {
+            for (var i = 0; i < _runtimeWordPointer.Length; i++)
+                _runtimeWordPointer[i] = (byte)(modelledWord >> (8 * i));
+            offset = 0;
+            return _runtimeWordPointer;
+        }
+
+        // A very small set of byte-sized loader/gameplay state reads is supplied
+        // explicitly by the caller. Unknown EWRAM must fail closed: treating any
+        // byte read as zero can turn a live-state dependency into plausible but
+        // fabricated static geometry.
+        if (size == 1
+            && _runtimeBytes != null
+            && _runtimeBytes.TryGetValue(address, out var modelledByte))
+        {
+            _runtimeByte[0] = modelledByte;
+            offset = 0;
+            return _runtimeByte;
+        }
+
+        // Composite height objects read the copied height-object bank through one
+        // exact loader-published global. Both the address and the ROM-equivalent
+        // bank value are supplied by the format decoder; no other EWRAM word is
+        // allowed to alias it.
+        if (size == 4
+            && _runtimeObjectBank != 0
+            && _runtimeObjectBankAddress != 0
+            && address == _runtimeObjectBankAddress)
+        {
+            offset = 0;
+            return _runtimeObjectBankPointer;
         }
 
         throw new InvalidDataException($"load outside the modelled memory map at 0x{address:X8}");

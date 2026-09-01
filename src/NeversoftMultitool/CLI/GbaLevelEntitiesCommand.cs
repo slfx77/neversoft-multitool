@@ -20,7 +20,7 @@ public static class GbaLevelEntitiesCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to a Vicarious Visions GBA Tony Hawk ROM"
+            Description = "Path to a Tony Hawk's Pro Skater 2 GBA ROM"
         };
         var outputOption = new Option<string?>("-o", "--output")
         {
@@ -33,7 +33,7 @@ public static class GbaLevelEntitiesCommand
 
         var command = new Command(
             "gba-level-entities",
-            "Inspect the per-level entity tables in a GBA ROM (structure only, not decoded)");
+            "Inspect THPS2 GBA's per-level entity tables (structure only, not decoded)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -70,7 +70,7 @@ public static class GbaLevelEntitiesCommand
         var records = GbaLevelEntityTable.FindLevelRecordOffsets(rom);
         if (records.Count == 0)
         {
-            AnsiConsole.MarkupLine("[yellow]No Vicarious Visions level table found in this ROM.[/]");
+            AnsiConsole.MarkupLine("[yellow]No THPS2 GBA level/entity table found in this ROM.[/]");
             return 0;
         }
 

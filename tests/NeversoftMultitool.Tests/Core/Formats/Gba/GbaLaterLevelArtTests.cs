@@ -5,8 +5,8 @@ using NeversoftMultitool.Core.Rendering.Level2d;
 namespace NeversoftMultitool.Tests.Core.Formats.Gba;
 
 /// <summary>
-///     Pins the isometric level art of the four later Vicarious Visions GBA carts
-///     (THPS4, THUG, THUG2, American Sk8land), which share one record shape.
+///     Pins the full-colour isometric tile surfaces of the four later Vicarious
+///     Visions GBA carts (THPS4, THUG, THUG2, American Sk8land).
 /// </summary>
 public sealed class GbaLaterLevelArtTests(TestPaths paths)
 {
@@ -34,8 +34,8 @@ public sealed class GbaLaterLevelArtTests(TestPaths paths)
         var levels = GbaLaterLevelArt.FindLevels(rom);
         Assert.Equal(expectedLevels, levels.Count);
 
-        // Every level's map is exactly its stated pixel size in 64-pixel cells, and
-        // that is the identity the pointer-offset search is validated on.
+        // The separate occlusion map is exactly its stated pixel size in 64-pixel
+        // cells; that identity validates the join back to the parent level record.
         foreach (var level in levels)
         {
             Assert.True(level.MapWidth > 0 && level.MapHeight > 0);
@@ -57,48 +57,59 @@ public sealed class GbaLaterLevelArtTests(TestPaths paths)
         var rendered = 0;
         foreach (var level in levels)
         {
-            var render = GbaLaterLevelArt.Render(rom, level);
+            var render = GbaLaterLevelArt.RenderColourSurface(rom, level);
             if (render == null) continue;
             rendered++;
-            Assert.Equal(level.MapWidth * 64, render.Value.Width);
-            Assert.Equal(level.MapHeight * 64, render.Value.Height);
-            // Ink coverage: a real level is neither blank nor solid.
-            var ink = 0;
+            Assert.Equal(level.PixelWidth, render.Value.Width);
+            Assert.Equal(level.PixelHeight, render.Value.Height);
+            Assert.Equal(render.Value.Width * render.Value.Height * 4, render.Value.Rgba.Length);
+
+            // A real surface contains substantial palette-indexed colour, rather
+            // than the two tones of the old occlusion-mask misidentification.
+            var painted = 0;
+            var colours = new HashSet<int>();
             for (var i = 0; i < render.Value.Rgba.Length; i += 4)
-                if (render.Value.Rgba[i] > 0x80) ink++;
+            {
+                var colour = render.Value.Rgba[i]
+                             | render.Value.Rgba[i + 1] << 8
+                             | render.Value.Rgba[i + 2] << 16;
+                if (colour != 0x161212)
+                    painted++;
+                if (colours.Count < 64)
+                    colours.Add(colour);
+            }
             var total = render.Value.Width * render.Value.Height;
-            // One Sk8land record places almost nothing (it shares its element pool
-            // with the five that follow), so the floor only rules out a blank render.
-            Assert.InRange(ink / (double)total, 0.001, 0.9);
+            Assert.InRange(painted / (double)total, 0.001, 1.0);
+            Assert.True(colours.Count >= 16, $"level {level.Index} has only {colours.Count} colours");
         }
 
-        Assert.True(rendered >= expectedLevels - 2, $"only {rendered}/{expectedLevels} rendered");
+        Assert.Equal(expectedLevels, rendered);
     }
 
     public static TheoryData<string, string, string> FirstLevelPins => new()
     {
         {
             "Tony Hawk's Pro Skater 4 (2002-10-23, GBA - Final)", "Tony Hawk's Pro Skater 4 (USA, Europe).gba",
-            "4815FDE9F0B1D16449D9A78F57D979C799174BBD6AB1DA3CF07E904BEF2574D7"
+            "21E6200DDC088657C7B51B4AC6B671CAE447A51337D21C9CC61778B2B4DA9E14"
         },
         {
             "Tony Hawk's Underground (2003-10-27, GBA - Final)", "Tony Hawk's Underground (USA, Europe).gba",
-            "1A2AD73E75D1AEC84066D3F84B54D692C9D7105B9EDD3FCFD316A330847B011A"
+            "4B4C4DB0B1849F86F15CE35C35CF1EBC3B575104C42049DDB4C0CC24ED0A7C8D"
         },
         {
             "Tony Hawk's Underground 2 (2004-10-4, GBA - Final)", "Tony Hawk's Underground 2 (USA, Europe).gba",
-            "7E5BAF8CCC0EA6992A0C84A68158599BF6DBBCE8FC249156105538CADA51B8B7"
+            "C083C407D1187B7329E2BF4F5903CE03FEB9315BECC35D4F39E11948F5A8CF02"
         },
         {
             "Tony Hawk's American Sk8land (2005-10-18, GBA - Final)", "Tony Hawk's American Sk8land (USA).gba",
-            "F9607DD435ED22DACC9B8C09ED82265F48A24FC2EA61D8681531CF1DF468A388"
+            "F56958B4377D04AB70A68492BAA9E2B2A3304B889E381C4325F804A7CC55D10C"
         }
     };
 
     /// <summary>
-    ///     One render per cartridge, pinned by pixel hash. The art is one bit deep, so
-    ///     a wrong element size or metatile order still produces a plausible-looking
-    ///     picture — only a hash catches a silent change.
+    ///     One colour render per cartridge, pinned by pixel hash. A wrong map command,
+    ///     palette remap, flip bit, plane order, or 4bpp row direction can remain
+    ///     superficially plausible; the full-buffer hash catches those silent changes.
     /// </summary>
     [CorpusTheory]
     [MemberData(nameof(FirstLevelPins))]
@@ -109,9 +120,32 @@ public sealed class GbaLaterLevelArtTests(TestPaths paths)
 
         var levels = GbaLaterLevelArt.FindLevels(rom);
         Assert.NotEmpty(levels);
-        var render = GbaLaterLevelArt.Render(rom, levels[0]);
+        var render = GbaLaterLevelArt.RenderColourSurface(rom, levels[0]);
         Assert.NotNull(render);
         Assert.Equal(sha, Convert.ToHexString(SHA256.HashData(render.Value.Rgba)));
+    }
+
+    [CorpusTheory]
+    [MemberData(nameof(Carts))]
+    public void PaletteAndOcclusionAssetRemainSeparatelyIdentified(
+        string build, string file, int expectedLevels)
+    {
+        var rom = Load(build, file);
+        Assert.SkipWhen(rom == null, $"{build} ROM sample not available");
+
+        var levels = GbaLaterLevelArt.FindLevels(rom);
+        Assert.Equal(expectedLevels, levels.Count);
+        Assert.All(levels, level => Assert.Equal(
+            256 * 4, GbaLaterLevelArt.TryGetPalette(rom, level)?.Length));
+
+        var mask = GbaLaterLevelArt.RenderOcclusionMask(rom, levels[0]);
+        Assert.NotNull(mask);
+        var colours = new HashSet<int>();
+        for (var i = 0; i < mask.Value.Rgba.Length; i += 4)
+            colours.Add(mask.Value.Rgba[i]
+                        | mask.Value.Rgba[i + 1] << 8
+                        | mask.Value.Rgba[i + 2] << 16);
+        Assert.InRange(colours.Count, 2, 3);
     }
 
     /// <summary>
@@ -156,9 +190,12 @@ public sealed class GbaLaterLevelArtTests(TestPaths paths)
 
             var source = GbaLevel2dSource.TryCreate(data, rom, Path.GetFileName(path));
             Assert.NotNull(source);
-            // No collision grid on these cartridges, so the art is the only layer.
-            Assert.Equal([Level2dLayer.Art], source.Layers);
-            if (source.Render(Level2dLayer.Art) != null) rendered++;
+            Assert.Equal(
+                [Level2dLayer.Art, Level2dLayer.CollisionHeightfield], source.Layers);
+            Assert.True(GbaLevelCarver.FindRecordOffset(rom, data) >= 0);
+            if (source.Render(Level2dLayer.Art) != null
+                && source.Render(Level2dLayer.CollisionHeightfield) != null)
+                rendered++;
         }
 
         Assert.Equal(expectedLevels, rendered);

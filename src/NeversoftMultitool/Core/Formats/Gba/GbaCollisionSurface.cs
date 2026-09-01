@@ -53,7 +53,7 @@ public static class GbaCollisionSurface
     ///     because a level of a few thousand cells typically has only a few hundred
     ///     distinct records.
     /// </summary>
-    public sealed class Grid
+    public sealed class Grid : IGbaCollisionGrid
     {
         private readonly byte[][] _records;      // indexed by cell-record index
         private readonly int[] _cellRecordIndex; // per cell -> record index
@@ -70,6 +70,8 @@ public static class GbaCollisionSurface
 
         public int Width { get; }
         public int Height { get; }
+
+        public int SurfaceAt(int x, int y) => CellAt(x, y).Material;
 
         /// <summary>The cell at grid position (x, y).</summary>
         public GbaCollisionCell CellAt(int x, int y)

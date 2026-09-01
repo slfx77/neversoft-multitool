@@ -50,7 +50,7 @@ internal static class FormatProbeArchive
                 : new FormatProbe.FormatProbeResult(
                     FormatProbe.FormatSupport.Unsupported,
                     "GBA ROM",
-                    "No Vicarious Visions level table found (only THPS2 GBA carves)"),
+                    "No supported Vicarious Visions GBA level table found"),
             _ => new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Unknown",

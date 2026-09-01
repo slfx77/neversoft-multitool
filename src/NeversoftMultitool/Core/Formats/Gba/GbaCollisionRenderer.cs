@@ -4,8 +4,10 @@ using System.Numerics;
 namespace NeversoftMultitool.Core.Formats.Gba;
 
 /// <summary>
-///     Renders the THPS2 GBA collision surface isometrically using each cell's <b>real
-///     surface</b> (see <see cref="GbaCollisionSurface" />) rather than a flat-topped box.
+///     Renders the Vicarious Visions GBA collision surface isometrically using each
+///     cell's decoded shape-aware surface (see <see cref="GbaCollisionSurface" />,
+///     <see cref="GbaThps3CollisionSurface" />, and
+///     <see cref="GbaLaterCollisionSurface" />) rather than a flat-topped box.
 ///     That distinction is the whole point: a quarter-pipe cell whose height function is
 ///     sampled at one point collapses into a wall, and a ramp becomes a staircase.
 ///
@@ -18,14 +20,18 @@ namespace NeversoftMultitool.Core.Formats.Gba;
 ///     <para>Vertical skirts are drawn between neighbouring cells down to the neighbour's
 ///     surface, which is what makes ledges and wall faces solid rather than floating.</para>
 ///
-///     <para>Every level is enclosed by a one-cell-thick out-of-bounds kill wall standing
-///     far above the playfield (the Hangar's is at 34.375 world units against a 0-9 unit
-///     playfield). Drawing it would hide the entire interior, so cells whose base height
-///     exceeds <see cref="OutOfBoundsHeight" /> are omitted and counted.</para>
+///     <para>THPS3 cells whose cartridge functions consult unavailable live scene
+///     state use the format decoder's documented deterministic empty-scene
+///     contribution; the other authored height-function inputs come from the ROM.</para>
+///
+///     <para>Every level is enclosed by an out-of-bounds kill wall standing far above
+///     the playfield. The 30-unit split is exact in the later corpus: its highest live
+///     sample is 29.9998 and its lowest wall sample is 30.4998. Drawing that wall would
+///     hide the interior, so it is omitted and counted.</para>
 /// </summary>
 public static class GbaCollisionRenderer
 {
-    /// <summary>Sub-quads per cell edge. 4 keeps thin rails visible without over-sampling.</summary>
+    /// <summary>Sub-quads per cell edge. Four preserves thin or curved collision features without over-sampling.</summary>
     public const int SubDivisions = 4;
 
     /// <summary>Cells whose surface stands above this are the out-of-bounds kill wall.</summary>
@@ -36,14 +42,14 @@ public static class GbaCollisionRenderer
     ///
     ///     <para>The test is the cell's <b>sampled surface</b> — what the material's
     ///     own height function returns — never the raw base-height word. For most
-    ///     materials the two agree, but material 30 stores something else in that
+    ///     THPS2 materials the two agree, but material 30 stores something else in that
     ///     word: its cells read as absurd heights (98304.75, 65536, 86017) while
     ///     their real surface sits on the playfield. Trusting the raw word dropped
     ///     62 cells across four levels, and they were real objects — a descending
     ///     staircase in School II sampling 8.50 down to 0.50, and its park
     ///     benches — which is what left holes in the collision surface.</para>
     /// </summary>
-    public static bool IsOutOfBounds(ReadOnlySpan<byte> rom, GbaCollisionSurface.Grid grid, int x, int y)
+    public static bool IsOutOfBounds(ReadOnlySpan<byte> rom, IGbaCollisionGrid grid, int x, int y)
     {
         var samples = grid.SampleCell(rom, x, y, 3);
         var max = int.MinValue;
@@ -86,8 +92,32 @@ public static class GbaCollisionRenderer
         ReadOnlySpan<byte> rom, int trueRecordOffset, TintMode tint = TintMode.Material)
     {
         var grid = GbaCollisionSurface.TryLoad(rom, trueRecordOffset);
-        if (grid is null)
-            return null;
+        return grid is null ? null : RenderGrid(rom, grid, tint);
+    }
+
+    /// <summary>Renders a THPS3 collision surface.</summary>
+    public static GbaCollisionRender? Render(
+        ReadOnlySpan<byte> rom,
+        GbaThps3LevelArt.Thps3Level level,
+        TintMode tint = TintMode.Material)
+    {
+        var grid = GbaThps3CollisionSurface.TryLoad(rom, level);
+        return grid is null ? null : RenderGrid(rom, grid, tint);
+    }
+
+    /// <summary>Renders a THPS4-through-Sk8land collision surface.</summary>
+    public static GbaCollisionRender? Render(
+        ReadOnlySpan<byte> rom,
+        GbaLaterLevelArt.LaterLevel level,
+        TintMode tint = TintMode.Material)
+    {
+        var grid = GbaLaterCollisionSurface.TryLoad(rom, level);
+        return grid is null ? null : RenderGrid(rom, grid, tint);
+    }
+
+    private static GbaCollisionRender? RenderGrid(
+        ReadOnlySpan<byte> rom, IGbaCollisionGrid grid, TintMode tint)
+    {
 
         var w = grid.Width;
         var h = grid.Height;
@@ -104,8 +134,7 @@ public static class GbaCollisionRenderer
         for (var x = 0; x < w; x++)
         {
             var index = y * w + x;
-            var cell = grid.CellAt(x, y);
-            materials[index] = cell.Material;
+            materials[index] = grid.SurfaceAt(x, y);
             var samples = grid.SampleCell(rom, x, y, step);
             var values = new double[samples.Length];
             var min = double.MaxValue;

@@ -6,9 +6,9 @@ using Spectre.Console;
 namespace NeversoftMultitool.CLI;
 
 /// <summary>
-///     Reconstructs the isometric level images from a Vicarious Visions GBA Tony
-///     Hawk ROM to PNG (the "render a level" deliverable, in 2D — the engine has no
-///     meshes). See <see cref="GbaLevelImages" />.
+///     Reconstructs supported Tony Hawk GBA levels. Vicarious Visions carts and
+///     THPS3 produce authored isometric PNG views; Downhill Jam produces its
+///     separate polygon course and collision GLBs.
 /// </summary>
 public static class GbaLevelCommand
 {
@@ -16,15 +16,17 @@ public static class GbaLevelCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to a Vicarious Visions GBA Tony Hawk ROM"
+            Description = "Path to a supported Tony Hawk GBA ROM"
         };
         var outputOption = new Option<string?>("-o", "--output")
         {
-            Description = "Output directory for the reconstructed level PNGs"
+            Description = "Output directory for reconstructed PNGs or Downhill Jam GLBs"
         };
         var verboseOption = new Option<bool>("-v", "--verbose") { Description = "List each level" };
 
-        var command = new Command("gba-level", "Reconstruct isometric level images from a GBA ROM to PNG");
+        var command = new Command(
+            "gba-level",
+            "Reconstruct isometric level PNGs or export Downhill Jam polygon courses to GLB");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -60,9 +62,25 @@ public static class GbaLevelCommand
             return 1;
         }
 
+        // Downhill Jam is a separate Visual Impact engine with streamed polygon
+        // courses rather than an isometric tile canvas.  Keep the established
+        // generic level entry point useful while the dedicated command exposes
+        // course selection and collision suppression.
+        if (GbaDhjCourse.FindCourses(rom).Count > 0)
+        {
+            return GbaDhjLevelCommand.ExecuteRom(
+                rom, input, outputDir, selectedIndex: null, includeCollision: true,
+                verbose, cancellationToken);
+        }
+
         var levels = GbaLevelImages.FindLevels(rom);
         if (levels.Count == 0)
-            return ExecuteLaterCart(rom, input, outputDir, verbose, cancellationToken);
+        {
+            var thps3 = GbaThps3LevelArt.FindLevels(rom);
+            return thps3.Count > 0
+                ? ExecuteThps3(rom, thps3, input, outputDir, verbose, cancellationToken)
+                : ExecuteLaterCart(rom, input, outputDir, verbose, cancellationToken);
+        }
 
         AnsiConsole.MarkupLine($"Found [green]{levels.Count}[/] levels");
         var dir = outputDir ?? Path.Combine("TestOutput", Path.GetFileNameWithoutExtension(input) + "-gba-levels");
@@ -84,10 +102,67 @@ public static class GbaLevelCommand
         return 0;
     }
 
+    /// <summary>THPS3's all-8bpp predecessor to the later mixed tile surface.</summary>
+    private static int ExecuteThps3(
+        byte[] rom, IReadOnlyList<GbaThps3LevelArt.Thps3Level> levels,
+        string input, string? outputDir, bool verbose, CancellationToken cancellationToken)
+    {
+        AnsiConsole.MarkupLine($"Found [green]{levels.Count}[/] levels");
+        var dir = outputDir ?? Path.Combine("TestOutput", Path.GetFileNameWithoutExtension(input) + "-gba-levels");
+        Directory.CreateDirectory(dir);
+
+        var written = 0;
+        foreach (var level in levels)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (WriteThps3LevelImages(rom, level, dir, verbose))
+                written++;
+        }
+
+        AnsiConsole.MarkupLine($"Reconstructed [green]{written}[/] level images to [green]{Markup.Escape(dir)}[/]");
+        AnsiConsole.MarkupLine(
+            "[grey]Each level_NN is THPS3's full-colour authored tile surface; "
+            + "level_NN_collision is its ROM-evaluated 3D collision surface, and "
+            + "level_NN_palette is its 256-colour source palette.[/]");
+        return 0;
+    }
+
+    /// <summary>Writes the visible art, collision, and palette views for one THPS3 level.</summary>
+    internal static bool WriteThps3LevelImages(
+        byte[] rom, GbaThps3LevelArt.Thps3Level level, string dir, bool verbose)
+    {
+        var render = GbaThps3LevelArt.RenderColourSurface(rom, level);
+        if (render == null)
+            return false;
+        ImageWriter.WritePng(
+            Path.Combine(dir, $"level_{level.Index:D2}.png"),
+            render.Value.Width, render.Value.Height, render.Value.Rgba);
+
+        var collision = GbaCollisionRenderer.Render(rom, level);
+        if (collision != null)
+            ImageWriter.WritePng(
+                Path.Combine(dir, $"level_{level.Index:D2}_collision.png"),
+                collision.Value.Width, collision.Value.Height, collision.Value.Rgba);
+
+        var palette = GbaThps3LevelArt.TryGetPalette(rom, level);
+        if (palette != null)
+            ImageWriter.WritePng(
+                Path.Combine(dir, $"level_{level.Index:D2}_palette.png"),
+                256, 256, PaletteSwatch(palette));
+
+        if (verbose)
+            AnsiConsole.MarkupLine(
+                $"  level_{level.Index:D2}  record 0x{0x08000000 + level.LevelRecordOffset:X8}  "
+                + $"{level.PixelWidth}x{level.PixelHeight}  +colour"
+                + $"{(collision != null ? " +collision" : "")}"
+                + $"{(palette != null ? " +palette" : "")}");
+        return true;
+    }
+
     /// <summary>
-    ///     THPS4, THUG, THUG2 and American Sk8land share a different level-art record
-    ///     from THPS2's, with no collision grid and no colour surface, so they get the
-    ///     one view they have: the composited isometric art as ink coverage.
+    ///     THPS4, THUG, THUG2 and American Sk8land share a mixed 4bpp/8bpp tile
+    ///     surface different from THPS2's. Their old one-bit output is retained as
+    ///     an explicitly named occlusion mask rather than presented as visible art.
     /// </summary>
     private static int ExecuteLaterCart(
         byte[] rom, string input, string? outputDir, bool verbose, CancellationToken cancellationToken)
@@ -107,24 +182,55 @@ public static class GbaLevelCommand
         foreach (var level in levels)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var render = GbaLaterLevelArt.Render(rom, level);
-            if (render is null)
-                continue;
-            ImageWriter.WritePng(
-                Path.Combine(dir, $"level_{level.Index:D2}.png"),
-                render.Value.Width, render.Value.Height, render.Value.Rgba);
-            written++;
-            if (verbose)
-                AnsiConsole.MarkupLine(
-                    $"  level_{level.Index:D2}  art 0x{0x08000000 + level.ArtRecordOffset:X8}  "
-                    + $"{level.PixelWidth}x{level.PixelHeight}  map {level.MapWidth}x{level.MapHeight}");
+            if (WriteLaterLevelImages(rom, level, dir, verbose))
+                written++;
         }
 
         AnsiConsole.MarkupLine($"Reconstructed [green]{written}[/] level images to [green]{Markup.Escape(dir)}[/]");
         AnsiConsole.MarkupLine(
-            "[grey]This cartridge's art is one bit deep, so each level is rendered as ink "
-            + "coverage; its colour surface is a separate pass that is not yet identified.[/]");
+            "[grey]Each level_NN is the full-colour tile surface. The one-bit foreground "
+            + "coverage asset is exported separately as level_NN_occlusion; level_NN_collision "
+            + "is the ROM-evaluated 3D collision surface, with the "
+            + "256-colour source palette as level_NN_palette.[/]");
         return 0;
+    }
+
+    /// <summary>Writes the visible art, collision, occlusion and palette views for one later level.</summary>
+    internal static bool WriteLaterLevelImages(
+        byte[] rom, GbaLaterLevelArt.LaterLevel level, string dir, bool verbose)
+    {
+        var render = GbaLaterLevelArt.RenderColourSurface(rom, level);
+        if (render is null)
+            return false;
+        ImageWriter.WritePng(
+            Path.Combine(dir, $"level_{level.Index:D2}.png"),
+            render.Value.Width, render.Value.Height, render.Value.Rgba);
+
+        var collision = GbaCollisionRenderer.Render(rom, level);
+        if (collision != null)
+            ImageWriter.WritePng(
+                Path.Combine(dir, $"level_{level.Index:D2}_collision.png"),
+                collision.Value.Width, collision.Value.Height, collision.Value.Rgba);
+
+        var occlusion = GbaLaterLevelArt.RenderOcclusionMask(rom, level);
+        if (occlusion != null)
+            ImageWriter.WritePng(
+                Path.Combine(dir, $"level_{level.Index:D2}_occlusion.png"),
+                occlusion.Value.Width, occlusion.Value.Height, occlusion.Value.Rgba);
+
+        var palette = GbaLaterLevelArt.TryGetPalette(rom, level);
+        if (palette != null)
+            ImageWriter.WritePng(
+                Path.Combine(dir, $"level_{level.Index:D2}_palette.png"),
+                256, 256, PaletteSwatch(palette));
+
+        if (verbose)
+            AnsiConsole.MarkupLine(
+                $"  level_{level.Index:D2}  parent 0x{0x08000000 + level.LevelRecordOffset:X8}  "
+                + $"{level.PixelWidth}x{level.PixelHeight}  +colour"
+                + $"{(collision != null ? " +collision" : "")}"
+                + $"{(occlusion != null ? " +occlusion" : "")}{(palette != null ? " +palette" : "")}");
+        return true;
     }
 
     // Writes every view for one level (tile detail + iso heightfield + palette).

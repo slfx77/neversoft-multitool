@@ -4,11 +4,30 @@ namespace NeversoftMultitool.Core.Formats.Gba;
 
 /// <summary>
 ///     The isometric level art of the four later Vicarious Visions GBA Tony Hawk
-///     cartridges — THPS4, THUG, THUG2 and American Sk8land — which share one
-///     record shape that THPS2 does not have (THPS2 is <see cref="GbaLevelImages" />;
-///     THPS3 and Downhill Jam are each a different container again).
+///     cartridges — THPS4, THUG, THUG2 and American Sk8land. Their parent level
+///     records contain the full-colour tile surface as well as a separate occlusion
+///     mask used to dither a skater hidden behind foreground scenery.
 ///
-///     <para><b>The art record</b> is a 0x1C-stride table entry
+///     <para><b>Colour surface.</b> The parent record begins with its dimensions in
+///     8x8 tiles. It then carries <c>{totalTileCount, fourBppTileCount}@+0x04</c>,
+///     a mixed 4bpp/8bpp tile pool at <c>+0x08</c>, a raw 2x2 metatile table at
+///     <c>+0x0C</c>, up to four row-RLE metatile maps at <c>+0x10..+0x1C</c>, and a
+///     raw 256-colour BGR555 palette at <c>+0x20</c>. A 4bpp tile has a per-tile
+///     remap table that maps its local 16 colours into the shared 256-colour
+///     palette. Its packed rows are stored right-to-left: the engine expands byte
+///     3 through byte 0, high nibble then low nibble. The remaining tiles use
+///     direct 8bpp palette indices. Metatile tile
+///     references use their low 14 bits as the tile index and bits 14/15 as the
+///     horizontal/vertical flip flags.</para>
+///
+///     <para><b>Map compression.</b> Each map starts with
+///     <c>{u16 width, u16 height, u32 rowOffsets[height]}</c>. Row offsets are in
+///     u16 words from the stream immediately following that table. A command with
+///     top bits 0 or 1 is one literal; top bits 2 repeat the following u16
+///     <c>command&amp;0x3FFF</c> times; top bits 3 copy that many following literals.
+///     The planes composite in pointer order, palette index zero transparent.</para>
+///
+///     <para><b>Occlusion mask.</b> The separate 0x1C-stride table entry is
 ///     <c>{ptr map, ptr objects, ptr grids, ptr metatiles, ptr elements, ptr ?, u32 flags}</c>.
 ///     Fields are BIOS-LZ77 streams or raw bytes; the engine chooses per field from
 ///     the flags word's own bytes — <c>+0x18</c> for the map, <c>+0x19</c> for the
@@ -16,12 +35,11 @@ namespace NeversoftMultitool.Core.Formats.Gba;
 ///     always compressed (transcribed from the loader at THUG2 ROM 0x0803FBC8, which
 ///     also sizes the object table by dividing by 12).</para>
 ///
-///     <para><b>The art is one bit deep.</b> An element is 32 bytes: 16 rows of a
+///     An element is 32 bytes: 16 rows of a
 ///     little-endian u16 whose bit <c>c</c> is pixel column <c>c</c>, so a 16x16
 ///     stamp. Four elements make a 32x32 metatile (2x2, row-major), and one u16 of a
-///     grid selects a metatile. Reading the pool as 4bpp or 8bpp instead yields
-///     noise; at one bit it is the level's line art, and only that reading makes the
-///     sizes agree with the object records' own bounding boxes.</para>
+///     grid selects a metatile. This one-bit payload is not the visible level art:
+///     it is the foreground coverage mask used by the engine's occlusion pass.
 ///
 ///     <para><b>Placement.</b> The parent level record states the level's pixel size
 ///     as a u16 pair scaled by 8, and the map is that size in <b>64-pixel cells</b>
@@ -31,16 +49,12 @@ namespace NeversoftMultitool.Core.Formats.Gba;
 ///     <c>map[c]</c> up to the next non-empty cell's value, which partitions the
 ///     object table exactly. <c>0xFFFF</c> marks an empty cell.</para>
 ///
-///     <para>Colour is a separate pass this does not implement: the level record
-///     carries five 512-byte palettes, but a one-bit element cannot carry a palette
-///     index, so the colour surface is elsewhere and unidentified. Renders are ink
-///     coverage, the same as <see cref="GbaLevelImages.RenderLevel" /> on THPS2.</para>
 /// </summary>
 public static class GbaLaterLevelArt
 {
     private const uint RomBase = 0x08000000;
 
-    /// <summary>The art table's record stride.</summary>
+    /// <summary>The carved occlusion table's record stride.</summary>
     public const int ArtRecordStride = 0x1C;
 
     private const int ElementBytes = 32;   // 16 rows x u16
@@ -52,9 +66,17 @@ public static class GbaLaterLevelArt
     private const int EmptyCell = 0xFFFF;
     private const int MinTableRecords = 3;
     private const int MaxImageDimension = 8192;
+    private const int ColourTilePixels = 8;
+    private const int ColourMetatilePixels = 16;
+    private const int FourBppTileBytes = 32;
+    private const int EightBppTileBytes = 64;
+    private const int ColourMetatileBytes = 8;
+    private const int PaletteColours = 256;
+    private const int PaletteBytes = PaletteColours * 2;
+    private const int MaxColourPlanes = 4;
 
     /// <summary>
-    ///     One level: its art record, the geometry its level record states, and which
+    ///     One level: its occlusion record, the geometry its level record states, and which
     ///     flags byte (if any) gates the grid pool's compression on this cartridge.
     /// </summary>
     /// <remarks>
@@ -70,8 +92,22 @@ public static class GbaLaterLevelArt
     /// <summary>A field with no flags byte: the engine always decompresses it.</summary>
     public const int AlwaysCompressed = -1;
 
-    /// <summary>The five decoded art payloads of one level.</summary>
-    private sealed record Payloads(byte[] Map, byte[] Objects, byte[] Grids, byte[] Metatiles, byte[] Elements);
+    /// <summary>The five decoded occlusion payloads of one level.</summary>
+    private sealed record OcclusionPayloads(
+        byte[] Map, byte[] Objects, byte[] Grids, byte[] Metatiles, byte[] Elements);
+
+    private readonly record struct ColourPlane(int Width, int Height, ushort[] Metatiles);
+
+    private sealed record ColourPayloads(
+        int TileCount,
+        int FourBppTileCount,
+        int TilePoolOffset,
+        int PaletteIdsOffset,
+        int PaletteRemapsOffset,
+        int MetatileTableOffset,
+        int MetatileCount,
+        byte[] Palette,
+        List<ColourPlane> Planes);
 
     /// <summary>True when this ROM carries a later-cart art table.</summary>
     public static bool IsLaterLevelRom(ReadOnlySpan<byte> rom) => FindLevels(rom).Count > 0;
@@ -116,10 +152,108 @@ public static class GbaLaterLevelArt
         return levels;
     }
 
-    /// <summary>Composites one level's art into an RGBA render, or null if it can't be read.</summary>
-    public static GbaLevelImages.GbaLevelRender? Render(ReadOnlySpan<byte> rom, LaterLevel level)
+    /// <summary>
+    ///     Composites the full-colour tile surface the game displays, or null when
+    ///     the parent record or one of its referenced assets is malformed.
+    /// </summary>
+    public static GbaLevelImages.GbaLevelRender? RenderColourSurface(
+        ReadOnlySpan<byte> rom, LaterLevel level)
     {
-        var p = ReadPayloads(rom, level);
+        var payloads = ReadColourPayloads(rom, level);
+        if (payloads == null)
+            return null;
+
+        var width = level.PixelWidth;
+        var height = level.PixelHeight;
+        if (width is <= 0 or > MaxImageDimension || height is <= 0 or > MaxImageDimension)
+            return null;
+
+        var rgba = new byte[width * height * 4];
+        for (var i = 0; i < width * height; i++)
+        {
+            rgba[i * 4] = 0x12;
+            rgba[i * 4 + 1] = 0x12;
+            rgba[i * 4 + 2] = 0x16;
+            rgba[i * 4 + 3] = 0xFF;
+        }
+
+        // The maps are painter-ordered planes. Later planes chiefly carry ramps,
+        // props and foreground walls over the ground in plane zero.
+        foreach (var plane in payloads.Planes)
+        {
+            for (var y = 0; y < plane.Height; y++)
+            for (var x = 0; x < plane.Width; x++)
+            {
+                var metatile = plane.Metatiles[y * plane.Width + x];
+                if (metatile >= payloads.MetatileCount)
+                    return null;
+                // Map entry zero is the transparent/empty cell. As with tile zero,
+                // some ROMs leave its backing table bytes populated; the index is
+                // the semantic blank, not the contents at that storage address.
+                if (metatile == 0)
+                    continue;
+
+                var px = x * ColourMetatilePixels;
+                var py = y * ColourMetatilePixels;
+                for (var quad = 0; quad < 4; quad++)
+                {
+                    var tileRef = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(
+                        payloads.MetatileTableOffset
+                        + metatile * ColourMetatileBytes + quad * 2, 2));
+                    var tile = tileRef & 0x3FFF;
+                    if (tile >= payloads.TileCount)
+                        return null;
+                    // Tile zero is the hardware blank. Its backing bytes are not
+                    // consistently cleared, so drawing them turns every empty cell
+                    // in an overlay plane into an opaque palette-coloured square.
+                    if (tile == 0)
+                        continue;
+                    BlitColourTile(
+                        rom, payloads, tile, (tileRef & 0x4000) != 0, (tileRef & 0x8000) != 0,
+                        px + quad % 2 * ColourTilePixels,
+                        py + quad / 2 * ColourTilePixels,
+                        rgba, width, height);
+                }
+            }
+        }
+
+        return new GbaLevelImages.GbaLevelRender(width, height, rgba);
+    }
+
+    /// <summary>The level's raw 256-colour BGR555 palette converted to RGBA.</summary>
+    public static byte[]? TryGetPalette(ReadOnlySpan<byte> rom, LaterLevel level)
+    {
+        var rec = level.LevelRecordOffset;
+        if (rec < 0 || rec + 0x24 > rom.Length)
+            return null;
+        var address = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(rec + 0x20, 4));
+        if (!IsRomPointer(rom, address))
+            return null;
+        var offset = (int)(address - RomBase);
+        if (offset < 0 || offset + PaletteBytes > rom.Length)
+            return null;
+
+        var rgba = new byte[PaletteColours * 4];
+        for (var i = 0; i < PaletteColours; i++)
+        {
+            var c = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(offset + i * 2, 2));
+            rgba[i * 4] = Expand5(c & 0x1F);
+            rgba[i * 4 + 1] = Expand5(c >> 5 & 0x1F);
+            rgba[i * 4 + 2] = Expand5(c >> 10 & 0x1F);
+            rgba[i * 4 + 3] = 0xFF;
+        }
+
+        return rgba;
+    }
+
+    /// <summary>
+    ///     Renders the one-bit skater-occlusion coverage asset. This is useful for
+    ///     analysis, but it is not the level's visible artwork.
+    /// </summary>
+    public static GbaLevelImages.GbaLevelRender? RenderOcclusionMask(
+        ReadOnlySpan<byte> rom, LaterLevel level)
+    {
+        var p = ReadOcclusionPayloads(rom, level);
         if (p == null)
             return null;
 
@@ -149,6 +283,254 @@ public static class GbaLaterLevelArt
     }
 
     /// <summary>
+    ///     Compatibility alias for the original decoder, which was published before
+    ///     its payload was identified as an occlusion mask.
+    /// </summary>
+    public static GbaLevelImages.GbaLevelRender? Render(ReadOnlySpan<byte> rom, LaterLevel level) =>
+        RenderOcclusionMask(rom, level);
+
+    private static ColourPayloads? ReadColourPayloads(ReadOnlySpan<byte> rom, LaterLevel level)
+    {
+        var rec = level.LevelRecordOffset;
+        if (rec < 0 || rec + 0x24 > rom.Length)
+            return null;
+
+        var tilesWide = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec, 2));
+        var tilesHigh = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + 2, 2));
+        if (tilesWide * ColourTilePixels != level.PixelWidth
+            || tilesHigh * ColourTilePixels != level.PixelHeight)
+            return null;
+
+        var tileCount = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + 0x04, 2));
+        var fourBppCount = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(rec + 0x06, 2));
+        if (tileCount == 0 || fourBppCount > tileCount)
+            return null;
+
+        var tilePool = PointerToOffset(rom, rec + 0x08);
+        var metatileTable = PointerToOffset(rom, rec + 0x0C);
+        if (tilePool < 0 || metatileTable < 0)
+            return null;
+
+        var planes = new List<ColourPlane>(MaxColourPlanes);
+        var maxMetatile = -1;
+        for (var i = 0; i < MaxColourPlanes; i++)
+        {
+            var planeOffset = PointerToOffset(rom, rec + 0x10 + i * 4);
+            if (planeOffset < 0)
+                continue;
+            var plane = ReadColourPlane(rom, planeOffset);
+            if (plane == null)
+                return null;
+
+            // Plane zero covers the image exactly in 16-pixel metatiles. Overlay
+            // maps can carry one guard row/column, which is clipped by the blitter.
+            var expectedW = (tilesWide + 1) / 2;
+            var expectedH = (tilesHigh + 1) / 2;
+            if (planes.Count == 0)
+            {
+                if (plane.Value.Width != expectedW || plane.Value.Height != expectedH)
+                    return null;
+            }
+            else if (plane.Value.Width is < 1 || plane.Value.Width > expectedW + 1
+                     || plane.Value.Height is < 1 || plane.Value.Height > expectedH + 1)
+            {
+                return null;
+            }
+
+            foreach (var metatile in plane.Value.Metatiles)
+                maxMetatile = Math.Max(maxMetatile, metatile);
+            planes.Add(plane.Value);
+        }
+
+        if (planes.Count == 0 || maxMetatile < 0)
+            return null;
+        var metatileCount = maxMetatile + 1;
+        if ((long)metatileTable + (long)metatileCount * ColourMetatileBytes > rom.Length)
+            return null;
+
+        // The tile pool concatenates 4bpp pixels, 8bpp pixels, one u16 remap id
+        // per 4bpp tile, aligns to a word, then stores 16-byte remap palettes.
+        var eightBppOffset = (long)tilePool + (long)fourBppCount * FourBppTileBytes;
+        var paletteIdsOffset = eightBppOffset + (long)(tileCount - fourBppCount) * EightBppTileBytes;
+        var paletteRemapsOffset = (paletteIdsOffset + fourBppCount * 2L + 3) & ~3L;
+        if (paletteIdsOffset < 0 || paletteRemapsOffset > rom.Length)
+            return null;
+
+        var maxRemap = -1;
+        for (var tile = 0; tile < fourBppCount; tile++)
+        {
+            var idOffset = paletteIdsOffset + tile * 2L;
+            if (idOffset + 2 > rom.Length)
+                return null;
+            var id = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice((int)idOffset, 2));
+            maxRemap = Math.Max(maxRemap, id);
+        }
+
+        if (maxRemap >= 0 && paletteRemapsOffset + (long)(maxRemap + 1) * 16 > rom.Length)
+            return null;
+
+        // A used metatile must resolve entirely within the declared tile pool.
+        for (var metatile = 0; metatile < metatileCount; metatile++)
+        for (var quad = 0; quad < 4; quad++)
+        {
+            var tileRef = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(
+                metatileTable + metatile * ColourMetatileBytes + quad * 2, 2));
+            if ((tileRef & 0x3FFF) >= tileCount)
+                return null;
+        }
+
+        var palette = TryGetPalette(rom, level);
+        return palette == null
+            ? null
+            : new ColourPayloads(
+                tileCount, fourBppCount, tilePool, (int)paletteIdsOffset,
+                (int)paletteRemapsOffset, metatileTable, metatileCount, palette, planes);
+    }
+
+    private static ColourPlane? ReadColourPlane(ReadOnlySpan<byte> rom, int offset)
+    {
+        if (offset < 0 || offset + 4 > rom.Length)
+            return null;
+        var width = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(offset, 2));
+        var height = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(offset + 2, 2));
+        if (width == 0 || height == 0
+            || width > MaxImageDimension / ColourMetatilePixels + 1
+            || height > MaxImageDimension / ColourMetatilePixels + 1)
+            return null;
+
+        var rowTableBytes = (long)height * 4;
+        var streamBaseLong = (long)offset + 4 + rowTableBytes;
+        if (streamBaseLong > rom.Length)
+            return null;
+        var metatiles = new ushort[width * height];
+
+        for (var y = 0; y < height; y++)
+        {
+            var rowWords = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(offset + 4 + y * 4, 4));
+            var cursorLong = streamBaseLong + rowWords * 2L;
+            if (cursorLong < streamBaseLong || cursorLong + 2 > rom.Length)
+                return null;
+            var cursor = (int)cursorLong;
+            var x = 0;
+            while (x < width)
+            {
+                if (cursor + 2 > rom.Length)
+                    return null;
+                var command = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(cursor, 2));
+                cursor += 2;
+                var kind = command >> 14;
+                if (kind < 2)
+                {
+                    metatiles[y * width + x++] = command;
+                    continue;
+                }
+
+                var count = command & 0x3FFF;
+                if (count == 0 || count > width - x)
+                    return null;
+                if (kind == 2)
+                {
+                    if (cursor + 2 > rom.Length)
+                        return null;
+                    var value = BinaryPrimitives.ReadUInt16LittleEndian(rom.Slice(cursor, 2));
+                    cursor += 2;
+                    metatiles.AsSpan(y * width + x, count).Fill(value);
+                    x += count;
+                    continue;
+                }
+
+                var literalBytes = count * 2;
+                if (cursor + literalBytes > rom.Length)
+                    return null;
+                for (var i = 0; i < count; i++)
+                    metatiles[y * width + x + i] = BinaryPrimitives.ReadUInt16LittleEndian(
+                        rom.Slice(cursor + i * 2, 2));
+                cursor += literalBytes;
+                x += count;
+            }
+        }
+
+        return new ColourPlane(width, height, metatiles);
+    }
+
+    private static void BlitColourTile(
+        ReadOnlySpan<byte> rom,
+        ColourPayloads payloads,
+        int tile,
+        bool flipX,
+        bool flipY,
+        int px,
+        int py,
+        byte[] rgba,
+        int width,
+        int height)
+    {
+        var isFourBpp = tile < payloads.FourBppTileCount;
+        var tileOffset = isFourBpp
+            ? payloads.TilePoolOffset + tile * FourBppTileBytes
+            : payloads.TilePoolOffset + payloads.FourBppTileCount * FourBppTileBytes
+              + (tile - payloads.FourBppTileCount) * EightBppTileBytes;
+        var remapOffset = 0;
+        if (isFourBpp)
+        {
+            var remap = BinaryPrimitives.ReadUInt16LittleEndian(
+                rom.Slice(payloads.PaletteIdsOffset + tile * 2, 2));
+            remapOffset = payloads.PaletteRemapsOffset + remap * 16;
+        }
+
+        for (var y = 0; y < ColourTilePixels; y++)
+        {
+            var destY = py + y;
+            if (destY < 0 || destY >= height)
+                continue;
+            var sourceY = flipY ? ColourTilePixels - 1 - y : y;
+            for (var x = 0; x < ColourTilePixels; x++)
+            {
+                var destX = px + x;
+                if (destX < 0 || destX >= width)
+                    continue;
+                var sourceX = flipX ? ColourTilePixels - 1 - x : x;
+                int paletteIndex;
+                if (isFourBpp)
+                {
+                    // These are not in the usual GBA 4bpp left-to-right order.
+                    // The cartridge's ARM tile expander consumes each 32-bit row
+                    // from its most-significant nibble down to its least-significant
+                    // nibble before writing the 8bpp VRAM tile. Mirroring each row
+                    // here reproduces that path; treating the pack as ordinary GBA
+                    // tiles horizontally mirrors every 8-pixel tile and produces
+                    // the characteristic diagonal/sawtooth shear at tile seams.
+                    var packed = rom[tileOffset + sourceY * 4 + (3 - sourceX / 2)];
+                    var local = sourceX % 2 == 0 ? packed >> 4 : packed & 0x0F;
+                    paletteIndex = rom[remapOffset + local];
+                }
+                else
+                {
+                    paletteIndex = rom[tileOffset + sourceY * ColourTilePixels + sourceX];
+                }
+
+                if (paletteIndex == 0)
+                    continue;
+                var dest = (destY * width + destX) * 4;
+                rgba[dest] = payloads.Palette[paletteIndex * 4];
+                rgba[dest + 1] = payloads.Palette[paletteIndex * 4 + 1];
+                rgba[dest + 2] = payloads.Palette[paletteIndex * 4 + 2];
+                rgba[dest + 3] = 0xFF;
+            }
+        }
+    }
+
+    private static int PointerToOffset(ReadOnlySpan<byte> rom, int pointerOffset)
+    {
+        if (pointerOffset < 0 || pointerOffset + 4 > rom.Length)
+            return -1;
+        var address = BinaryPrimitives.ReadUInt32LittleEndian(rom.Slice(pointerOffset, 4));
+        return IsRomPointer(rom, address) ? (int)(address - RomBase) : -1;
+    }
+
+    private static byte Expand5(int value) => (byte)((value << 3) | (value >> 2));
+
+    /// <summary>
     ///     The map's runs as <c>(cell, firstObject, endObject)</c>. A non-empty cell
     ///     owns every object up to the next non-empty cell's start.
     /// </summary>
@@ -174,7 +556,7 @@ public static class GbaLaterLevelArt
     }
 
     private static void DrawObject(
-        Payloads p, int k, int originX, int originY, byte[] rgba, int width, int height)
+        OcclusionPayloads p, int k, int originX, int originY, byte[] rgba, int width, int height)
     {
         var rec = p.Objects.AsSpan(k * ObjectRecordBytes, ObjectRecordBytes);
         var gridW = (rec[2] - rec[0]) / MetatilePixels;
@@ -237,7 +619,7 @@ public static class GbaLaterLevelArt
         }
     }
 
-    private static Payloads? ReadPayloads(ReadOnlySpan<byte> rom, LaterLevel level)
+    private static OcclusionPayloads? ReadOcclusionPayloads(ReadOnlySpan<byte> rom, LaterLevel level)
     {
         var rec = level.ArtRecordOffset;
         if (rec < 0 || rec + ArtRecordStride > rom.Length)
@@ -272,7 +654,7 @@ public static class GbaLaterLevelArt
         if (metatiles == null || metatiles.Length < metatileCount * MetatileBytes)
             return null;
 
-        return new Payloads(map, objects, grids, metatiles, elements);
+        return new OcclusionPayloads(map, objects, grids, metatiles, elements);
     }
 
     /// <summary>Highest u16 in the buffer, ignoring <paramref name="ignore" />.</summary>

@@ -620,13 +620,6 @@ internal static class MeshConverterTabFileScanner
     }
 
     /// <summary>
-    ///     A carved N64 model bundle. The carver puts the bundle slot in the
-    ///     file name, together with the PS1 name its content resolved to
-    ///     (<c>NNN_&lt;name&gt;.psx.n64</c>), so the row identifies itself; the
-    ///     geometry count comes from the linked render bank rather than the
-    ///     shell, which holds no mesh chunks.
-    /// </summary>
-    /// <summary>
     ///     Carved GBA level records. Trusted by name like N64 bundles, so the gate
     ///     is only what a carved record must satisfy structurally: the exact record
     ///     length and a companion ROM to dereference into. Everything downstream
@@ -634,15 +627,18 @@ internal static class MeshConverterTabFileScanner
     /// </summary>
     private static MeshFileEntry? ScanGbaLevelFile(AssetSource source, string displayPath, string rootDir)
     {
-        // A level converts to one textured surface mesh. The later cartridges
-        // (THPS4 onwards) carve a shorter art record and have no collision grid, so
-        // they list here as picture-only levels and the 2D view is what they offer.
+        // Every supported isometric generation now converts to one textured
+        // collision-surface mesh. Its carved parent/art record has a different
+        // length in each format family; the ROM companion closes the structure.
         return ScanGbaRecord(
                    source, displayPath, rootDir, GbaLevelCarver.LevelRecordSize, "GBA Level",
                    objectCount: 1, meshCount: 1)
                ?? ScanGbaRecord(
-                   source, displayPath, rootDir, GbaLaterLevelArt.ArtRecordStride, "GBA Level (2D)",
-                   objectCount: 1, meshCount: 0);
+                   source, displayPath, rootDir, GbaThps3LevelArt.LevelRecordStride, "GBA Level",
+                   objectCount: 1, meshCount: 1)
+               ?? ScanGbaRecord(
+                   source, displayPath, rootDir, GbaLaterLevelArt.ArtRecordStride, "GBA Level",
+                   objectCount: 1, meshCount: 1);
     }
 
     /// <summary>Carved GBA character records — the shared skater mesh plus this

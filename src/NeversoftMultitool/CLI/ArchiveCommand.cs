@@ -19,7 +19,7 @@ public static class ArchiveCommand
         {
             Description =
                 "Path to archive file (WAD, PKR, PRE, PRX, PRD/PRF localized PRE, DDX, BON, PAK, ZIP, CUT) " +
-                "or disc image (ISO, CUE, GDI, IMG+CCD, BIN)"
+                "or supported ROM/disc image (GBA, NDS, N64, ISO, CUE, GDI, IMG+CCD, BIN)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -31,7 +31,9 @@ public static class ArchiveCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("archive", "Extract files from WAD/PKR/PRE/PRX/PRD/PRF/DDX/BON/PAK/ZIP/CUT archives");
+        var command = new Command(
+            "archive",
+            "Extract supported archives, ROM asset tables, and disc images");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
