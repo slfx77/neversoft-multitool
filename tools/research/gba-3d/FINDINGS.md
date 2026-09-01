@@ -1,27 +1,29 @@
 # Vicarious Visions GBA engine — investigation record
 
-Status: **the headline questions are answered and shipped.** There are no 3D
-meshes (the render path is 2D isometric tile art); THPS2's full-screen images
-(`gba-image`), GAX music (`gba-music`), and levels — geometry *and* true colour —
-(`gba-level`) all extract from media, pinned by `GbaRomImagesTests`,
-`GbaGaxMusicTests`, and `GbaLevelImagesTests`. What remains open is listed under
-"Next steps".
+Status: **the headline questions are answered and shipped.** Level appearance is
+pre-baked tile art, while skating physics uses a separate parametric 3D collision
+surface. THPS2's morph-target skater and Downhill Jam's posed rigid-part rider
+meshes are also extractable; those are real 3D models even though the isometric
+level art is not a polygon render. Images, music, level art and supported collision/model
+exports are pinned by corpus tests. What remains open is listed under "Next steps".
 
 Reusable tools: `tools/reverse-engineering/gba/gba_disasm.py` (ARM/THUMB Capstone)
 and the vendored emulator at `tools/vendor/bizhawk/` (dynamic analysis; see its
 README for the Lua patterns).
 
-**The throwaway probes are retired.** They lived in `TestOutput/gba-probe/`
-(gitignored) and were deleted once their conclusions were implemented and pinned
-by C# tests, per `tools/README.md`. Probe scripts named below are therefore
-*historical* — they record how each conclusion was reached, not files on disk.
-Everything load-bearing is preserved in this document, in `Core/Formats/Gba/`,
-and in the tests; the emulator captures are re-creatable with the vendored
-BizHawk and the Lua recipes described here.
+Most throwaway probes lived in `TestOutput/gba-probe/` (gitignored) and were
+deleted once their conclusions were implemented and pinned by C# tests, per
+`tools/README.md`. The focused scripts retained under `tools/research/gba-3d/`
+are reproducibility aids; filenames mentioned only in older dated sections may
+be historical and no longer exist. Everything load-bearing is preserved in this
+document, in `Core/Formats/Gba/`, and in the tests; emulator captures are
+re-creatable with the vendored BizHawk and the retained Lua recipes.
 
-The seven Tony Hawk GBA carts (THPS2 → Downhill Jam, Activision game codes
-ATHE52…BXSE52) run one evolving Vicarious Visions software-3D engine. Audio is
-Shin'en's GAX Sound Engine (THPS2 v1.99d … Sk8land 3.05A) — out of scope.
+The first six Tony Hawk GBA carts in scope (THPS2 → American Sk8land,
+Activision game codes ATHE52…BH9E52) run an evolving Vicarious Visions
+isometric software-3D engine. Downhill Jam (BXSE52) is a separate Visual Impact
+perspective engine. All seven use Shin'en's GAX Sound Engine (THPS2 v1.99d …
+Sk8land 3.05A), whose sample and sequenced-music paths are now implemented.
 
 ## Method
 
@@ -114,7 +116,8 @@ geometry** — they read as **processed render spans** (repeating fixed-point pa
 like `(0x8000, 0x00AA, 0x4000, 0x0055)`), i.e. the per-scanline output the
 rasterizer consumes, one transform stage downstream of the model data.
 
-**GG3 blocker (revised).** Full geometry extraction needs the **runtime-table
+**Historical GG3 blocker (superseded by the 2026-08-21 resolution below).** At
+this point, full geometry extraction appeared to need the **runtime-table
 BUILDER** reverse-engineered — the level-load code that converts the ROM
 descriptors/grids into those elements. A write-watchpoint on `0x03001E50` stalled
 the emulator (the pointer is rewritten per frame, not just at load), so the next
@@ -124,7 +127,7 @@ largest remaining GBA effort.
 
 ## Other formats (2026-08-20)
 
-- **Audio — GAX Sound Engine sample extraction SHIPPED (2026-08-20).**
+- **Audio — initial GAX Sound Engine sample prototype (2026-08-20; superseded).**
   `Core/Formats/Audio/Gba/GbaGaxAudio.cs` + CLI `gba-audio`. GAX has no magic and
   (in v1.99) no per-song mixing-rate/instrument/wave fields — those are global —
   so the reliable anchor is the **wave set**: the `{u32 romAddr, u32 size}` array
@@ -132,11 +135,11 @@ largest remaining GBA effort.
   (`addr[i]+size[i]==addr[i+1]`). The extractor scans for the longest such
   contiguous in-ROM run, then dumps each sample (mono **signed 8-bit PCM**,
   widened to 16-bit) to WAV. Verified on THPS2 GBA: engine banner
-  `GAX Sound Engine v1.99d`, wave set at 0x7F26C0, **101 samples**, all real PCM.
-  Pinned by `GbaGaxAudioTests`. NOT yet done: sequenced-music rendering (needs the
-  song/instrument/perf-list playback + the global rate-table index the driver
-  selects at init) — a larger second stage.
-- **Images/tiles/textures — display format not yet pinned.** The entropy-based
+  `GAX Sound Engine v1.99d`, wave set at 0x7F26C0. That first longest-run scan
+  undercounted the sparse tables and did not render sequenced music. The current
+  two-bank parser and renderer supersede it; see “Audio — shipped across the
+  whole line” and `docs/formats/gba-gax-audio.md`.
+- **Images/tiles/textures — historical blocker, superseded below.** The entropy-based
   `stream_census` "tiles4" label is unreliable (a rendered "tiles4" payload at
   0x455FEC is noise, not art). Rendering the attract-demo VRAM as Mode-4 bitmap
   and as 4/8bpp tiles both came out garbled, so the level is NOT a trivial BG
@@ -177,10 +180,13 @@ The line spans two GBA generations and the engine clearly changed over time
 
 ## Audio — shipped across the whole line (2026-08-20)
 
-`GbaGaxAudio` + `gba-audio` extracts samples from **all 7 carts** (the
-version-token fingerprint had to stop before the version, since the leading `v`
-was dropped after v1.99). Sample counts: THPS2 101, THPS3 53, THPS4 52, THUG 55,
-THUG2 55, Sk8land 55, DHJ 39. Pinned by `GbaGaxAudioTests` (`[CorpusTheory]`).
+`GbaGaxAudio` + `gba-audio` extracts both sparse wave banks from **all 7 carts**
+(the version-token fingerprint had to stop before the version, since the leading
+`v` was dropped after v1.99). Populated/declared slots are: THPS2 34/35 +
+126/132, THPS3 53/54 + 48/52, THPS4 52/54 + 61/62, THUG 55/57 + 24/24,
+THUG2 55/57 + 26/26, Sk8land 55/57 + 54/59, and DHJ 57/57 + 98/100. Signed
+PCM8 applies to GAX 1.x/2.x and unsigned PCM8 to GAX 3.x. Pinned by
+`GbaGaxAudioTests`.
 
 ## Scene architecture (2026-08-20, Ghidra decompile of the builder)
 
@@ -202,7 +208,7 @@ THUMB cluster at **ROM 0x08011800** (`FUN_08011800`), decompiled cleanly:
   (vtable/method-pointer), not plain structs. `FUN_08011bec` is the allocator,
   `FUN_08034a00` the block copy.
 
-**Why clean mesh extraction is hard (the honest blocker).** The drawable
+**Historical interpretation (superseded by the tile-blitter capture below).** The drawable
 geometry is produced by **per-object-type methods** (polymorphic), and the
 render path emits **spans**, not vertex buffers — so there is no flat
 mesh-in-ROM to lift. Extracting real geometry means reverse-engineering each
@@ -358,7 +364,7 @@ total (DHJ just 3) — the later carts moved most art off BIOS LZ77 to a differe
 packaging. The scanner returns empty for them (pinned), and cracking the later
 carts' art container is its own research arc.
 
-## SHIPPED (2026-08-21): GAX sequenced music (`gba-music`)
+## SHIPPED (2026-08-21): first-generation GAX sequenced music (`gba-music`)
 
 **Audio — sequenced music.** The THPS2 GAX
    v1.99 song structure is fully decoded and rendered to WAV. Song headers (20
@@ -378,8 +384,10 @@ carts' art container is its own research arc.
    Faithful: pitch/rhythm/order. **Approximate: tempo** (no per-song field; policy
    10 rows/s ≈ 60Hz÷speed6) and **timbre** (tone synth, not the instruments' PCM —
    the audio-rate sample-binding DMA mixer is not yet RE'd). **THPS2-only:** later
-   carts use GAX 2.11/3.x header layouts (v2/v3, per gaxtapper) — cross-cart music
-   and PCM-timbre rendering are the remaining backlog.
+    carts use GAX 2.11/3.x header layouts (v2/v3, per gaxtapper). This paragraph
+    records the first-generation milestone: v2/v3 parsing and PCM-timbre rendering
+    have since shipped. All 68 songs across the seven carts render end-to-end;
+    see `docs/formats/gba-gax-audio.md` for the current fidelity boundary.
 
 ## FIXED (2026-08-23) — the two defects user review caught
 
@@ -515,7 +523,7 @@ pool renders as a real textured bowl viewable from angles the game never drew.
 Iso-grazed steep walls stretch their art strip — the honest limit of one
 pre-rendered view. Scale: 16 GLB units per world unit; Fly/Walk camera (eye 22).
 
-## RESEARCH COMPLETE (2026-08-24): GAX timbre — awaiting C# port
+## RESEARCH COMPLETE (2026-08-24): GAX timbre (historical pre-port milestone)
 
 The full GAX v1.99 synthesis pipeline is decoded and hard-validated (per-voice:
 1758/1758 + 2113/2113 live mixer events exact; audio: 0.927 log-spectrogram
@@ -974,7 +982,11 @@ fitting them — locate the code that loads record `+0x150` (a BizHawk read-watc
 on the table address is the cheapest route, as it was for the art transform) and
 transcribe the walk. Do not emit rail geometry from a fitted layout.
 
-## SURVEYED (2026-08-30): how far the THPS2 implementation reaches across the line
+## SURVEYED (2026-08-30, historical): how far the THPS2 implementation reached
+
+This section records the pre-decode baseline. Its “THPS2-only today” conclusion
+was superseded on 2026-08-31 by the THPS3 and THPS4-through-Sk8land decodes below;
+the negative skater-format result remains current.
 
 Question asked: how generalizable is the THPS2 work across the rest of the GBA
 corpus on the same engine (THPS2 → Sk8land). Answer: **the level stack is THPS2-only
@@ -1018,8 +1030,9 @@ looks like — separates the line into three:
   stride at all**. Its container is neither THPS2's nor the later carts'.
 - **THPS4 / THUG / THUG2 / Sk8land** — all four share a **0x1C-stride record holding
   five consecutive LZ77 pointers** plus a trailing raw pointer. Runs of 8, 10, 7 and
-  1+ records; payloads are level-art scale (2–52 KB). Structurally this is the
-  compacted successor to THPS2's five-pointer art block.
+  12 records. This was initially mistaken for the successor to THPS2's art block;
+  loader tracing and the real colour surface below prove it is instead the
+  **foreground/skater occlusion-mask container**.
 - **Downhill Jam** — **zero** pointer clusters targeting LZ77, and only 94
   string-pointer sites in the whole 16 MB cart. A different container entirely,
   consistent with the earlier note that it stores assets largely uncompressed.
@@ -1120,14 +1133,14 @@ function** — the level-art loader at `0x0803FBC8`. It states, in order:
 - and `(param2 + 0x20) >> 6`, where `param2` is the loader's second argument.
 
 Its caller at `0x0801606A` supplies both arguments and thereby spells the parent
-**level record**: `levelTable + index * 0x44`, the art pointer at `+0x24`, and
+**level record**: `levelTable + index * 0x44`, the occlusion pointer at `+0x24`, and
 `param2 = u16[+0x00] * 8`. So the level's **pixel size is stated** (the u16 pair,
 scaled by 8) and the **map is that size in 64-pixel cells** — the loader's own
 `(pixelWidth + 32) / 64`.
 
 That closes it, and self-validates: `mapWidth * mapHeight == the map's cell count`
 **exactly, for all 37 records across the four cartridges**, which is what identifies
-the art pointer's offset inside the level record with no per-game table (0x24 on
+the occlusion pointer's offset inside the level record with no per-game table (0x24 on
 THUG/THUG2/Sk8land, 0x38 on THPS4 — each the unique offset satisfying the identity).
 
 The last piece was the map's own reading: it holds **run starts**, not one object per
@@ -1136,11 +1149,73 @@ cell `c` owns every object up to the next non-empty cell's value, which partitio
 object table exactly. That is why "each object appears at most once" was true and the
 rectangle-footprint model was nevertheless wrong.
 
-Shipped as `Core/Formats/Gba/GbaLaterLevelArt.cs`: **THPS4 8, THUG 10, THUG2 7,
-Sk8land 12 levels**, all rendering, with THPS2/THPS3/Downhill Jam correctly declined.
-Renders are ink coverage — the art is one bit deep and the colour surface is still
-unidentified, though the level record does carry five raw 512-byte palettes
-(which is why a scan for *compressed* 512-byte payloads found none).
+This one-bit reconstruction remains useful, but its silhouettes and screen-sized
+placement identify it as an **occlusion mask**, not visible art. It now ships under
+the explicit API `RenderOcclusionMask`; `Render` remains only a compatibility alias.
+
+### Full-colour later-cart tile surface — SOLVED 2026-08-31
+
+The visible art was in the already-bound **parent record**, immediately before the
+occlusion pointer. THUG2's constructor at `0x080257D4` consumes:
+
+```
++0x00  u16 tilesWide, u16 tilesHigh       (8x8 tiles)
++0x04  u16 totalTiles, u16 fourBppTiles
++0x08  ptr mixed raw tile pack
++0x0C  ptr raw metatile table             (4 x u16 per 2x2 tile block)
++0x10  ptr row-RLE map plane 0
++0x14  ptr row-RLE map plane 1
++0x18  ptr optional map plane 2
++0x1C  ptr optional map plane 3
++0x20  ptr raw 256 x BGR555 palette
+```
+
+The mixed pack is `fourBppTiles*32` bytes of packed 4bpp tiles followed by
+`(totalTiles-fourBppTiles)*64` bytes of direct 8bpp tiles, then one little-endian
+u16 remap id per 4bpp tile, alignment to the next 4-byte boundary, and 16 bytes for
+every remap id. The remap turns each local 4-bit pixel into a global palette index.
+The 4bpp rows are deliberately stored **right-to-left**, unlike an ordinary GBA
+tile: the runtime ARM expander loaded at IWRAM `0x0300026C` reads each 32-bit row
+from its most-significant nibble down to its least-significant nibble and writes
+those eight expanded bytes to VRAM in that order. Therefore a displayed row reads
+source byte 3 high/low, byte 2 high/low, byte 1 high/low, byte 0 high/low. The first
+offline renderer used the conventional byte 0 low/high order, horizontally mirroring
+every 4bpp tile and causing a visible eight-pixel sawtooth/shear across THPS4 through
+Sk8land; the renderer now follows the engine order. The direct 8bpp tiles are copied
+to VRAM unchanged. As an independent content oracle, the mean RGB discontinuity at
+the internal seams of every used THPS4 College metatile drops from **83.69** with the
+conventional order to **43.17** with the engine order (207,680 compared opaque-pixel
+pairs); fresh full-size renders of the first level in all four cartridges are free of
+the recurring eight-pixel shear.
+There is no sentinel: even-count THUG/THUG2 begin their first coherent ascending
+16-byte remap immediately after the ids, while odd-count THPS4/Sk8land have one
+zero pad halfword. Metatile references use low
+14 bits for the tile index and bits 14/15 for horizontal/vertical flip. Index zero
+is the semantic blank for both maps and tiles even when its backing bytes are dirty.
+
+The map reader at `0x08019F40`, with row codec `0x0801A078`, establishes its own
+container rather than requiring a guessed stream length:
+
+```
+u16 width, height
+u32 rowOffsetWords[height]       // relative to the following stream base
+u16 rowStreams[]
+```
+
+For each row, top command bits 0/1 mean one literal word; 2 repeats the following
+u16 `command & 0x3FFF` times; 3 copies that many following literal u16s. Every row
+expands to its stated width. Plane 0 is exactly half the record's tile dimensions;
+overlay planes may carry one clipped guard row/column. The maximum decoded map
+entry closes the raw metatile table exactly, and every low-14-bit tile reference is
+within `totalTiles`, across all **37/37** records.
+
+`GbaLaterLevelArt.RenderColourSurface` now composites these painter-ordered planes;
+`TryGetPalette` exposes the colour source. The Levels view and `gba-level` main
+`level_NN.png` output use it, while the old silhouette is separately named
+`level_NN_occlusion.png`. Corpus result: **THPS4 8/8, THUG 10/10, THUG2 7/7,
+Sk8land 12/12** full-colour surfaces and palettes. Visual proof reconstructs whole,
+coherent College, New Jersey, Boston and Sk8land training levels at the parent
+record's exact dimensions, not merely recognizable fragments.
 
 ### The four placement models that were refuted first
 
@@ -1167,32 +1242,210 @@ model, not only the search.**
 The lesson stands regardless: none of these four would have produced the answer, and
 the loader gave it in one sitting.
 
-## Next steps (in order)
+## SHIPPED (2026-08-31): THPS4-through-Sk8land 3D collision
 
-1. **Skater model follow-ups** — the u16 normal encoding, the 0x80 face flag,
-   the 0x744C98 clipless sibling mesh (see §SHIPPED 2026-08-26).
-2. **Fonts/HUD glyphs/badges extraction** (research complete in §sprites; needs
-   either content-anchors for the pointer arrays or accepting fixed addresses).
-3. **Detail-plane (`+0x38`) residue.** The main surface plane (`+0x34`) renders
-   faithfully, but a minority of `+0x38` tiles still show noise: off-screen level
-   areas the captured frames could not validate, plus ~24 tiles that are not in the
-   pool at all (likely sprite/overlay art from another source). Bounded follow-up —
-   re-capture frames covering more of a level, or find the second pool.
-2. ~~**Level-record `+0x30` face/quad list.**~~ **RETIRED (2026-08-28).** The
-   field is not unidentified: true record `+0x30` is the **metatile table**, and
-   its consumer is `GbaLevelImages.RenderColourSurface`, which LZ77-decompresses
-   it to `nMeta × 4` u16 and indexes it for every tile it draws
-   (`MetaTablePtrDelta = -0x114` from the scan-relative record). The note dated
-   from before the art path was decoded and was reading an identified table as an
-   unknown one. Its "stride-18 quads `v, v+1, v+18, v+19`" is what a 2×2 metatile
-   map looks like when you assume it is connectivity. (The skater half of this
-   item was already resolved: see §SHIPPED 2026-08-26.)
-3. **GBA tile-sheets / sprites.** THPS2's 221 32-aligned LZ77 tile sheets
-   (2048-byte ×126 = 64-tile 4bpp sheets, sprite/anim frames, fonts) are located but
-   their palette + arrangement binding is runtime state — needs a palette-pairing
-   heuristic or a loader trace before a faithful render.
-4. **Later-cart art container:** RE THPS3's 884-byte streams and the THPS4→DHJ
-   packaging (they abandoned BIOS LZ77) to extend image extraction across the line.
-5. **GAX PCM timbre + cross-cart music** (see the music section above).
-6. Later titles (THPS3+, the "real 3D editor" the dev interview mentions) may store
-   scene data differently — recheck once a later-cart container is cracked.
+The four later isometric carts retain a real parametric collision world beside
+their tile art. Their parent level records point to it at `+0x34` (THPS4),
+`+0x40` (THUG/THUG2), and `+0x44` (Sk8land). The pointed complex closes without
+a title/address table:
+
+```
++0x00  u32 width, height
++0x08  ptr u16 cellRecordIndex[width*height]  // begins at header + 0x30
++0x0C  ptr cellRecord[]                       // aligned after the grid
++0x10  ptr heightObject[]                     // immediately after records
+...    seven additional valid ROM pointers
+```
+
+Cell records are dense and are 12 bytes in THPS4, 20 bytes thereafter. Both
+revisions store signed 20.12 base height at `+0`, height-object index at `+4`,
+material/classification at `+6`; shape is byte `+0x0A` in THPS4 and `+0x0C`
+afterward. Shapes 0–8 are the square/D4 transforms and 9–12 are the four exact
+45-degree transforms used by the later dispatcher.
+
+Each height object is 40 bytes and opens with three valid THUMB function pointers.
+Slot zero evaluates the surface. Composite objects consult loader-published EWRAM
+words and copied object banks. The interpreter now permits only the observed bank
+globals (`0x02000910` THPS4, `0x0200D0D0` THUG), the exact relocated-function
+destinations/values (`0x02007BE4`→`0x0805003D` THUG2,
+`0x0200820C`→`0x0804E3FD` Sk8land, each required to exist as that exact ROM
+`{destination,function}` pair), and THPS4's two byte-sized static
+scratch reads (`0x0200085C/5E = 0`). Every other EWRAM address fails closed. It also
+implements the BIOS integer divide/square-root paths used here; unsupported
+execution cannot silently flatten a cell.
+
+The units did not change: one raw unit is 1/4096 world unit and a cell spans
+`0x3000` = 3 world units. The 30-unit kill-wall split has a measured gap over the
+complete corpus: highest live sample `122879/4096 = 29.9997559`; lowest wall sample
+`124927/4096 = 30.4997559`. The renderer and mesh writer classify from the evaluated
+surface, never a raw base word.
+
+| cart | levels | grid cells | dense cell records | referenced height-object slots | first mesh triangles |
+|---|---:|---:|---:|---:|---:|
+| THPS4 | 8 | 14,965 | 5,912 | 662 | 54,637 |
+| THUG | 10 | 15,440 | 6,001 | 505 | 51,219 |
+| THUG2 | 7 | 12,849 | 5,930 | 643 | 50,523 |
+| Sk8land | 12 | 24,925 | 7,306 | 745 | 19,570 |
+
+`GbaLaterCollisionSurfaceTests` pins every level's exact
+`width x height / record count / surface count`, executes every referenced height
+object over every cell, hashes the complete 3x3 raw-height corpus per cart, and pins
+one mesh count plus one rendered collision RGBA SHA-256 per cart. In total this is
+37 levels, 68,179 grid cells, 25,149 cell records and 2,555 per-level referenced
+height-object slots; no referenced function is skipped.
+
+This is reachable rather than a research-only decoder: carved later levels bind
+back to their parent records, the Levels view exposes `CollisionHeightfield`, the
+common GBA level mesh route exports the sampled surface, and `gba-level` writes
+`level_NN_collision.png` alongside visible `level_NN.png`, palette, and explicitly
+named occlusion mask. Later art/collision **UV registration is not yet exact**:
+no stored art origin equivalent to THPS2 `+0x64/+0x68` has been found, so the mesh
+centres the collision projection on the art as a preview. Crucially, that approximate
+projection never culls collision quads; the geometry remains complete.
+
+### 3D rider/model audit
+
+The THPS2 skater locator was run against every later retail cart. None closes as
+THPS2's model-header + clip/remap + roster complex; this is pinned as a format
+negative, not misreported as “no 3D.” Current model status is:
+
+| cart | 3D model status |
+|---|---|
+| THPS2 | Shared 266-face skater mesh, 4,772 full-pose morph frames, 221 clips and 15 character palettes export. |
+| THPS3 | THPS2 complex absent; its rider/model container remains unidentified. |
+| THPS4 | THPS2 complex absent; rider/model container remains unidentified. |
+| THUG | THPS2 complex absent; rider/model container remains unidentified. |
+| THUG2 | A loose header-like byte sequence fails full-complex closure; rider/model container remains unidentified. |
+| Sk8land | THPS2 complex absent; rider/model container remains unidentified. |
+| Downhill Jam | Separate Visual Impact format: 24 structurally closed rider variants plus a 94-clip, 13-part pose directory. A selected pose is assembled with the engine's transform and exports to GLB; packed normals and palette/ramp binding remain open. |
+
+Downhill Jam's model banks are **not usable static meshes in isolation**.  Each
+contains 13 runs of part-local vertices (8 bytes: `s16 x,y,z; u16 packedNormal`)
+and 13 authored face runs (4 bytes: `u8 v0,v1,v2,shade`); face indices address the
+complete transformed vertex buffer.  Overlaying the raw runs at their local
+origins produces the misleading starburst seen in the first proof render.
+
+The missing assembly step is now code-proven.  A BizHawk read watchpoint on the
+live model-19 vertex bank (`0x08EB7A9C`) landed in the ARM routine copied to IWRAM
+`0x030045BC`; its byte-identical ROM source is `0x080009DC`.  The routine consumes
+one `0x50`-byte pose frame: a 2-byte header followed by 13 records of
+`{s8 tx, s8 ty, u8 tz, u8 ax, u8 ay, u8 az}`.  Angles are 256 steps/turn.  For
+each part it applies X rotation, the engine's handed Y stage (Z flips at B=0), Z
+rotation, then the independent `(tx,ty,-tz)` origin.  The face consumer at
+`0x08000C0C` multiplies each face byte by the 8-byte transformed-vertex stride,
+confirming global rather than group-local indices.  `ApplyPose` preserves that
+rotation order and handedness but evaluates the byte angles with floating-point
+trigonometry; the original renderer uses a 512-scale integer sine table, so this
+is a faithful model-space assembly rather than a claim of bit-exact projection.
+
+The pose directory is found structurally at ROM `0x00E71808`: zero, frame stride
+`0x50`, table offset `0x10`, group count 13, clip count 94, then monotone relative
+clip offsets.  The runtime-verified pointer `0x08EA4520` is clip 79 frame 0.  The
+shipping `gba-dhj-model` command defaults to that coherent pose and exposes
+`--clip`/`--frame`; its GLB retains all 110 faces of the live model (two connector
+triangles that collapsed in the raw overlay become valid after assembly).
+`GbaDhjModelTests` pins the 24-model census, exact live banks/hash, the unique
+animation directory, decoded pose bytes, anatomical part-origin ordering, GLB
+bounds and face count.
+
+## SHIPPED (2026-08-31): Downhill Jam perspective courses (`gba-level` / `gba-dhj-level`)
+
+Downhill Jam's course is a separate Visual Impact polygon engine, not the later
+Vicarious Visions isometric format.  The live loader at Thumb `0x080066EC` closes
+the complete package rather than a projected frame buffer.  In the first course,
+resource ID `0xED` loads at ROM `0x00998BA4` (bus `0x08998BA4`); the paired texture
+is resource `0xEC`.  Subsequent course/texture IDs advance by two.
+
+The course header is self-relative and has this structurally validated layout:
+
+| header | section |
+|---:|---|
+| `+00` | 6-byte vertices `{s16 x,y,z}` |
+| `+04` | 14-byte indexed faces `{u16 v0,v1,v2, uv0,uv1,uv2, material}` |
+| `+08` | `u32 chunkCount`, then `chunkCount+1` centre records `{s32 y,z,x}` |
+| `+0C` | count of 16-byte placed-object records |
+| `+10` | first road edge: `u16 count`, then 6-byte signed XYZ points |
+| `+14` | second road edge, or `0xCDCD` on the final bonus/test course |
+| `+18` | collision-polyline pool |
+| `+1C` | 16-byte placed-object bank |
+| `+20` | `(chunkCount+1)` 0x30-byte streaming/chunk records, ending at `+00` |
+
+Chunk fields `+00/+02` are inclusive vertex bounds and `+04/+06` are half-open
+face ranges.  The section differences close the complete vertex/face banks; all
+faces reference bounded vertices and all chunk ranges cover the banks exactly.
+The ARM face consumer at `0x0800072C` confirms the record layout: material low six
+bits select a texture page, 63 selects a flat palette fill, and the flat palette
+index is `material >> 9`.  The paired texture resource has a 240-colour BGR555
+palette and 128x128 indexed pages.  Page zero is sampled every other texel by the
+engine into 64x64 and its authored UVs use that 64-unit range; all other pages and
+UVs use 128.  Palette index zero is the magenta transparency key.
+
+All four non-`FFFFFFFF` chunk fields `+10/+14/+18/+1C` are packed collision-list
+references: the low 24 bits are a halfword offset from the `+18` pool and the high
+byte is a nearby point/segment cursor.  Each list is `u16 pointCount` followed by
+`pointCount` records `{s16 meta,s16 x,s16 y,s16 z}`.  Consumers at `0x08015134`,
+`0x080153E0` and `0x080154B4` use the XYZ fields at stride eight and connect points
+sequentially.  The unique sorted lists abut exactly through the pool, apart from a
+permitted final two-byte alignment pad before the object bank.
+
+The US retail-ROM census is pinned across all 11 packages:
+
+- chunk counts: `510,702,470,440,530,495,634,440,640,630,629`
+- vertices: `11761,14091,8624,10452,7517,4812,13251,4695,13408,7952,10905`
+- faces: `14219,16764,11642,12304,11089,6952,15568,6794,16629,10645,12236`
+- texture pages: `12,10,10,12,13,10,20,16,14,14,2`
+- unique collision lists: `97,97,44,51,66,42,56,39,57,58,13`
+- first/second edge counts: `511/511,681/681,471/471,441/441,531/531,496/496,661/635,441/441,631/631,631/631,630/0`
+
+`GbaDhjCourse` discovers packages by this closure without retail offsets, and
+`GbaDhjCourseGeometryWriter` exports every non-degenerate visual triangle with
+exact palette/texture materials; the parser retains the complete indexed face
+bank, while the common mesh adapter deliberately omits authored zero-area
+records. `gba-level` detects BXS ROMs and delegates to the same path as the
+explicit `gba-dhj-level` command, producing `course_NN.glb` and
+`course_NN_collision.glb`.
+
+The collision GLB is deliberately a **viewer proxy**, not a claim that collision
+was authored as triangles.  Every exact referenced polyline and each available
+road edge is widened symmetrically to a one-source-unit ribbon so triangle-only
+viewers display it.  A filled edge envelope is added only when both authored edge
+arrays have exactly equal counts.  Course 6's `661/635` arrays are not ordinally
+zipped, and course 10's absent second edge is not invented.  The 16-byte
+placed-object bank is structurally bounded but its fields and referenced object
+geometry remain undecoded/unexported.
+
+A discarded lead remains useful: `0x087BA78C..0x087BB800` is exactly 4,212 bytes
+(54 x 78) and resolves as a multi-glyph font atlas, not course data.  The earlier
+occlusion-mask-only renders were therefore assets, not level extraction.
+
+| DHJ geometry capability | status |
+|---|---|
+| 24 rider variants | Posed static GLB from any bounded clip/frame; all authored faces retained. |
+| Rider animation | Pose frames decode, but animated GLB tracks are not emitted. |
+| Rider appearance | 13 diagnostic group colours; packed normals and palette/ramp binding remain open. |
+| Other 3D objects | The 16-byte placed-object bank closes, but its fields/object meshes remain unidentified. |
+| Full course viewing | Complete indexed banks parse for all 11 packages; all non-degenerate perspective triangles and texture/palette materials export. |
+| Course collision | Exact sequential collision/edge paths export as documented viewer ribbons; equal edge arrays also get a filled viewer proxy. |
+
+## Next steps (current, in order)
+
+1. **THPS3-through-Sk8land rider models.** The THPS2 model complex is absent and
+   each later title's own rider container remains unidentified; reject loose
+   header-like matches unless the complete vertex/face/palette structure closes.
+2. **Exact THPS3-through-Sk8land art/collision registration.** Their visible art
+   and collision geometry are both decoded, but no stored art origin has been
+   proven. Current GLB UVs centre the isometric projection as an explicitly
+   approximate preview and never use art alpha to remove real collision quads.
+3. **THPS3 live-state collision contributions.** The parser labels every cell
+   whose height accessor reads a live object/player manager and evaluates it in a
+   deterministic empty-scene state. A runtime capture/import path could reproduce
+   moving or optional geometry instead of only its authored base.
+4. **Downhill Jam rider and placed-object completion.** Emit animated GLB tracks from the decoded
+   pose frames, decode the packed normals and palette/ramp binding, and locate
+   the meshes/references behind the course's bounded 16-byte object records.
+5. **Lower-priority THPS2 fidelity work.** Decode the skater u16 normal encoding,
+   the 0x80 face flag and clipless sibling mesh; finish remaining HUD/font/sprite
+   palette binding and the minority detail-plane residue.
+6. **Later GAX fidelity comparison.** GAX 2/3 song/sample extraction is complete
+   and non-silent, but byte-for-byte emulator comparison currently exists only for
+   THPS2's v1.99 renderer.

@@ -54,6 +54,8 @@ public static class Program
         GbaImageCommand.Create,
         GbaMusicCommand.Create,
         GbaLevelCommand.Create,
+        GbaDhjLevelCommand.Create,
+        GbaDhjModelCommand.Create,
         GbaLevelEntitiesCommand.Create,
         NdsTextureCommand.Create,
         NdsMeshCommand.Create

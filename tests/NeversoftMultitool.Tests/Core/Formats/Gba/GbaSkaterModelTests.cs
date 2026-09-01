@@ -154,6 +154,31 @@ public sealed class GbaSkaterModelTests(TestPaths paths)
         Assert.Equal("13_spider_man", MeshTypeDetector.GetStem("13_spider_man.chr.gba"));
     }
 
+    [CorpusTheory]
+    [InlineData("Tony Hawk's Pro Skater 3 (2002-3-15, GBA - Final)",
+        "Tony Hawk's Pro Skater 3 (USA, Europe).gba")]
+    [InlineData("Tony Hawk's Pro Skater 4 (2002-10-23, GBA - Final)",
+        "Tony Hawk's Pro Skater 4 (USA, Europe).gba")]
+    [InlineData("Tony Hawk's Underground (2003-10-27, GBA - Final)",
+        "Tony Hawk's Underground (USA, Europe).gba")]
+    [InlineData("Tony Hawk's Underground 2 (2004-10-4, GBA - Final)",
+        "Tony Hawk's Underground 2 (USA, Europe).gba")]
+    [InlineData("Tony Hawk's American Sk8land (2005-10-18, GBA - Final)",
+        "Tony Hawk's American Sk8land (USA).gba")]
+    [InlineData("Tony Hawk's Downhill Jam (2006-11-7, GBA - Final)",
+        "Tony Hawk's Downhill Jam (USA).gba")]
+    public void LaterGamesDoNotClaimTheThps2MorphTargetComplex(string build, string file)
+    {
+        var path = paths.FindSampleFile(build, file);
+        Assert.SkipWhen(path == null, $"{build} ROM sample not available");
+
+        // This is deliberately a format claim, not a claim that the games have no
+        // 3D riders: Downhill Jam, for example, has its own independently decoded
+        // rider container. None closes as THPS2's header + clip/remap + roster
+        // complex, so routing them through the THPS2 decoder would be fabricated.
+        Assert.Null(GbaSkaterModel.TryLocate(File.ReadAllBytes(path!)));
+    }
+
     [CorpusFact]
     public void ConvertsSpiderManToAColouredModel()
     {
