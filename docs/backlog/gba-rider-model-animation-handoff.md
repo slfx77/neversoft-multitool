@@ -47,12 +47,12 @@ time. Run `git status --short` before editing and preserve unrelated work.
 
 | Cart | Code | Source mesh | Animation | Appearance | Shipping route |
 |---|---|---|---|---|---|
-| THPS3 | `AT3E` | Unknown; THPS2 format is conclusively absent | Unknown | Unknown | None |
-| THPS4 | `AT6E` | Unknown; exact live rider OBJ target is now pinned | Unknown | Unknown | None |
+| THPS3 | `AT3E` | **CLOSED**: 6-entry directory 0x08161CA4; rec0 = 139 verts / 243 faces | **Bank closed**: 5,024 pose frames; clip TABLE not closed | Unknown | None yet |
+| THPS4 | `AT6E` | Real-time 3D proven; `S3D` v6 model at 0x080C8550, not closed | Unknown | Unknown | None |
 | THUG | `BTOE` | Unknown | Unknown | Unknown | None |
 | THUG2 | `B2TE` | Unknown; an old loose header-like hit did not close | Unknown | Unknown | None |
 | Sk8land | `BH9E` | Unknown | Unknown | Unknown | None |
-| DHJ | `BXSE` | 24 closed 13-part rider variants | 93 bounded clips export as morph targets; clip 93 still unbounded | Debug group colours only | `gba-dhj-model`, one pose or `--animate` |
+| DHJ | `BXSE` | 24 closed 13-part rider variants | **all 94 clips** export as morph targets | Debug colours; real UVs export, texture page not located | `gba-dhj-model`, one pose or `--animate` |
 
 Do not infer a shared rider format merely because THPS4 through Sk8land share
 parts of their level-art/collision design. No rider-container equivalence has

@@ -1502,12 +1502,53 @@ it — that the later carts therefore had no runtime 3D — was doubly wrong.
   appears in no descriptor in any retained dump.
 - The rider's caller is **`0x0802951A`**, not `0x08020A86` — that one is a UI tween.
 
-### Leads for the next sitting
+### THPS3's rider container IS closed (2026-09-01)
 
-THPS3 has a model directory at ROM `0x08161CA4` (6 records x 0x14) with the rider at
-header `0x08169B80`; THPS4's rider is an `S3D` version-6 model at `0x080C8550`, and
-`S3D`+v6 occurs in THPS4 alone among the six. Neither is closed to this document's
-evidence standard yet.
+A 6-entry directory at ROM `0x08161CA4`, stride `0x14`, and it is the only table of
+that shape in the 8 MB ROM. Fields: `w0` mesh, `w1` pose-bank start, `w2` bank end /
+per-frame table, `w3` animation clip table (0 = none), `w4` bank compression flag.
+`w4` is proven from code, not inferred: `0x08015646` pushes it as the stacked argument
+of `0x0802069C`, it lands at `[sp+0x18]`, and that is the exact condition at
+`0x080207A8` gating the LZ77 decompress — every `w4==1` bank starts with the BIOS
+`0x10` header and record 0 (`w4==0`) is raw.
+
+The mesh header, read out of the constructor at `0x080201A4`:
+`{u32 frameStride, u8 part0Verts, u8 part1Verts, u8 part0Faces, u8 part1Faces,
+u32 selfPtr == addr+0x0C}`.
+
+Three independent closures, each **exact on all six records** (re-measured directly
+against the ROM rather than taken on report):
+
+| rec | stride | verts | faces | selfPtr | face bank ends at `w1` | stride identity |
+|---|---:|---|---|---|---|---|
+| 0 | 360 | 115+24 = 139 | 215+28 = 243 | ok | ok | animated |
+| 1 | 424 | 115+24 = 139 | 215+28 = 243 | ok | ok | static |
+| 2 | 412 | 112+24 = 136 | 207+28 = 235 | ok | ok | static |
+| 3 | 388 | 103+24 = 127 | 202+28 = 230 | ok | ok | static |
+| 4 | 328 | 108+0 = 108 | 196+0 = 196 | ok | ok | static |
+| 5 | 28 | 8+0 = 8 | 12+0 = 12 | ok | ok | static |
+
+`frameStride == 12 + 3*ceil4(v0)` when animated, `4 + 3*ceil4(v0) + 3*ceil4(v1)` when
+static; the two forms cannot collide. `(w1 - w0 - 12) / 12 == faces`, so the 12-byte
+face bank ends **exactly** where the pose bank begins. Face indices are tight per
+part — part 0 spans exactly `[0, v0-1]` and part 1 exactly `[v0, v0+v1-1]`, both ends
+touched, over all 1,159 faces.
+
+Record 0 is the animated rider and its raw bank closes arithmetically:
+`3*24 + 5024*360 = 1,808,712 = w2 - w1` exactly — **5,024 pose frames** of a
+139-vertex, 243-face model. Records 1-5 LZ77-decompress to exactly their declared
+size, itself an exact multiple of the stride (25/25/28/1/1 frames).
+
+Vertices are three signed bytes, four per three words, confirmed from the transform's
+own loads at `0x087FCC90`.
+
+**Not closed:** the animation clip table at `0x08163124` reads as
+`{u16 firstFrame, u16 frameCount}` (62 entries, zero-terminated, counts summing to
+1,529, clips tiling with 1-2 frame gaps) — but entry 13 = `(6322, 23)` exceeds the
+bank's 5,024 frames, so the reading is wrong somewhere and must not be implemented as
+stated. Record 0's `w2` region is 17,016 bytes, which is not `4*5024`, so it is not
+the per-frame table records 1-5 use. THPS4's rider is an `S3D` version-6 model at
+`0x080C8550` (that tag occurs in THPS4 alone) and is not closed.
 
 ## CLOSED (2026-09-01): three Downhill Jam questions
 
