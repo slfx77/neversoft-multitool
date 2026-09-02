@@ -13,6 +13,21 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     therefore receives an unlit debug colour; the source face byte remains available from
 ///     <see cref="GbaDhjModel.Face" /> and is not presented as RGB.</para>
 ///
+///     <para><b>UVs are exported without an image.</b> Each vertex carries a real
+///     texture coordinate (<see cref="GbaDhjModel.Vertex.U" />/
+///     <see cref="GbaDhjModel.Vertex.V" />, proven there), and this writer emits it
+///     as <c>TEXCOORD_0</c> normalized by <see cref="GbaDhjModel.TexturePageSize" />.
+///     The rider's actual texture page has NOT been located in ROM, so nothing is
+///     bound to those coordinates and no image is invented: the export carries
+///     mapping with no art, and the debug group colours remain the only colour.
+///     A glTF validator therefore reports <c>UNUSED_OBJECT</c> INFOs against
+///     <c>TEXCOORD_0</c>, which is the correct description of this file.</para>
+///
+///     <para>Normals are RECOMPUTED per face here rather than read: the format
+///     stores none — the field once taken for one is the texture coordinate above —
+///     and the GBA renderer does no lighting, so a flat facet normal is a viewer
+///     convenience rather than an authored property.</para>
+///
 ///     <para>Without morph targets this writes the plain single-pose export.
 ///     With them, the same base mesh carries one pose clip's records as glTF
 ///     morph targets — see <see cref="GbaDhjAnimatedModelWriter" />.</para>
@@ -93,9 +108,12 @@ internal static class GbaDhjModelGeometryWriter
                 ModelDocumentGeometryAdapter.AddTriangle(
                     primitiveVertices,
                     indices,
-                    new ModelVertex(a, normals == null ? normal : normals[face.V0], Vector4.One, Vector2.Zero),
-                    new ModelVertex(b, normals == null ? normal : normals[face.V1], Vector4.One, Vector2.Zero),
-                    new ModelVertex(c, normals == null ? normal : normals[face.V2], Vector4.One, Vector2.Zero));
+                    new ModelVertex(a, normals == null ? normal : normals[face.V0], Vector4.One,
+                        TexCoord(vertices[face.V0])),
+                    new ModelVertex(b, normals == null ? normal : normals[face.V1], Vector4.One,
+                        TexCoord(vertices[face.V1])),
+                    new ModelVertex(c, normals == null ? normal : normals[face.V2], Vector4.One,
+                        TexCoord(vertices[face.V2])));
 
                 // A degenerate triangle the adapter dropped emits no corners, so
                 // it must contribute no source indices either.
@@ -209,6 +227,16 @@ internal static class GbaDhjModelGeometryWriter
                 : Vector3.Normalize(normals[i]);
         return normals;
     }
+
+    /// <summary>
+    ///     The vertex's authored texture coordinate, normalized by the page edge.
+    ///     Deliberately unclamped: the 30 corpus vertices that index outside the
+    ///     page (see <see cref="GbaDhjModel.Vertex" />) export above 1.0 as stored
+    ///     rather than being folded into a range the ROM does not assert.
+    /// </summary>
+    private static Vector2 TexCoord(GbaDhjModel.Vertex vertex) =>
+        new(vertex.U / (float)GbaDhjModel.TexturePageSize,
+            vertex.V / (float)GbaDhjModel.TexturePageSize);
 
     private static float ToRadians(byte angle) => angle * (2f * MathF.PI / 256f);
 

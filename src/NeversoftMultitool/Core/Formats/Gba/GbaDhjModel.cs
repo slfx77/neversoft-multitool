@@ -20,7 +20,7 @@ namespace NeversoftMultitool.Core.Formats.Gba;
 /// +0x1E ... model metadata (not decoded yet)
 /// +0x44 u16 faceCount[groupCount]
 /// +0x5E ... model metadata
-/// +0x84 Vertex[sum(vertexCount)]       // s16 x,y,z; u16 packedNormal
+/// +0x84 Vertex[sum(vertexCount)]       // s16 x,y,z; u8 texU, u8 texV
 ///       Face[sum(faceCount)]           // u8 v0,v1,v2,shadeCode
 ///       u32 0x01234567                 // exact terminator
 ///     </code>
@@ -38,6 +38,14 @@ public static class GbaDhjModel
     public const int VertexRecordSize = 8;
     public const int FaceRecordSize = 4;
     public const ushort HeaderMarker = 128;
+
+    /// <summary>
+    ///     Edge of the 8bpp texture page a vertex's <see cref="Vertex.U" />/
+    ///     <see cref="Vertex.V" /> index into, and the row stride the fetch uses.
+    ///     This is the page geometry, not a bound the data guarantees — see the
+    ///     out-of-range note on <see cref="Vertex" />.
+    /// </summary>
+    public const int TexturePageSize = 32;
 
     public const int PoseRecordSize = 0x50;
     public const int PoseDataOffset = 2;
@@ -59,7 +67,45 @@ public static class GbaDhjModel
         public int FaceCount => FaceCounts.Sum(static value => value);
     }
 
-    public readonly record struct Vertex(short X, short Y, short Z, ushort PackedNormal);
+    /// <summary>
+    ///     One authored vertex.  <paramref name="PackedTexCoord" /> is the u16 at
+    ///     record offset +6: its low byte (+6) is <see cref="U" /> and its high byte
+    ///     (+7) is <see cref="V" />, addressing an 8bpp texture page as
+    ///     <c>page[V * TexturePageSize + U]</c>.
+    ///
+    ///     <para><b>Why this is a texture coordinate and not a per-vertex normal</b>
+    ///     (it was previously read as one).  Model 19's group 0 is the skateboard
+    ///     deck: six vertices on a single plane — least-squares residual 2.98 units
+    ///     over a 126x23-unit footprint, tilted 2.6 degrees — so the whole group has
+    ///     one geometric normal.  Yet all six stored values are distinct and vary
+    ///     linearly with position: V tracks length x (-59, -46/-45, 51, 67 give
+    ///     0, 4, 27, 31) and U tracks width y (-13/-11, -1/0, +10 give 19, 25, 31),
+    ///     with equal coordinates giving equal values and both centreline apex
+    ///     vertices taking U=25, the exact midpoint of that 19..31 strip.  A normal
+    ///     cannot vary across a flat plane, and a texture coordinate must.  The
+    ///     engine agrees twice over: the rider's 13-part transform copies this field
+    ///     VERBATIM without rotating it (a per-vertex normal on a rigid part would
+    ///     have to rotate), and the level renderer injects the same u16 per corner
+    ///     from a 14-byte face record, after which the rasterizer splits it into low
+    ///     and high bytes, builds affine screen-space gradients from them and
+    ///     fetches a texel.  Read instead as a normal, 44 candidate decodes score a
+    ///     74.54-degree mean error against the face normals versus 77.44 degrees for
+    ///     a shuffled control — no better than chance.</para>
+    ///
+    ///     <para>Values are NOT clamped to the page.  3,218 of the 3,248 vertices in
+    ///     the retail US image's 24 rider variants fall inside the 0..31 box; the
+    ///     remaining 30 are two repeated literals, (61,63) and (16,32), whose
+    ///     meaning is not decoded — they are exported as authored rather than
+    ///     folded into range.</para>
+    /// </summary>
+    public readonly record struct Vertex(short X, short Y, short Z, ushort PackedTexCoord)
+    {
+        /// <summary>Column into the texture page; record byte +6.</summary>
+        public byte U => (byte)(PackedTexCoord & 0xFF);
+
+        /// <summary>Row into the texture page; record byte +7.</summary>
+        public byte V => (byte)(PackedTexCoord >> 8);
+    }
 
     /// <summary>
     ///     One rigid-part record from a <c>0x50</c>-byte animation frame.  The
@@ -78,8 +124,21 @@ public static class GbaDhjModel
 
     /// <summary>
     ///     DHJ's animation directory.  Clip offsets are relative to four bytes
-    ///     into the directory header.  Every bounded clip contains N pose frames
-    ///     followed by one u32 playback/control value.
+    ///     into the directory header, and each clip is <b>prefixed</b> by a
+    ///     <c>u32</c> stating its own frame count — the directory's offsets point
+    ///     just past that word, so a clip is
+    ///     <c>u32 frameCount</c> followed by <c>frameCount</c> <c>0x50</c>-byte
+    ///     pose records.
+    ///
+    ///     <para>The word was previously read as a trailing playback value
+    ///     belonging to the clip in front of it.  It is not: on the retail US image
+    ///     the <c>u32</c> at <c>ClipOffsets[i] - 4</c> equals clip <i>i</i>'s
+    ///     offset-derived frame count for all 93 bounded clips, whereas read as
+    ///     clip <i>i</i>'s trailer it matches only 11 of 93 (chance) and matches the
+    ///     <i>next</i> clip's count 92 out of 92 — i.e. what looked like a trailer
+    ///     was always the following clip's prefix.  Clip 0 settles it on its own:
+    ///     its prefix sits at <c>0x00E71990</c>, exactly where the 94-entry offset
+    ///     table ends, with no preceding clip to own it.</para>
     /// </summary>
     public sealed record PoseLibraryInfo(
         int HeaderOffset,
@@ -165,33 +224,50 @@ public static class GbaDhjModel
             if (!valid)
                 continue;
 
-            // Every clip except the final one has a following directory offset,
-            // so its exact frame count closes as N*0x50 plus one u32 trailer.
+            // Every clip STATES its own frame count in the u32 immediately before
+            // its offset (see PoseLibraryInfo).  A clip that has a following
+            // directory offset is also bounded by it, and the two readings must
+            // AGREE: that corpus-wide agreement across every bounded clip is what
+            // makes the final clip's otherwise unbounded prefix trustworthy, so a
+            // single disagreement rejects the whole candidate directory.
             var frameCounts = new int[clipCount];
-            for (var i = 0; i < clipCount - 1; i++)
+            for (var i = 0; i < clipCount; i++)
             {
-                var length = offsets[i + 1] - offsets[i];
-                if (length < PoseRecordSize + 4 || (length - 4) % PoseRecordSize != 0)
+                if (offsets[i] < 4)
                 {
                     valid = false;
                     break;
                 }
 
-                frameCounts[i] = (length - 4) / PoseRecordSize;
-                if (frameCounts[i] is < 1 or > 4096)
+                var stated = BinaryPrimitives.ReadUInt32LittleEndian(
+                    rom.Slice(offsets[i] - 4, 4));
+                if (stated is < 1 or > 4096
+                    || (long)offsets[i] + (long)stated * PoseRecordSize > rom.Length)
                 {
                     valid = false;
                     break;
                 }
+
+                if (i < clipCount - 1)
+                {
+                    // The span up to the next clip's offset covers this clip's
+                    // records plus that clip's own 4-byte prefix.
+                    var length = offsets[i + 1] - offsets[i];
+                    if (length < PoseRecordSize + 4
+                        || (length - 4) % PoseRecordSize != 0
+                        || (length - 4) / PoseRecordSize != stated)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+
+                frameCounts[i] = (int)stated;
             }
 
             if (!valid)
                 continue;
 
-            // The final clip is not needed to close the directory and has no next
-            // offset.  Leave its frame count unknown rather than guessing where
-            // the following resource begins.
-            frameCounts[^1] = -1;
             result.Add(new PoseLibraryInfo(header, offsets, frameCounts));
         }
 
@@ -230,9 +306,13 @@ public static class GbaDhjModel
     {
         if ((uint)clipIndex >= (uint)library.ClipCount)
             throw new ArgumentOutOfRangeException(nameof(clipIndex));
+        // FindPoseLibraries only ever reports a positive stated frame count, so
+        // this rejects a hand-built PoseLibraryInfo rather than a discovered one —
+        // a caller that synthesises a clip with no decoded length still fails
+        // closed instead of reading pose records out of unrelated ROM data.
         var frameCount = library.ClipFrameCounts[clipIndex];
-        if (frameCount < 0)
-            throw new InvalidDataException("The final Downhill Jam pose clip has no bounded end");
+        if (frameCount < 1)
+            throw new InvalidDataException("The Downhill Jam pose clip has no decoded frame count");
         if ((uint)frameIndex >= (uint)frameCount)
             throw new ArgumentOutOfRangeException(nameof(frameIndex));
 

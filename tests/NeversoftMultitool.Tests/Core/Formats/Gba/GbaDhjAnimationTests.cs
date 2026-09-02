@@ -8,7 +8,8 @@ namespace NeversoftMultitool.Tests.Core.Formats.Gba;
 /// <summary>
 ///     Pins the Downhill Jam rider's animated export: one morph target per
 ///     distinct posed vertex set of a clip, the clip's own frame 0 as the base
-///     mesh, and fail-closed refusal of the directory's unbounded final clip.
+///     mesh, every clip of the directory animating including the last, and
+///     fail-closed refusal of a clip with no decoded length.
 ///     Model 19 is the live gameplay oracle used to close the format.
 /// </summary>
 public sealed class GbaDhjAnimationTests(TestPaths paths)
@@ -22,8 +23,9 @@ public sealed class GbaDhjAnimationTests(TestPaths paths)
     private const int ClipThatReturnsToItsBasePose = 18;
     private const int FrameRepeatingTheBasePose = 1;
 
-    // The directory's last clip has no following offset to bound it.
-    private const int UnboundedFinalClip = 93;
+    // The directory's last clip: no following offset bounds it, so its length
+    // comes solely from the u32 prefix in front of it.
+    private const int FinalClip = 93;
 
     private string? RomPath => paths.FindSampleFile(
         "Tony Hawk's Downhill Jam (2006-11-7, GBA - Final)",
@@ -194,23 +196,59 @@ public sealed class GbaDhjAnimationTests(TestPaths paths)
                 primitive.MorphTargets!.Select(static target => target.Name)));
     }
 
+    /// <summary>
+    ///     The directory's last clip states its own length in the u32 prefix the
+    ///     offsets point past, exactly as every other clip does, so it reads and
+    ///     animates like any other. It used to be refused as unbounded.
+    /// </summary>
     [CorpusFact]
-    public void UnboundedAndOutOfRangeClips_FailClosed()
+    public void FinalClip_AnimatesLikeAnyOther()
+    {
+        var (rom, model, library) = Load();
+        Assert.Equal(FinalClip, library.ClipCount - 1);
+        Assert.Equal(25, library.ClipFrameCounts[FinalClip]);
+
+        // Its last record is inside the clip and its 26th is past the end.
+        var last = GbaDhjModel.ReadPoseFrame(rom, library, FinalClip, 24);
+        Assert.Equal(library.ClipOffsets[FinalClip] + 24 * GbaDhjModel.PoseRecordSize, last.Offset);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => GbaDhjModel.ReadPoseFrame(rom, library, FinalClip, 25));
+
+        var document = GbaDhjAnimatedModelWriter.TryBuild(
+            rom, model, library, FinalClip, "rider_19");
+        Assert.NotNull(document);
+        var channel = Assert.Single(document!.Animations).MorphChannel!;
+        Assert.Equal($"anim_{FinalClip}", document.Animations[0].Name);
+        Assert.Equal(25, channel.KeyCount); // one key per pose RECORD
+        Assert.Equal(110, document.TriangleCount);
+
+        var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
+        Assert.NotNull(glb);
+        Assert.Equal(110, triangles);
+    }
+
+    [CorpusFact]
+    public void OutOfRangeAndUndecodedClips_FailClosed()
     {
         var (rom, model, library) = Load();
 
-        // The final clip's frame count is left -1 rather than guessed, so it has
-        // no bounded end to animate; reading a frame from it throws outright.
-        Assert.Equal(-1, library.ClipFrameCounts[UnboundedFinalClip]);
-        Assert.Throws<InvalidDataException>(
-            () => GbaDhjModel.ReadPoseFrame(rom, library, UnboundedFinalClip, 0));
-
-        foreach (var clip in (int[]) [UnboundedFinalClip, library.ClipCount, -1])
+        foreach (var clip in (int[]) [library.ClipCount, -1])
         {
             // Null, not a quietly degraded single-pose document: a caller must be
             // able to tell that the request was refused.
             Assert.Null(GbaDhjAnimatedModelWriter.TryBuild(rom, model, library, clip, "rider_19"));
         }
+
+        // A library synthesised with no decoded length for a clip still refuses it
+        // rather than reading pose records out of whatever follows in ROM.
+        var counts = library.ClipFrameCounts.ToArray();
+        counts[FinalClip] = 0;
+        var undecoded = new GbaDhjModel.PoseLibraryInfo(
+            library.HeaderOffset, library.ClipOffsets, counts);
+        Assert.Throws<InvalidDataException>(
+            () => GbaDhjModel.ReadPoseFrame(rom, undecoded, FinalClip, 0));
+        Assert.Null(GbaDhjAnimatedModelWriter.TryBuild(
+            rom, model, undecoded, FinalClip, "rider_19"));
     }
 
     [CorpusFact]

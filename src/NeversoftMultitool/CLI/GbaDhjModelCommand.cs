@@ -131,7 +131,7 @@ public static class GbaDhjModelCommand
             if (document == null)
             {
                 // Fail closed. --animate is refused rather than quietly answered
-                // with the single-pose export, which would present an unbounded or
+                // with the single-pose export, which would present an undecoded or
                 // otherwise unusable clip as a decoded animation.
                 AnsiConsole.MarkupLine(
                     $"[red]Error:[/] Pose clip {clipIndex} cannot be exported as animation");
@@ -179,12 +179,12 @@ public static class GbaDhjModelCommand
         if (clipIndex < 0 || clipIndex >= library.ClipCount)
             return $"Pose clip must be between 0 and {library.ClipCount - 1}";
 
-        // The directory's final clip has no following offset to bound it, so its
-        // frame count stays -1 rather than being guessed; it is refused for both
-        // the single-pose and the animated route.
+        // Every clip of a discovered directory states its own frame count in the
+        // u32 in front of it, the final one included, so this only refuses a
+        // library whose length was never decoded rather than guessed at.
         var frameCount = library.ClipFrameCounts[clipIndex];
-        if (frameCount < 0)
-            return "The final pose clip is unbounded; choose a preceding clip";
+        if (frameCount < 1)
+            return $"Pose clip {clipIndex} has no decoded frame count";
 
         // --animate always starts at the clip's own frame 0, because that frame is
         // the base mesh every morph target is a delta from. Silently ignoring an
@@ -246,6 +246,8 @@ public static class GbaDhjModelCommand
             : $"Applied clip {clipIndex}, frame {frameIndex} with the engine's 13-part transform.";
         AnsiConsole.MarkupLine(
             $"[grey]{Markup.Escape(applied)} "
-            + "Group colours are diagnostic; the game's palette/ramp binding is not decoded.[/]");
+            + "Group colours are diagnostic; the game's palette/ramp binding is not decoded. "
+            + "Vertices carry their authored texture coordinates, but the rider's texture page "
+            + "has not been located in ROM, so the GLBs have UVs and no image.[/]");
     }
 }

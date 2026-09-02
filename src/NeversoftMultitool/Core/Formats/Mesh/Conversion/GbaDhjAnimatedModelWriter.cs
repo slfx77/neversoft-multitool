@@ -55,8 +55,10 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 ///     29.86 Hz, rounded to 30 so key times stay exact), which makes the exported
 ///     clip an upper bound on playback speed rather than an invented number. The
 ///     three-frame gaps in the same trace mean real playback is slower and possibly
-///     variable or state-driven; nothing here claims otherwise, and neither the
-///     per-clip <c>u32</c> trailer nor a loop/transition rule has been decoded.</para>
+///     variable or state-driven; nothing here claims otherwise, and no
+///     loop/transition rule has been decoded. (The per-clip <c>u32</c> once read as
+///     a playback trailer is not one — it is the NEXT clip's frame-count prefix;
+///     see <see cref="GbaDhjModel.PoseLibraryInfo" />.)</para>
 /// </remarks>
 internal static class GbaDhjAnimatedModelWriter
 {
@@ -68,12 +70,13 @@ internal static class GbaDhjAnimatedModelWriter
     ///     the clip's remaining pose records as morph targets and a weights track.
     ///
     ///     <para>Returns null — having built NOTHING — when the clip cannot be
-    ///     animated: an out-of-range index, or the directory's final clip, whose
-    ///     frame count <see cref="GbaDhjModel.FindPoseLibraries" /> leaves at
-    ///     <c>-1</c> because no following offset bounds it. Callers must surface
-    ///     that as an error: answering an animation request with a silent
-    ///     single-pose export would misrepresent an unbounded clip as a decoded
-    ///     one.</para>
+    ///     animated: an out-of-range index, or a clip carrying no decoded frame
+    ///     count. Every clip of a discovered directory has one, including the last
+    ///     (each clip is prefixed by a <c>u32</c> stating its own length — see
+    ///     <see cref="GbaDhjModel.PoseLibraryInfo" />), so in practice this refuses
+    ///     only a bad index or a hand-built library. Callers must surface it as an
+    ///     error: answering an animation request with a silent single-pose export
+    ///     would misrepresent an undecoded clip as a decoded one.</para>
     /// </summary>
     public static ModelDocument? TryBuild(
         ReadOnlySpan<byte> rom,

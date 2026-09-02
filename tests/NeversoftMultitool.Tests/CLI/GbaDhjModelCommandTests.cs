@@ -66,18 +66,49 @@ public sealed class GbaDhjModelCommandTests(TestPaths paths)
         }
     }
 
+    /// <summary>
+    ///     Clip 93 is the directory's last and has no following offset, so its
+    ///     length comes solely from the u32 prefix in front of it (25 records).
+    ///     It used to be refused as unbounded; it now exports like any other clip.
+    /// </summary>
     [CorpusFact]
-    public void AnimateFailsClosedOnTheUnboundedClipAndOnAnExplicitFrame()
+    public void AnimateExportsTheFinalClipToo()
+    {
+        var romPath = RomPath();
+        var output = Path.Combine(Path.GetTempPath(), $"nmt-gba-dhj-final-{Guid.NewGuid():N}");
+        try
+        {
+            Assert.Equal(0, GbaDhjModelCommand.Execute(
+                romPath, output, selectedIndex: 19, clipIndex: 93, frameIndex: 0,
+                animate: true, verbose: false));
+
+            var exported = ModelRoot.Load(Path.Combine(output, "rider_19.glb"));
+            var animation = Assert.Single(exported.LogicalAnimations);
+            Assert.Equal("anim_93", animation.Name);
+
+            // A single pose from the same clip works too, including its last
+            // record; the one past the end is still refused.
+            Assert.Equal(0, GbaDhjModelCommand.Execute(
+                romPath, output, selectedIndex: 19, clipIndex: 93, frameIndex: 24,
+                verbose: false));
+            Assert.Equal(1, GbaDhjModelCommand.Execute(
+                romPath, output, selectedIndex: 19, clipIndex: 93, frameIndex: 25,
+                verbose: false));
+        }
+        finally
+        {
+            Delete(output);
+        }
+    }
+
+    [CorpusFact]
+    public void AnimateFailsClosedOnAnOutOfRangeClipAndOnAnExplicitFrame()
     {
         var romPath = RomPath();
         var output = Path.Combine(Path.GetTempPath(), $"nmt-gba-dhj-anim-fail-{Guid.NewGuid():N}");
         try
         {
-            // Clip 93 has no following directory offset, so its length is unknown.
-            // It must be refused, not silently answered with a single pose.
-            Assert.Equal(1, GbaDhjModelCommand.Execute(
-                romPath, output, selectedIndex: 19, clipIndex: 93, frameIndex: 0,
-                animate: true, verbose: false));
+            // 94 clips, so 94 is past the end.
             Assert.Equal(1, GbaDhjModelCommand.Execute(
                 romPath, output, selectedIndex: 19, clipIndex: 94, frameIndex: 0,
                 animate: true, verbose: false));
