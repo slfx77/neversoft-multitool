@@ -126,10 +126,14 @@ public sealed class GbaDhjCourseTests(TestPaths paths)
         var course = courses[0];
 
         var visual = GbaDhjCourseGeometryWriter.BuildVisual(rom, course, "course_00");
-        Assert.Equal(14_180, visual.TriangleCount); // 39 authored zero-area records are omitted.
-        Assert.Equal(82, visual.Materials.Count);
         Assert.Equal(11, visual.Textures.Count);
-        var visualMesh = Assert.Single(visual.Meshes);
+
+        // The course mesh is a node of its own, and the placed-object markers
+        // added beside it must not disturb a single one of its triangles: 39
+        // authored zero-area records are still the only omissions.
+        var visualMesh = Assert.Single(visual.Meshes,
+            static mesh => mesh.Name == "course_00");
+        Assert.Equal(14_180, visualMesh.Primitives.Sum(static primitive => primitive.TriangleCount));
         Assert.Equal(82, visualMesh.Primitives.Count);
         var pageZero = Assert.Single(visualMesh.Primitives,
             static primitive => primitive.Name == "texture_page_00");
@@ -138,6 +142,21 @@ public sealed class GbaDhjCourseTests(TestPaths paths)
             Assert.InRange(vertex.TexCoord.X, 0f, 1f);
             Assert.InRange(vertex.TexCoord.Y, 0f, 1f);
         });
+
+        // The markers are a sibling root node holding one eight-triangle
+        // octahedron per placed-object record, grouped by the record's raw type
+        // byte. Course zero stores 138 records across 19 distinct ids.
+        var markerMesh = Assert.Single(visual.Meshes,
+            static mesh => mesh.Name == "course_00_placed_objects");
+        Assert.Equal(19, markerMesh.Primitives.Count);
+        Assert.Equal(course.ObjectCount * 8,
+            markerMesh.Primitives.Sum(static primitive => primitive.TriangleCount));
+        Assert.All(markerMesh.Primitives, static primitive =>
+            Assert.StartsWith("placed_object_type_", primitive.Name, StringComparison.Ordinal));
+        Assert.Equal(["course_00", "course_00_placed_objects"],
+            visual.Nodes.Select(static node => node.Name));
+        Assert.Equal(101, visual.Materials.Count); // 82 course materials + 19 marker types.
+        Assert.Equal(14_180 + 138 * 8, visual.TriangleCount);
 
         var collision = GbaDhjCourseGeometryWriter.BuildCollision(
             rom, course, "course_00_collision");

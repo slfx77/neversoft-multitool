@@ -36,6 +36,13 @@ public static class GbaDhjCourse
     private const int MaximumTexturePages = 32;
     private const uint MissingCollisionReference = uint.MaxValue;
 
+    /// <summary>
+    ///     The value a chunk record stores in an object-index slot it does not
+    ///     use.  Every other stored index in the retail ROM addresses a real
+    ///     record of the referencing course's own object bank.
+    /// </summary>
+    public const int MissingObjectIndex = -1;
+
     public sealed record CourseInfo(
         int Index,
         int HeaderOffset,
@@ -96,6 +103,55 @@ public static class GbaDhjCourse
     ///     consumers from silently treating the first value as lateral X.
     /// </summary>
     public readonly record struct CentrePoint(int Y, int Z, int X);
+
+    /// <summary>
+    ///     One entry of the course's 16-byte placed-object bank.
+    ///
+    ///     <para>Only the first seven bytes are authored, so only those are
+    ///     surfaced.  The record's remaining nine bytes are a runtime-flag byte at
+    ///     +0x07, a halfword at +0x08 that the loader zeroes for every record —
+    ///     which is what identifies it as loader-initialised state rather than
+    ///     stored data — and six bytes of padding at +0x0A.  Exposing any of them
+    ///     as a named field would present scratch and padding as authored
+    ///     content, so this type deliberately stops at +0x06.</para>
+    ///
+    ///     <para><see cref="X" />, <see cref="Y" /> and <see cref="Z" /> are world
+    ///     coordinates in exactly the vertex and edge banks' integer space and
+    ///     axis order: the engine subtracts the camera's 24.8 X/Y/Z from these
+    ///     three halfwords and hands the result to the same projection routine the
+    ///     course triangles use.  All 1,344 retail objects fall inside their own
+    ///     course's vertex bounding box, and an object's median distance to the
+    ///     nearest centre-line point is 71.2 units against a control median of
+    ///     1,607-8,613.</para>
+    ///
+    ///     <para><see cref="Type" /> selects a global gameplay/visual behaviour; a
+    ///     sprite jump table at ROM 0x0801BE94 covers ids 0..54 with 29 distinct
+    ///     handlers.  It is not a per-course model index: the retail banks draw 32
+    ///     ids from one shared set, and courses that share an id are unrelated.
+    ///     Three of those ids (200-202) fall outside the jump table's range
+    ///     entirely, so that table does not account for the whole enum.  What an
+    ///     individual id denotes is not decoded, which is why the field carries no
+    ///     interpretation in its name.</para>
+    ///
+    ///     <para>The record carries no along-track distance.  Ordering along a
+    ///     course comes from the chunk that references the record; see
+    ///     <see cref="ReadChunkObjectReferences" />.</para>
+    /// </summary>
+    public readonly record struct PlacedObject(short X, short Y, short Z, byte Type);
+
+    /// <summary>
+    ///     The two placed-object index fields a 0x30-byte chunk record stores at
+    ///     +0x20 and +0x24.  They are how the engine reaches the object bank —
+    ///     the bank itself has no ordering field — and each is either
+    ///     <see cref="MissingObjectIndex" /> or an index into the same course's
+    ///     bank; the retail ROM stores 1,395 references with none out of range.
+    ///     What distinguishes the two slots from one another is not established,
+    ///     so they are named for their position in the record and nothing more.
+    /// </summary>
+    public readonly record struct ChunkObjectReference(
+        int ChunkIndex,
+        int FirstObjectIndex,
+        int SecondObjectIndex);
 
     public readonly record struct CollisionPoint(short Meta, short X, short Y, short Z);
 
@@ -181,6 +237,56 @@ public static class GbaDhjCourse
         {
             var at = start + i * 12;
             result[i] = new CentrePoint(ReadS32(rom, at), ReadS32(rom, at + 4), ReadS32(rom, at + 8));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Read the course's placed-object bank.  See <see cref="PlacedObject" />
+    ///     for why only the authored first seven bytes of each 16-byte record are
+    ///     returned.
+    /// </summary>
+    public static PlacedObject[] ReadObjects(ReadOnlySpan<byte> rom, CourseInfo course)
+    {
+        var start = ValidateRangeAndGetOffset(
+            rom, course.ObjectDataOffset, (long)course.ObjectCount * ObjectRecordSize);
+        var result = new PlacedObject[course.ObjectCount];
+        for (var i = 0; i < result.Length; i++)
+        {
+            var at = start + i * ObjectRecordSize;
+            result[i] = new PlacedObject(
+                ReadS16(rom, at), ReadS16(rom, at + 2), ReadS16(rom, at + 4), rom[at + 6]);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Read the +0x20/+0x24 object-index pair from every chunk record,
+    ///     including the trailing look-ahead record that <see cref="CourseInfo" />
+    ///     counts.  Values are returned exactly as stored: this reader validates
+    ///     that the chunk table lies inside the ROM, but deliberately does not
+    ///     reject an index outside the bank, because the format does not state
+    ///     that constraint anywhere — that the retail ROM never violates it is a
+    ///     measurement the tests pin, not a rule the parser may assume.
+    /// </summary>
+    public static ChunkObjectReference[] ReadChunkObjectReferences(
+        ReadOnlySpan<byte> rom,
+        CourseInfo course)
+    {
+        var recordCountValue = (long)course.ChunkCount + 1;
+        var table = ValidateRangeAndGetOffset(
+            rom,
+            (long)course.HeaderOffset + HeaderSize,
+            recordCountValue * ChunkRecordSize);
+        var recordCount = checked((int)recordCountValue);
+        var result = new ChunkObjectReference[recordCount];
+        for (var chunk = 0; chunk < recordCount; chunk++)
+        {
+            var record = table + chunk * ChunkRecordSize;
+            result[chunk] = new ChunkObjectReference(
+                chunk, ReadS32(rom, record + 0x20), ReadS32(rom, record + 0x24));
         }
 
         return result;

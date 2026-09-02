@@ -15,6 +15,20 @@ internal static class GbaDhjCourseGeometryWriter
     // their positions. These triangles are not present in the source format.
     private const float CollisionRibbonHalfWidth = 0.5f;
 
+    // A placed object stores a single point, so the marker is a viewer aid with
+    // no authored extent. Eight units keeps it legible against a road that is
+    // roughly 80 units wide on the runtime course without hiding the surface
+    // underneath it.
+    private const float PlacedObjectMarkerRadius = 8f;
+
+    /// <summary>
+    ///     Name of the node carrying the placed-object markers. It is a sibling
+    ///     of the course mesh node rather than part of it, so the exported course
+    ///     geometry is bit-identical to an export without markers and a consumer
+    ///     can drop the whole node by name.
+    /// </summary>
+    internal const string PlacedObjectNodeSuffix = "_placed_objects";
+
     internal static ModelDocument BuildVisual(
         ReadOnlySpan<byte> rom,
         GbaDhjCourse.CourseInfo course,
@@ -69,8 +83,60 @@ internal static class GbaDhjCourseGeometryWriter
         }
 
         ModelDocumentGeometryAdapter.AddMeshNode(document, name, mesh);
+        AddPlacedObjectMarkers(rom, course, document, name);
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
         return document;
+    }
+
+    /// <summary>
+    ///     Append the course's placed-object bank as its own root node of small
+    ///     octahedral markers, one per record, at the record's authored world
+    ///     position and grouped into one primitive per raw type byte.
+    ///
+    ///     <para>The markers are a viewer aid: the format stores a point and a
+    ///     type, not geometry, and the meshes the type ids select have not been
+    ///     located. They are therefore emitted as a separate node
+    ///     (<see cref="PlacedObjectNodeSuffix" />) instead of being merged into
+    ///     the course mesh, which leaves every authored course primitive exactly
+    ///     as it was before this node existed.</para>
+    ///
+    ///     <para>Primitives and materials are named by the raw type id, because
+    ///     what an id denotes is not decoded. The per-type colour is a
+    ///     deterministic function of that id so one type reads the same across
+    ///     every course; it carries no meaning of its own.</para>
+    /// </summary>
+    private static void AddPlacedObjectMarkers(
+        ReadOnlySpan<byte> rom,
+        GbaDhjCourse.CourseInfo course,
+        ModelDocument document,
+        string name)
+    {
+        var objects = GbaDhjCourse.ReadObjects(rom, course);
+        if (objects.Length == 0)
+            return;
+
+        var mesh = new ModelMesh { Name = name + PlacedObjectNodeSuffix };
+        foreach (var group in objects
+                     .GroupBy(static placed => placed.Type)
+                     .OrderBy(static group => group.Key))
+        {
+            var material = ModelDocumentGeometryAdapter.AddMaterial(document, new RenderMaterial
+            {
+                Name = $"{name}_placed_object_type_{group.Key:D3}",
+                BaseColor = TypeMarkerColour(group.Key),
+                DoubleSided = true,
+                Unlit = true
+            });
+            var vertices = new List<ModelVertex>();
+            var indices = new List<int>();
+            foreach (var placed in group)
+                AddMarkerOctahedron(vertices, indices, ToGlb(placed));
+
+            ModelDocumentGeometryAdapter.AddPrimitive(
+                mesh, $"placed_object_type_{group.Key:D3}", material, vertices, indices);
+        }
+
+        ModelDocumentGeometryAdapter.AddMeshNode(document, mesh.Name, mesh);
     }
 
     /// <summary>
@@ -135,6 +201,82 @@ internal static class GbaDhjCourseGeometryWriter
 
     internal static Vector3 ToGlb(GbaDhjCourse.CollisionPoint point) =>
         new(point.X * Scale, point.Y * Scale, -point.Z * Scale);
+
+    /// <summary>
+    ///     Placed objects are stored in the vertex bank's own space and axis
+    ///     order, so they take the identical conversion the course mesh takes.
+    /// </summary>
+    internal static Vector3 ToGlb(GbaDhjCourse.PlacedObject placed) =>
+        new(placed.X * Scale, placed.Y * Scale, -placed.Z * Scale);
+
+    /// <summary>
+    ///     Eight-triangle octahedron centred on the record's authored point. It
+    ///     is a drawable stand-in for a single stored coordinate, chosen because
+    ///     it reads the same from every angle; it is not decoded shape.
+    /// </summary>
+    private static void AddMarkerOctahedron(
+        List<ModelVertex> vertices,
+        List<int> indices,
+        Vector3 centre)
+    {
+        const float r = PlacedObjectMarkerRadius;
+        var up = centre + new Vector3(0f, r, 0f);
+        var down = centre + new Vector3(0f, -r, 0f);
+        var east = centre + new Vector3(r, 0f, 0f);
+        var west = centre + new Vector3(-r, 0f, 0f);
+        var north = centre + new Vector3(0f, 0f, r);
+        var south = centre + new Vector3(0f, 0f, -r);
+
+        AddMarkerTriangle(vertices, indices, up, east, north);
+        AddMarkerTriangle(vertices, indices, up, north, west);
+        AddMarkerTriangle(vertices, indices, up, west, south);
+        AddMarkerTriangle(vertices, indices, up, south, east);
+        AddMarkerTriangle(vertices, indices, down, north, east);
+        AddMarkerTriangle(vertices, indices, down, west, north);
+        AddMarkerTriangle(vertices, indices, down, south, west);
+        AddMarkerTriangle(vertices, indices, down, east, south);
+    }
+
+    private static void AddMarkerTriangle(
+        List<ModelVertex> vertices,
+        List<int> indices,
+        Vector3 a,
+        Vector3 b,
+        Vector3 c)
+    {
+        var normal = FaceNormal(a, b, c);
+        ModelDocumentGeometryAdapter.AddTriangle(
+            vertices, indices,
+            new ModelVertex(a, normal, Vector4.One, Vector2.Zero),
+            new ModelVertex(b, normal, Vector4.One, Vector2.Zero),
+            new ModelVertex(c, normal, Vector4.One, Vector2.Zero));
+    }
+
+    /// <summary>
+    ///     A stable, well-separated colour per raw type id. The golden-ratio hue
+    ///     step only guarantees that neighbouring ids look different; it asserts
+    ///     nothing about what the ids mean.
+    /// </summary>
+    private static Vector4 TypeMarkerColour(byte type)
+    {
+        var hue = (float)((type * 0.6180339887498949) % 1.0);
+        var sector = hue * 6f;
+        var index = (int)MathF.Floor(sector) % 6;
+        var fraction = sector - MathF.Floor(sector);
+        const float value = 1f;
+        const float minimum = 0.15f;
+        var rising = minimum + (value - minimum) * fraction;
+        var falling = value - (value - minimum) * fraction;
+        return index switch
+        {
+            0 => new Vector4(value, rising, minimum, 1f),
+            1 => new Vector4(falling, value, minimum, 1f),
+            2 => new Vector4(minimum, value, rising, 1f),
+            3 => new Vector4(minimum, falling, value, 1f),
+            4 => new Vector4(rising, minimum, value, 1f),
+            _ => new Vector4(value, minimum, falling, 1f)
+        };
+    }
 
     private static int GetTextureMaterial(
         ReadOnlySpan<byte> rom,

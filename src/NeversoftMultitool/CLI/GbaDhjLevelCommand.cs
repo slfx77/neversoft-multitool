@@ -139,11 +139,18 @@ public static class GbaDhjLevelCommand
             if (verbose)
             {
                 var polylines = GbaDhjCourse.ReadCollisionPolylines(rom, course);
+                var objects = GbaDhjCourse.ReadObjects(rom, course);
+                var references = GbaDhjCourse.ReadChunkObjectReferences(rom, course)
+                    .SelectMany(static reference =>
+                        new[] { reference.FirstObjectIndex, reference.SecondObjectIndex })
+                    .Count(static index => index != GbaDhjCourse.MissingObjectIndex);
                 AnsiConsole.MarkupLine(
                     $"  {stem}.glb  header 0x{0x08000000 + course.HeaderOffset:X8}  "
                     + $"vertices {course.VertexCount}  faces {course.FaceCount}  "
                     + $"pages {course.TexturePageCount}  chunks {course.ChunkCount}  "
-                    + $"collision lists {polylines.Length}"
+                    + $"collision lists {polylines.Length}  "
+                    + $"objects {objects.Length} in {objects.Select(static placed => placed.Type)
+                        .Distinct().Count()} types from {references} chunk references"
                     + (collision != null
                         ? $" / {collision.TriangleCount} display triangles"
                         : string.Empty));
@@ -162,7 +169,15 @@ public static class GbaDhjLevelCommand
             + "arrays have the same count, it also contains a point-paired road-envelope viewer proxy. Course 06 has "
             + "unequal edge counts (661/635), and the final bonus/test course stores one edge followed "
             + "by 0xCDCD, so neither receives an unproven road strip. These proxy triangles are not an "
-            + "authored collision mesh; the 16-byte placed-object records remain undecoded.[/]");
+            + "authored collision mesh.[/]");
+        AnsiConsole.MarkupLine(
+            "[grey]course_NN.glb also carries a separate placed_objects node holding one small marker per "
+            + "16-byte placed-object record, at the record's authored world X/Y/Z in the course mesh's own "
+            + "space, grouped into one primitive per raw type byte. The markers occupy their own node so the "
+            + "course geometry above is unchanged; the format stores a point and a type, not a shape, and the "
+            + "meshes the type ids select have not been located. Only bytes +0x00..+0x06 of each record are "
+            + "authored - the loader zeroes the halfword at +0x08 and the rest is padding - and what an "
+            + "individual type id denotes is not decoded, so primitives are named by the raw id.[/]");
         return 0;
     }
 
