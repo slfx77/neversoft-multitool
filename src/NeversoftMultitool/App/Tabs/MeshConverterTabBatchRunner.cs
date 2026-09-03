@@ -52,7 +52,8 @@ internal sealed class MeshConverterTabBatchRunner(
         string? singleOutputStem = null,
         MeshFileEntry? visibilityEntry = null,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        bool includeLevelObjects = true)
+        bool includeLevelObjects = true,
+        bool includeCollisionOverlay = false)
     {
         var skeletons = CaptureSkeletons(entries);
         var cts = await BeginOperationAsync("Converting meshes");
@@ -103,6 +104,7 @@ internal sealed class MeshConverterTabBatchRunner(
                             : null,
                         includeLevelObjects: includeLevelObjects,
                         preparedSkeleton: skeletons[entry],
+                        includeCollisionOverlay: includeCollisionOverlay,
                         cancellationToken: token);
                     if (result.OutputPaths.Count == 0)
                         throw new InvalidOperationException("Mesh conversion produced no output.");
@@ -159,7 +161,8 @@ internal sealed class MeshConverterTabBatchRunner(
         float worldzoneScale,
         MeshFileEntry? visibilityEntry = null,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        bool includeLevelObjects = true)
+        bool includeLevelObjects = true,
+        bool includeCollisionOverlay = false)
     {
         var skeletons = CaptureSkeletons(entries);
         var cts = await BeginOperationAsync("Rendering PNGs");
@@ -188,7 +191,8 @@ internal sealed class MeshConverterTabBatchRunner(
                         worldzoneScale,
                         ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null,
                         includeLevelObjects,
-                        skeletons[entry]);
+                        skeletons[entry],
+                        includeCollisionOverlay);
                     if (glb == null || glb.Length == 0)
                     {
                         skipped++;
@@ -277,7 +281,8 @@ internal sealed class MeshConverterTabBatchRunner(
         WorldzoneTimeOfDay worldzoneTimeOfDay,
         float worldzoneScale,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        bool includeLevelObjects = true)
+        bool includeLevelObjects = true,
+        bool includeCollisionOverlay = false)
     {
         var preparedSkeleton = entry.XbxSkeletonSelection?.Skeleton;
         var cts = await BeginOperationAsync("Rendering PNG", indeterminate: true);
@@ -291,7 +296,8 @@ internal sealed class MeshConverterTabBatchRunner(
                     worldzoneScale,
                     visibilityOverrides,
                     includeLevelObjects,
-                    preparedSkeleton);
+                    preparedSkeleton,
+                    includeCollisionOverlay);
                 if (glb == null || glb.Length == 0)
                     throw new InvalidOperationException("The selected mesh produced no geometry.");
 
@@ -332,7 +338,8 @@ internal sealed class MeshConverterTabBatchRunner(
         float worldzoneScale,
         MeshFileEntry? visibilityEntry = null,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
-        bool includeLevelObjects = true)
+        bool includeLevelObjects = true,
+        bool includeCollisionOverlay = false)
     {
         var skeletons = CaptureSkeletons(entries);
         var cts = await BeginOperationAsync("Rendering GIFs");
@@ -361,7 +368,8 @@ internal sealed class MeshConverterTabBatchRunner(
                         worldzoneScale,
                         ReferenceEquals(entry, visibilityEntry) ? visibilityOverrides : null,
                         includeLevelObjects,
-                        skeletons[entry]);
+                        skeletons[entry],
+                        includeCollisionOverlay);
                     if (glb == null || glb.Length == 0 || !GlbHasAnimations(glb))
                     {
                         skipped++;

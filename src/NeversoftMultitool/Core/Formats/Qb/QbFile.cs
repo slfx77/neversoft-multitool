@@ -59,6 +59,27 @@ public sealed class QbFile
         var tokens = QbSectionParser.IsSectionedQb(data)
             ? QbSectionParser.ParseToTokens(data)
             : TokenizeAll(data, false, null);
+        return FromTokens(tokens, fileName);
+    }
+
+    /// <summary>
+    ///     Parses the late legacy bytecode variant whose scripts use the
+    ///     three-byte fast-if/fast-else operands also used inside sectioned QB.
+    ///     Kept opt-in because older files may contain trailing data after an
+    ///     ordinary EOF token and the generic parser deliberately preserves its
+    ///     long-standing interpretation.
+    /// </summary>
+    internal static QbFile ParseLegacyFastBranches(byte[] data, string fileName = "")
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (QbSectionParser.IsSectionedQb(data))
+            throw new InvalidDataException("Legacy fast-branch parsing does not accept sectioned QB files");
+
+        return FromTokens(TokenizeAll(data, false, (false, false)), fileName);
+    }
+
+    private static QbFile FromTokens(List<QbToken> tokens, string fileName)
+    {
         var localNames = CollectChecksumNames(tokens);
         var items = IndexTopLevelItems(tokens, localNames);
 

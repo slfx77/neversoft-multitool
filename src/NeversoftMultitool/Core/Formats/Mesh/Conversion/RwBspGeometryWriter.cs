@@ -5,37 +5,62 @@ namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 /// <summary>
 ///     RenderWare BSP worlds: atomic-section triangle emission over the shared
-///     RW material path.
+///     RW material path. Optional material offsets and name/metadata tags let
+///     the THPS3 level loader append its separately-authored sky world without
+///     merging either world's TXD/material namespace.
 /// </summary>
 internal static class RwBspGeometryWriter
 {
     public static void PopulateRwBsp(
         ModelDocument document,
         RwBspWorld world,
-        MeshNamedTextureResolver? textureProvider)
+        MeshNamedTextureResolver? textureProvider,
+        int materialStartIndex = 0,
+        string? namePrefix = null,
+        NativeRenderMetadata? primitiveMetadata = null,
+        string? textureNamePrefix = null,
+        bool includeUntexturedMaterials = false)
     {
-        for (var i = 0; i < world.Materials.Length && i < document.Materials.Count; i++)
-            RwGeometryWriter.ApplyRwMaterial(document, document.Materials[i], world.Materials[i], textureProvider,
-                true);
+        if (materialStartIndex < 0 || materialStartIndex > document.Materials.Count)
+            throw new ArgumentOutOfRangeException(nameof(materialStartIndex));
 
-        var mesh = new ModelMesh { Name = "level" };
+        var prefix = namePrefix ?? string.Empty;
+        for (var i = 0;
+             i < world.Materials.Length && materialStartIndex + i < document.Materials.Count;
+             i++)
+        {
+            RwGeometryWriter.ApplyRwMaterial(
+                document,
+                document.Materials[materialStartIndex + i],
+                world.Materials[i],
+                textureProvider,
+                true,
+                textureNamePrefix);
+        }
+
+        var mesh = new ModelMesh { Name = prefix + "level" };
         foreach (var group in world.Sections
                      .SelectMany(section => section.Triangles.Select(tri => (section, tri)))
                      .GroupBy(item => item.section.MatListWindowBase + item.tri.MaterialIndex))
         {
-            var materialIndex = group.Key;
-            if (materialIndex < 0 || materialIndex >= world.Materials.Length)
+            var localMaterialIndex = group.Key;
+            if (localMaterialIndex < 0 || localMaterialIndex >= world.Materials.Length)
                 continue;
 
-            var rwMaterial = world.Materials[materialIndex];
-            if (string.IsNullOrEmpty(rwMaterial.TextureName) ||
-                RwGeometryWriter.IsRwDevTexture(Path.GetFileNameWithoutExtension(rwMaterial.TextureName)))
+            var rwMaterial = world.Materials[localMaterialIndex];
+            if ((!includeUntexturedMaterials && string.IsNullOrEmpty(rwMaterial.TextureName)) ||
+                (!string.IsNullOrEmpty(rwMaterial.TextureName) &&
+                 RwGeometryWriter.IsRwDevTexture(Path.GetFileNameWithoutExtension(rwMaterial.TextureName))))
             {
                 continue;
             }
 
+            var materialIndex = materialStartIndex + localMaterialIndex;
             if (materialIndex >= document.Materials.Count)
-                materialIndex = RwGeometryWriter.AddRwMaterial(document, rwMaterial, textureProvider, true);
+            {
+                materialIndex = RwGeometryWriter.AddRwMaterial(
+                    document, rwMaterial, textureProvider, true, textureNamePrefix);
+            }
 
             var vertices = new List<ModelVertex>();
             var indices = new List<int>();
@@ -49,10 +74,13 @@ internal static class RwBspGeometryWriter
                     MakeRwBspVertex(section, tri.V2));
             }
 
-            ModelDocumentGeometryAdapter.AddPrimitive(mesh, $"mat_{group.Key:D3}", materialIndex, vertices, indices);
+            var primitive = ModelDocumentGeometryAdapter.AddPrimitive(
+                mesh, $"mat_{group.Key:D3}", materialIndex, vertices, indices);
+            if (primitive != null && primitiveMetadata != null)
+                primitive.NativeMetadata.Add(primitiveMetadata);
         }
 
-        ModelDocumentGeometryAdapter.AddMeshNode(document, "world", mesh);
+        ModelDocumentGeometryAdapter.AddMeshNode(document, prefix + "world", mesh);
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }
 

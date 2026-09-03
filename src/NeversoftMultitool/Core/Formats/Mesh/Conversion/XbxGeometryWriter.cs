@@ -7,8 +7,10 @@ using ParsedXbxScene = NeversoftMultitool.Core.Formats.Mesh.XbxScene.XbxScene;
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 /// <summary>
-///     Xbox/PC THUG2+THAW scenes: indexed triangles and degenerate-strip
-///     decoding with multi-pass materials.
+///     Xbox/PC scenes, including THPS4's early delimiter-free layout:
+///     indexed triangles and degenerate-strip decoding with multi-pass
+///     materials. Optional material offsets and name/metadata tags allow
+///     authored sky/main/shell scenes to append into one document.
 /// </summary>
 internal static class XbxGeometryWriter
 {
@@ -19,11 +21,19 @@ internal static class XbxGeometryWriter
         ParsedXbxScene scene,
         MeshChecksumTextureResolver? textureProvider,
         float coordinateScale = 1f,
-        Ps2Skeleton? explicitSkeleton = null)
+        Ps2Skeleton? explicitSkeleton = null,
+        int materialStartIndex = 0,
+        string? namePrefix = null,
+        NativeRenderMetadata? primitiveMetadata = null,
+        string? textureNamePrefix = null)
     {
         if (!float.IsFinite(coordinateScale) || coordinateScale <= 0f)
             throw new ArgumentOutOfRangeException(nameof(coordinateScale), coordinateScale,
                 "Coordinate scale must be a finite positive number.");
+        if (materialStartIndex < 0 || materialStartIndex > document.Materials.Count)
+            throw new ArgumentOutOfRangeException(nameof(materialStartIndex));
+
+        var prefix = namePrefix ?? string.Empty;
 
         int? skeletonIndex = null;
         if (CanEmitExplicitSkin(scene, explicitSkeleton, coordinateScale))
@@ -33,11 +43,21 @@ internal static class XbxGeometryWriter
         }
 
         var materialMap = new Dictionary<uint, int>();
-        for (var i = 0; i < scene.Materials.Length && i < document.Materials.Count; i++)
+        for (var i = 0;
+             i < scene.Materials.Length && materialStartIndex + i < document.Materials.Count;
+             i++)
         {
-            materialMap[scene.Materials[i].Checksum] = i;
-            ApplyXbxMaterial(document, document.Materials[i], scene.Materials[i], textureProvider);
+            var documentMaterialIndex = materialStartIndex + i;
+            materialMap[scene.Materials[i].Checksum] = documentMaterialIndex;
+            ApplyXbxMaterial(
+                document,
+                document.Materials[documentMaterialIndex],
+                scene.Materials[i],
+                textureProvider,
+                textureNamePrefix);
         }
+
+        var hierarchyTransforms = ResolveHierarchyTransforms(scene, coordinateScale);
 
         foreach (var sector in scene.Sectors)
         {
@@ -53,7 +73,7 @@ internal static class XbxGeometryWriter
                             $"mat_{xbxMesh.MaterialChecksum:X8}")
                     });
 
-                var mesh = new ModelMesh { Name = $"sector_{sector.Checksum:X8}" };
+                var mesh = new ModelMesh { Name = $"{prefix}sector_{sector.Checksum:X8}" };
                 var vertices = new List<ModelVertex>();
                 var indices = new List<int>();
                 var influences = skeletonIndex.HasValue && sector.IsSkinned
@@ -68,23 +88,103 @@ internal static class XbxGeometryWriter
                         Influences = influences.ToArray()
                     }
                     : null;
-                ModelDocumentGeometryAdapter.AddPrimitive(
+                var primitive = ModelDocumentGeometryAdapter.AddPrimitive(
                     mesh, "triangles", materialIndex, vertices, indices, skin);
-                ModelDocumentGeometryAdapter.AddMeshNode(document, mesh.Name, mesh);
+                if (primitive != null && primitiveMetadata != null)
+                    primitive.NativeMetadata.Add(primitiveMetadata);
+                Matrix4x4? placement = hierarchyTransforms.TryGetValue(sector.BoneIndex, out var resolvedPlacement)
+                    ? resolvedPlacement
+                    : null;
+                ModelDocumentGeometryAdapter.AddMeshNode(
+                    document,
+                    mesh.Name,
+                    mesh,
+                    placement);
             }
         }
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }
 
+    /// <summary>
+    ///     THPS4's CHierarchyObject setup matrices are local-to-parent. Its
+    ///     runtime initializes each bone from that matrix, then post-multiplies
+    ///     by the already-resolved parent. Matrix4x4 uses the same row-vector
+    ///     convention, so the authored world placement is local * parentWorld.
+    /// </summary>
+    internal static IReadOnlyDictionary<int, Matrix4x4> ResolveHierarchyTransforms(
+        ParsedXbxScene scene,
+        float coordinateScale = 1f)
+    {
+        if (!scene.ApplyHierarchyTransforms || scene.Links.Length == 0)
+            return EmptyHierarchyTransforms.Instance;
+
+        var worldByLink = new Matrix4x4[scene.Links.Length];
+        var worldByBone = new Dictionary<int, Matrix4x4>(scene.Links.Length);
+        for (var i = 0; i < scene.Links.Length; i++)
+        {
+            var link = scene.Links[i];
+            var local = link.Transform;
+            local.M41 *= coordinateScale;
+            local.M42 *= coordinateScale;
+            local.M43 *= coordinateScale;
+
+            Matrix4x4 world;
+            if (link.ParentIndex == -1)
+            {
+                world = local;
+            }
+            else
+            {
+                if (link.ParentIndex < 0 || link.ParentIndex >= i)
+                {
+                    throw new InvalidDataException(
+                        $"Scene hierarchy link {i} has unresolved parent index {link.ParentIndex}");
+                }
+
+                world = local * worldByLink[link.ParentIndex];
+            }
+
+            worldByLink[i] = world;
+            if (!worldByBone.TryAdd(link.BoneIndex, world))
+            {
+                throw new InvalidDataException(
+                    $"Scene hierarchy has duplicate bone index {link.BoneIndex}");
+            }
+        }
+
+        return worldByBone;
+    }
+
+    private sealed class EmptyHierarchyTransforms : IReadOnlyDictionary<int, Matrix4x4>
+    {
+        public static readonly EmptyHierarchyTransforms Instance = new();
+        public int Count => 0;
+        public IEnumerable<int> Keys => [];
+        public IEnumerable<Matrix4x4> Values => [];
+        public Matrix4x4 this[int key] => throw new KeyNotFoundException();
+        public bool ContainsKey(int key) => false;
+        public bool TryGetValue(int key, out Matrix4x4 value)
+        {
+            value = default;
+            return false;
+        }
+
+        public IEnumerator<KeyValuePair<int, Matrix4x4>> GetEnumerator() =>
+            Enumerable.Empty<KeyValuePair<int, Matrix4x4>>().GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
     private static void ApplyXbxMaterial(
         ModelDocument document,
         RenderMaterial renderMaterial,
         XbxMaterial material,
-        MeshChecksumTextureResolver? textureProvider)
+        MeshChecksumTextureResolver? textureProvider,
+        string? textureNamePrefix)
     {
         var (textureAlphaMode, bakeApplied) =
-            RegisterPass0Texture(document, renderMaterial, material, textureProvider);
+            RegisterPass0Texture(document, renderMaterial, material, textureProvider, textureNamePrefix);
 
         // Pass-0 blend mode — not the texture's alpha histogram — decides
         // framebuffer blending: the engine alpha-BLENDS hair/overlay cards
@@ -122,7 +222,8 @@ internal static class XbxGeometryWriter
         ModelDocument document,
         RenderMaterial renderMaterial,
         XbxMaterial material,
-        MeshChecksumTextureResolver? textureProvider)
+        MeshChecksumTextureResolver? textureProvider,
+        string? textureNamePrefix)
     {
         if (textureProvider == null || material.Passes.Length == 0)
             return (OpaqueAlphaMode, false);
@@ -159,7 +260,8 @@ internal static class XbxGeometryWriter
         var checksum = composited > 0 || bakeApplied
             ? XbxPassCompositor.CreateSyntheticTextureChecksum(material)
             : pass.TextureChecksum;
-        var name = ModelDocumentGeometryAdapter.ResolveQbName(pass.TextureChecksum,
+        var name = (textureNamePrefix ?? string.Empty) +
+                   ModelDocumentGeometryAdapter.ResolveQbName(pass.TextureChecksum,
                        $"tex_{pass.TextureChecksum:X8}") +
                    XbxPassCompositor.TextureNameSuffix(pass.BlendMode, composited);
         renderMaterial.TextureIndex ??= ModelDocumentGeometryAdapter.AddTexture(
@@ -169,7 +271,8 @@ internal static class XbxGeometryWriter
             checksum,
             pass.UAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
             pass.VAddressing == 3 ? ModelTextureWrap.ClampToEdge : ModelTextureWrap.Repeat,
-            distinguishChecksumVariantsByContent: true);
+            distinguishChecksumVariantsByContent: true,
+            distinguishChecksumVariantsByName: textureNamePrefix != null);
 
         return (textureAlphaMode, bakeApplied);
     }

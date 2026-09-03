@@ -143,6 +143,32 @@ internal sealed class BlendPackageManifest
             case CollisionRenderMetadata collision:
                 result["objectCount"] = collision.ObjectCount;
                 break;
+            case CollisionOverlayRenderMetadata collisionOverlay:
+                result["companionName"] = collisionOverlay.CompanionName;
+                result["objectCount"] = collisionOverlay.ObjectCount;
+                result["triangleCount"] = collisionOverlay.TriangleCount;
+                break;
+            case RwBspCollisionFlagsRenderMetadata rwBspCollisionFlags:
+                result["collisionFlags"] = rwBspCollisionFlags.CollisionFlags;
+                break;
+            case PsxCollisionFlagsRenderMetadata psxCollisionFlags:
+                result["collisionFlags"] = psxCollisionFlags.CollisionFlags;
+                result["loaderInvisible"] = psxCollisionFlags.LoaderInvisible;
+                break;
+            case NgcCollisionRenderMetadata ngcCollision:
+                result["companionName"] = ngcCollision.CompanionName;
+                result["positionPoolKind"] = ngcCollision.PositionPoolKind;
+                result["objectCount"] = ngcCollision.ObjectCount;
+                result["triangleCount"] = ngcCollision.TriangleCount;
+                break;
+            case PspLevelCompositionMetadata pspLevel:
+                result["game"] = pspLevel.Game;
+                result["structureName"] = pspLevel.StructureName;
+                result["levelSceneName"] = pspLevel.LevelSceneName;
+                result["skySceneName"] = pspLevel.SkySceneName;
+                result["outerShellSceneName"] = pspLevel.OuterShellSceneName;
+                result["isNetworkVariant"] = pspLevel.IsNetworkVariant;
+                break;
             case Ps2WorldzoneRenderMetadata worldzone:
                 result["sourceName"] = worldzone.SourceName;
                 result["mdlCount"] = worldzone.MdlCount;

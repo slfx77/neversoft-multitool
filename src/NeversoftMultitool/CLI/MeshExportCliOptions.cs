@@ -167,7 +167,8 @@ internal static class MeshExportCliOptions
         string? psxLightPreset = null,
         string? exportStem = null,
         MeshAnimationExportOptions? animationOptions = null,
-        string? worldzoneDebugDirectory = null)
+        string? worldzoneDebugDirectory = null,
+        bool includeCollisionOverlay = false)
     {
         animationOptions ??= MeshAnimationExportOptions.None;
         var stem = outputStem ?? Path.GetFileNameWithoutExtension(file);
@@ -202,7 +203,8 @@ internal static class MeshExportCliOptions
             N64AnimationOneShot = animationOptions.OneShot,
             IncludeAllGbaAnimations = animationOptions.IncludeAllGbaAnimations,
             GbaAnimationIndices = animationOptions.GbaAnimationIndices,
-            WorldzoneDebugDirectory = worldzoneDebugDirectory
+            WorldzoneDebugDirectory = worldzoneDebugDirectory,
+            IncludeCollisionOverlay = includeCollisionOverlay
         });
 
         return ModelExportService.Export(

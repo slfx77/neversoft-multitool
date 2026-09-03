@@ -359,6 +359,14 @@
                   Visibility="Collapsed"
                   ToolTipService.ToolTip="Include authored objects from the level's companion object file"
                   Click="DisplayIncludeLevelObjectsCheckbox_Click" />
+                <CheckBox
+                  x:Name="DisplayIncludeCollisionOverlayCheckbox"
+                  Content="Show collision overlay"
+                  MinWidth="0"
+                  IsChecked="False"
+                  Visibility="Collapsed"
+                  ToolTipService.ToolTip="Overlay a proven inline or exact-owner collision surface"
+                  Click="DisplayIncludeCollisionOverlayCheckbox_Click" />
                 <Grid x:Name="WorldzoneViewportSettingsSection"
                       ColumnSpacing="8"
                       RowSpacing="8"
@@ -409,6 +417,13 @@
                   IsChecked="True"
                   Visibility="Collapsed"
                   ToolTipService.ToolTip="Include authored objects from companion object files in exported output" />
+                <CheckBox
+                  x:Name="ExportIncludeCollisionOverlayCheckbox"
+                  Content="Include collision overlay"
+                  MinWidth="0"
+                  IsChecked="False"
+                  Visibility="Collapsed"
+                  ToolTipService.ToolTip="Include a translucent proven inline or exact-owner collision surface in converted and rendered output" />
                 <StackPanel x:Name="WorldzoneExportSettingsSection"
                             Spacing="8"
                             Visibility="Collapsed">

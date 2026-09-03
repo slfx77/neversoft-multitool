@@ -4,10 +4,10 @@ namespace NeversoftMultitool.Core.Formats.Collision;
 
 /// <summary>
 ///     Structural document for one GameCube collision file (.col.ngc).
-///     Metadata-only: the format stores topology, flags, terrain, and BSP
-///     trees, while vertex positions are sourced from the render scene's
-///     vertex pool at runtime, so no geometry can be reconstructed from this
-///     file alone.
+///     The format stores topology, flags, terrain, and BSP trees, while vertex
+///     positions are sourced from the render scene's pool at runtime. Geometry
+///     conversion is therefore possible only through a separately proven
+///     owner/pool binding; this document never invents missing coordinates.
 /// </summary>
 public sealed class NgcColScene
 {

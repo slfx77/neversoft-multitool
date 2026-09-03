@@ -14,11 +14,10 @@ namespace NeversoftMultitool.CLI;
 
 public static class SkaCommand
 {
-    // .ska.xen / .ska.ps3 are the Xbox 360 and PS3 builds of THAW, Project 8 and
-    // Proving Ground. They are the SAME version-0x28 THAW format the GameCube
-    // path already reads big-endian — a .ska.xen passed explicitly has always
-    // parsed and exported correctly — so they were only ever missing from the
-    // DISCOVERY list, which hid 51,279 files from directory scans and the GUI.
+    // .ska.xen / .ska.ps3 cover THAW's ordinary big-endian v0x28 files and
+    // Project 8 / Proving Ground's later 0x20-wrapped, section-addressed
+    // v0x28/v0x48 payloads. Keep the compound suffixes in both explicit-file
+    // and recursive-directory routes.
     private static readonly string[] SkaSuffixes =
         [".ska", ".ska.ps2", ".ska.xbx", ".ska.wpc", ".ska.ngc", ".ska.xen", ".ska.ps3"];
 
@@ -192,12 +191,7 @@ public static class SkaCommand
         {
             inputDirectoryRoot = Path.GetFullPath(input);
             files = Directory.GetFiles(inputDirectoryRoot, "*", SearchOption.AllDirectories)
-                .Where(static file =>
-                {
-                    var fileName = Path.GetFileName(file);
-                    return OrdinalFileName.HasAnySuffix(fileName, SkaSuffixes)
-                           || fileName.EndsWith(".ska", StringComparison.OrdinalIgnoreCase);
-                })
+                .Where(AnimationDiscovery.IsAnimFileName)
                 .ToList();
         }
         else
@@ -225,7 +219,9 @@ public static class SkaCommand
                 if (SkaFile.IsSkaFile(defaultData))
                 {
                     var table = FindCompressTable(defaultSkaPath);
-                    var defaultAnim = SkaFile.Parse(defaultData, table);
+                    var defaultAnim = Thps4PcDatAnimationFile.IsCandidateFileName(defaultSkaPath)
+                        ? Thps4PcDatAnimationFile.ParseExact(defaultData, table)
+                        : SkaFile.Parse(defaultData, table);
                     if (!IsUsableDefaultPose(defaultAnim))
                     {
                         AnsiConsole.MarkupLine(
@@ -254,7 +250,7 @@ public static class SkaCommand
             else
             {
                 AnsiConsole.MarkupLine(
-                    "[yellow]V1 skeleton with no default.ska.ps2 found; bind pose will be identity (mesh may be distorted)[/]");
+                    "[yellow]V1 skeleton with no default animation found; bind pose will be identity (mesh may be distorted)[/]");
             }
         }
 
@@ -286,7 +282,9 @@ public static class SkaCommand
                 }
 
                 var compressTable = FindCompressTable(file);
-                var anim = SkaFile.Parse(data, compressTable);
+                var anim = Thps4PcDatAnimationFile.IsCandidateFileName(file)
+                    ? Thps4PcDatAnimationFile.ParseExact(data, compressTable)
+                    : SkaFile.Parse(data, compressTable);
                 success++;
 
                 var boneCount = anim.BoneTracks.Length;
@@ -435,10 +433,15 @@ public static class SkaCommand
     /// </summary>
     internal static string GetOutputStem(string file)
     {
-        var stem = Path.GetFileNameWithoutExtension(file);
-        return stem.EndsWith(".ska", StringComparison.OrdinalIgnoreCase)
-            ? Path.GetFileNameWithoutExtension(stem)
-            : stem;
+        var fileName = Path.GetFileName(file);
+        if (Thps4PcDatAnimationFile.IsCandidateFileName(fileName))
+            return fileName[..^Thps4PcDatAnimationFile.Suffix.Length];
+
+        var suffix = SkaSuffixes.FirstOrDefault(candidate =>
+            fileName.EndsWith(candidate, StringComparison.OrdinalIgnoreCase));
+        return suffix == null
+            ? Path.GetFileNameWithoutExtension(fileName)
+            : fileName[..^suffix.Length];
     }
 
     internal static string GetCustomKeyOutputName(string file)
@@ -499,7 +502,8 @@ public static class SkaCommand
 
     // THPS4 V1 skeletons (pre-2003) stored no bind pose in the .ske file; the engine
     // instead loaded a single-frame "default animation" per skeleton archetype
-    // (e.g. pre/anims/anims/skater_basics/Default.ska.ps2 for the human rig) and used
+    // (e.g. pre/anims/anims/skater_basics/Default.ska.ps2 or the Windows
+    // data/anims/skater_basics/defaultska.dat) and used
     // its frame-0 rotations+translations as the bind. THUG source deprecated this and
     // moved neutral poses into .ske V2 (see Gfx/Skeleton.cpp:1147-1152).
     //
@@ -509,16 +513,31 @@ public static class SkaCommand
     // human 50-bone rig (skeletons/human.ske, Ped_F.ske, Ped_M.ske) maps to
     // archetype "skater_basics".
     //
-    // Strategy: walk up from any nearby file path, then recursively search for
-    // "{archetype}/default.ska.ps2" (case-insensitive) under each ancestor.
+    // Strategy: recursively search the paths' nearest shared directory. This
+    // contains sibling model/animation trees without accidentally walking an
+    // entire user profile or filesystem when a default is absent.
     internal static string? FindDefaultPoseFile(string skeletonPath, string anySkaFilePath)
     {
         var archetype = DeriveArchetypeName(skeletonPath);
         if (archetype == null) return null;
 
+        var fullSkeletonPath = Path.GetFullPath(skeletonPath);
+        var fullAnimationPath = Path.GetFullPath(anySkaFilePath);
+        var commonDirectory = FindCommonDirectory(fullSkeletonPath, fullAnimationPath);
         var searchRoots = new List<string>();
-        AddAncestorsToSearch(Path.GetFullPath(skeletonPath), searchRoots);
-        AddAncestorsToSearch(Path.GetFullPath(anySkaFilePath), searchRoots);
+        if (commonDirectory != null &&
+            !commonDirectory.Equals(Path.GetPathRoot(commonDirectory), PathComparison))
+        {
+            searchRoots.Add(commonDirectory);
+        }
+        else
+        {
+            // Unrelated paths on the same volume share only its root. Keep that
+            // degenerate case local to each input rather than recursively
+            // enumerating the whole volume.
+            AddContainingDirectory(fullSkeletonPath, searchRoots);
+            AddContainingDirectory(fullAnimationPath, searchRoots);
+        }
 
         foreach (var root in searchRoots)
         {
@@ -526,21 +545,68 @@ public static class SkaCommand
 
             try
             {
-                foreach (var candidate in Directory.EnumerateFiles(root, "default.ska.ps2",
-                             SearchOption.AllDirectories))
+                var directCandidate = FindDefaultPoseAtKnownLocation(root, archetype);
+                if (directCandidate != null)
+                    return directCandidate;
+
+                foreach (var candidate in EnumerateDefaultPoseCandidates(root))
                 {
                     var parentName = Path.GetFileName(Path.GetDirectoryName(candidate) ?? "");
                     if (string.Equals(parentName, archetype, StringComparison.OrdinalIgnoreCase))
                         return candidate;
                 }
             }
-            catch (UnauthorizedAccessException)
+            catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
             {
                 // Skip directories we can't read.
             }
         }
 
         return null;
+    }
+
+    private static string? FindDefaultPoseAtKnownLocation(string root, string archetype)
+    {
+        ReadOnlySpan<string> animationDirectories =
+        [
+            "anims", "anims/anims", "Bits/anims", "bits/anims",
+            "data/anims", "DATA/ANIMS", "pre/anims", "pre/anims/anims",
+            "pre/Bits/anims", "pre/bits/anims", "Pre/Bits/anims"
+        ];
+        ReadOnlySpan<string> fileNames = ["defaultska.dat", "Default.ska.ps2", "default.ska.ps2"];
+
+        foreach (var animationDirectory in animationDirectories)
+        {
+            foreach (var fileName in fileNames)
+            {
+                var candidate = Path.Combine(root, animationDirectory, archetype, fileName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateDefaultPoseCandidates(string root)
+    {
+        // Walk each build tree once, then apply an exact case-insensitive name
+        // gate to the small set of SKA-looking candidates.
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            MatchCasing = MatchCasing.CaseInsensitive
+        };
+        foreach (var candidate in Directory.EnumerateFiles(root, "*ska*", options))
+        {
+            var name = Path.GetFileName(candidate);
+            if (name.Equals("default.ska.ps2", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("defaultska.dat", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return candidate;
+            }
+        }
     }
 
     private static string? DeriveArchetypeName(string skeletonPath)
@@ -557,14 +623,40 @@ public static class SkaCommand
         return stem;
     }
 
-    private static void AddAncestorsToSearch(string absolutePath, List<string> results)
+    private static StringComparison PathComparison => OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+
+    private static string? FindCommonDirectory(string firstPath, string secondPath)
     {
-        var dir = Path.GetDirectoryName(absolutePath);
-        while (!string.IsNullOrEmpty(dir))
+        var secondAncestors = new HashSet<string>(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        for (var directory = Path.GetDirectoryName(secondPath);
+             !string.IsNullOrEmpty(directory);
+             directory = Path.GetDirectoryName(directory))
         {
-            if (!results.Contains(dir, StringComparer.OrdinalIgnoreCase))
-                results.Add(dir);
-            dir = Path.GetDirectoryName(dir);
+            secondAncestors.Add(directory);
+        }
+
+        for (var directory = Path.GetDirectoryName(firstPath);
+             !string.IsNullOrEmpty(directory);
+             directory = Path.GetDirectoryName(directory))
+        {
+            if (secondAncestors.Contains(directory))
+                return directory;
+        }
+
+        return null;
+    }
+
+    private static void AddContainingDirectory(string path, List<string> results)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory) &&
+            !results.Contains(directory,
+                OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal))
+        {
+            results.Add(directory);
         }
     }
 

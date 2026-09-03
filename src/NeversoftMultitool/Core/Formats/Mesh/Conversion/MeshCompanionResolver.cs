@@ -4,6 +4,8 @@ using NeversoftMultitool.Core.Formats.Archives;
 using NeversoftMultitool.Core.Formats.Mesh.Lit;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
+using NeversoftMultitool.Core.Formats.Trg;
 using NeversoftMultitool.Core.Formats.Texture;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
@@ -97,6 +99,242 @@ internal static class MeshCompanionResolver
             return true;
 
         return TryResolveApocalypseLevel(source, stem, out companions);
+    }
+
+    /// <summary>
+    ///     Classifies a PSX file as an inline level-collision owner without
+    ///     changing the narrower object-bank attachment contract above.
+    ///     <para>
+    ///         A Spider-Man/late-PS1 <c>*_g.psx</c> source qualifies only when
+    ///         its same-stem v2.x TRG names that exact geometry through
+    ///         <c>SpoolEnv</c>. Six legacy console packages omit that registration
+    ///         but ship a same-stem VAB; the Windows port ships no VABs, which
+    ///         keeps its byte-identical unregistered <c>zArt_G</c> payload out.
+    ///     </para>
+    ///     <para>
+    ///         Most level sources are already exact
+    ///         <see cref="TryResolvePsxLevelCompanions" /> matches. Apocalypse
+    ///         is the exception: each level is split across several environment
+    ///         files, while its shared object bank must be attached to only one
+    ///         primary. The v2.0 TRG authoritatively registers every runtime
+    ///         geometry region with opcode <c>0x80 SpoolEnv</c>. A secondary
+    ///         chunk therefore qualifies here only when the legacy
+    ///         <c>*_obj.psx</c>/<c>*obj.psx</c> convention identifies the family
+    ///         and that family's parsed TRG names the source stem exactly.
+    ///         THPS1's prototype <c>sub_all</c> region uses this same authored
+    ///         convention. Filename shape alone is never sufficient.
+    ///     </para>
+    ///     <para>
+    ///         The shipped warehouse trigger also registers <c>int_1</c>
+    ///         through <c>int_3</c>. That one cross-stem ownership relation is
+    ///         tried explicitly, but still requires an exact <c>SpoolEnv</c>
+    ///         operand; arbitrary <c>int_*</c> files remain rejected.
+    ///     </para>
+    /// </summary>
+    internal static bool TryResolvePsxInlineCollisionLevel(
+        AssetSource source,
+        string fileName,
+        out string levelStem)
+    {
+        levelStem = string.Empty;
+        if (!Path.GetExtension(fileName).Equals(".psx", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Collision belongs to the selected archive entry's level package.
+        // ArchiveAssetSource deliberately permits a unique archive-wide
+        // basename fallback for general companion discovery, but that would
+        // let a bank/TRG in another directory confer level identity here.
+        // Scope only this classifier; object-bank attachment keeps its
+        // existing, broader ArchiveAssetSource semantics.
+        var identitySource = source is ArchiveAssetSource archiveSource
+            ? new SameDirectoryArchiveAssetSource(archiveSource)
+            : source;
+
+        var sourceStem = Path.GetFileNameWithoutExtension(fileName);
+        if (sourceStem.Length > 2
+            && sourceStem.EndsWith("_g", StringComparison.OrdinalIgnoreCase))
+        {
+            var geometryLevelStem = sourceStem[..^2];
+            var trigger = PsxLevelObjectPlacementResolver.TryLoadTriggerCompanion(
+                identitySource, geometryLevelStem);
+            if (trigger is { VersionMajor: 2, VersionMinor: 0 or 1 }
+                && (HasExactSpoolEnvironmentRegistration(trigger, sourceStem)
+                    // Six legacy PS1/DC packages omit or mismatch the
+                    // registration, but pair a valid same-stem v2.x TRG with a
+                    // same-stem VAB. The Windows port ships no VABs, so this
+                    // compatibility partition retains those proven console
+                    // levels without promoting its byte-identical unregistered
+                    // zArt_G payload.
+                    || identitySource.CompanionExists(geometryLevelStem + ".vab")))
+            {
+                levelStem = geometryLevelStem;
+                return true;
+            }
+
+            return false;
+        }
+
+        var candidateOwners = new List<string> { sourceStem };
+        var separator = sourceStem.LastIndexOf('_');
+        var sameStemOwner = separator > 0 && separator < sourceStem.Length - 1
+            ? sourceStem[..separator]
+            : string.Empty;
+        if (sameStemOwner.Length > 0)
+            candidateOwners.Add(sameStemOwner);
+
+        const string warehouseInteriorStem = "int";
+        const string warehouseLevelStem = "wh";
+        if (sameStemOwner.Equals(warehouseInteriorStem, StringComparison.OrdinalIgnoreCase))
+            candidateOwners.Add(warehouseLevelStem);
+
+        var v20FamilyFound = false;
+        foreach (var candidateOwner in candidateOwners.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var match = MatchV20ObjectBankEnvironment(identitySource, candidateOwner, sourceStem);
+            if (match == V20EnvironmentMatch.Registered)
+            {
+                levelStem = candidateOwner;
+                return true;
+            }
+
+            v20FamilyFound |= match == V20EnvironmentMatch.Unregistered;
+        }
+
+        // For a v2.0 *_obj family the TRG's SpoolEnv list is stronger evidence
+        // than the object-owner heuristic. In particular, death.psx and
+        // war.psx are 0x7E SpoolIn actor supers; only death_1 and war_1..5 are
+        // 0x80 SpoolEnv regions. Do not let their bare bank-owner names fall
+        // back into collision merely because they own the shared object layer.
+        if (v20FamilyFound)
+            return false;
+
+        if (!TryResolvePsxLevelCompanions(identitySource, fileName, out var companions))
+            return false;
+
+        levelStem = companions.LevelStem;
+        return true;
+    }
+
+    /// <summary>
+    ///     Archive view whose companion namespace is exactly the selected
+    ///     entry's directory. General archive consumers retain
+    ///     <see cref="ArchiveAssetSource" />'s unique remote-basename fallback;
+    ///     inline collision identity must not use it.
+    /// </summary>
+    private sealed class SameDirectoryArchiveAssetSource(ArchiveAssetSource source) : AssetSource
+    {
+        private readonly string _selectedDirectory = GetEntryDirectory(source.Entry);
+
+        public override string DisplayName => source.DisplayName;
+        public override string EntryName => source.EntryName;
+        public override byte[] ReadBytes() => source.ReadBytes();
+
+        public override bool CompanionExists(string nameWithExtension) =>
+            FindCompanionEntry(nameWithExtension) != null;
+
+        public override byte[]? TryReadCompanion(string nameWithExtension)
+        {
+            var entry = FindCompanionEntry(nameWithExtension);
+            return entry == null ? null : source.Backend.ReadEntryBytes(entry);
+        }
+
+        public override byte[]? TryReadCompanion(
+            string stem,
+            IReadOnlyList<string> extensions,
+            IReadOnlyList<string>? subdirs = null)
+        {
+            foreach (var extension in extensions)
+            {
+                var bytes = TryReadCompanion(stem + extension);
+                if (bytes != null)
+                    return bytes;
+            }
+
+            return null;
+        }
+
+        private ArchiveEntry? FindCompanionEntry(string nameWithExtension)
+        {
+            ArchiveEntry? match = null;
+            foreach (var candidate in source.Backend.FindAllByName(nameWithExtension))
+            {
+                if (!string.Equals(
+                        GetEntryDirectory(candidate),
+                        _selectedDirectory,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Duplicate basenames in one directory have no authoritative
+                // owner; mirror ArchiveAssetSource's fail-closed behavior.
+                if (match != null)
+                    return null;
+                match = candidate;
+            }
+
+            return match;
+        }
+
+        private static string GetEntryDirectory(ArchiveEntry entry)
+        {
+            if (!string.IsNullOrEmpty(entry.Directory))
+                return entry.Directory.Replace('\\', '/').Trim('/');
+
+            var normalized = entry.Name.Replace('\\', '/');
+            var separator = normalized.LastIndexOf('/');
+            return separator < 0 ? string.Empty : normalized[..separator].Trim('/');
+        }
+    }
+
+    private static V20EnvironmentMatch MatchV20ObjectBankEnvironment(
+        AssetSource source,
+        string levelStem,
+        string sourceStem)
+    {
+        if (!TryGetApocalypseBankName(source, levelStem, out _))
+            return V20EnvironmentMatch.NotFamily;
+
+        var trigger = PsxLevelObjectPlacementResolver.TryLoadTriggerCompanion(
+            source, levelStem);
+        if (trigger == null)
+        {
+            return source.CompanionExists(levelStem + PsxTriggerSuffix)
+                ? V20EnvironmentMatch.Unregistered
+                : V20EnvironmentMatch.NotFamily;
+        }
+
+        if (trigger is not { VersionMajor: 2, VersionMinor: 0 })
+            return V20EnvironmentMatch.NotFamily;
+
+        return HasExactSpoolEnvironmentRegistration(trigger, sourceStem)
+            ? V20EnvironmentMatch.Registered
+            : V20EnvironmentMatch.Unregistered;
+    }
+
+    private static bool HasExactSpoolEnvironmentRegistration(
+        TrgFile? trigger,
+        string sourceStem)
+    {
+        if (trigger is not { VersionMajor: 2, VersionMinor: 0 or 1 })
+            return false;
+
+        const int spoolEnvironmentOpcode = 0x80;
+        return trigger.Nodes
+            .Where(static node => node.Commands != null)
+            .SelectMany(static node => node.Commands!)
+            .Any(command =>
+                command.Opcode == spoolEnvironmentOpcode
+                && command.Args is { Count: > 0 }
+                && command.Args[0] is string registeredStem
+                && registeredStem.Equals(sourceStem, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private enum V20EnvironmentMatch
+    {
+        NotFamily,
+        Registered,
+        Unregistered
     }
 
     /// <summary>
@@ -429,11 +667,15 @@ internal static class MeshCompanionResolver
         string stem,
         string? explicitTexturePath = null)
     {
-        var texBytes = ReadTextureCompanion(source, stem, XbxTexExtensions, XbxTexSubdirs, explicitTexturePath);
+        var isThps4PcDat = Thps4PcDatSceneFile.IsCandidateFileName(source.EntryName);
+        var extensions = isThps4PcDat ? new[] { Thps4PcDatTextureFile.Suffix } : XbxTexExtensions;
+        var texBytes = ReadTextureCompanion(source, stem, extensions, XbxTexSubdirs, explicitTexturePath);
         if (texBytes == null) return null;
 
-        var texResult = XbxTexFile.Parse(texBytes);
-        if (!texResult.Success)
+        var texResult = isThps4PcDat
+            ? Thps4PcDatTextureFile.Parse(texBytes)
+            : XbxTexFile.Parse(texBytes);
+        if (!isThps4PcDat && !texResult.Success)
             texResult = ThawTexFile.Parse(texBytes);
         if (!texResult.Success) return null;
 

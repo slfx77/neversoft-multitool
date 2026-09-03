@@ -9,7 +9,8 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 internal static class SkaPlatformParser
 {
     internal static SkaAnimation ParsePlatform(
-        ReadOnlySpan<byte> data, uint version, uint flags, float duration)
+        ReadOnlySpan<byte> data, uint version, uint flags, float duration,
+        bool requireExactContainer = false)
     {
         const int platformHeaderOffset = 12;
         const int platformHeaderSize = 16;
@@ -17,22 +18,21 @@ internal static class SkaPlatformParser
             throw new InvalidDataException("SKA platform: header is truncated");
 
         var off = platformHeaderOffset;
-        var isHiRes = (flags & SkaFile.FlagHiResFramePointers) != 0;
+        // BonedAnim.cpp's is_hires() is driven by CAMERA/OBJECT data. Bit 22
+        // independently selects 16-bit rather than 8-bit per-bone key counts.
+        var hasHiResKeys = (flags & (SkaFile.FlagCameraData | SkaFile.FlagObjectAnimData)) != 0;
+        var hasWideFramePointers = (flags & SkaFile.FlagHiResFramePointers) != 0;
 
-        // Platform header: numBones, numQKeys@+4, numTKeys@+8.
         var numBonesRaw = BitConverter.ToUInt32(data[off..]);
         var numQKeys = BitConverter.ToUInt32(data[(off + 4)..]);
         var numTKeys = BitConverter.ToUInt32(data[(off + 8)..]);
-        if (numBonesRaw > int.MaxValue)
-            throw new InvalidDataException($"SKA platform: bone count {numBonesRaw} is out of range");
+        var numCustomKeys = BitConverter.ToUInt32(data[(off + 12)..]);
+        if (numBonesRaw > int.MaxValue || numQKeys > int.MaxValue || numTKeys > int.MaxValue)
+            throw new InvalidDataException("SKA platform: a header count is out of range");
 
         var numBones = (int)numBonesRaw;
         off += platformHeaderSize;
 
-        // OBJECTANIMDATA (cutscene object anims): a numBones × u32 array of the QbKeys
-        // of the objects each track drives, BEFORE the per-bone frame counts
-        // (THUG BonedAnim.cpp plat_read_stream:1105-1111). Without skipping it the
-        // per-bone counts read from the wrong offset and the whole file mis-parses.
         uint[]? boneNames = null;
         if ((flags & SkaFile.FlagObjectAnimData) != 0)
         {
@@ -48,8 +48,6 @@ internal static class SkaPlatformParser
             }
         }
 
-        // PARTIALANIM: original bone count + a bit mask of which bones are present
-        // (plat_read_stream:1117-1129), also before the per-bone frames.
         if ((flags & SkaFile.FlagPartialAnim) != 0)
         {
             if (off > data.Length - 4)
@@ -67,8 +65,7 @@ internal static class SkaPlatformParser
             off = (int)masksEnd;
         }
 
-        // Per-bone frame counts
-        var countBytesPerBone = isHiRes ? 4 : 2;
+        var countBytesPerBone = hasWideFramePointers ? 4 : 2;
         var countTableEnd = (long)off + (long)numBones * countBytesPerBone;
         if (countTableEnd > data.Length)
             throw new InvalidDataException("SKA platform: per-bone Q/T count table overruns file");
@@ -77,7 +74,7 @@ internal static class SkaPlatformParser
         var perBoneTCount = new int[numBones];
         long qCountTotal = 0;
         long tCountTotal = 0;
-        if (isHiRes)
+        if (hasWideFramePointers)
         {
             for (var i = 0; i < numBones; i++)
             {
@@ -102,110 +99,166 @@ internal static class SkaPlatformParser
             }
         }
 
-        // 4-byte alignment
-        if ((off & 3) != 0)
-            off += 4 - (off & 3);
-
-        var qKeySize = isHiRes ? 14 : 8; // CHiResAnimQKey or CStandardAnimQKey
-        if (qCountTotal > numQKeys)
+        if (qCountTotal > numQKeys || requireExactContainer && qCountTotal != numQKeys)
         {
             throw new InvalidDataException(
-                $"SKA platform: per-bone Q key counts total {qCountTotal}, exceeding declared total {numQKeys}");
+                $"SKA platform: per-bone Q key counts total {qCountTotal}, " +
+                $"not compatible with declared total {numQKeys}");
         }
 
-        if (tCountTotal > numTKeys)
+        if (tCountTotal > numTKeys || requireExactContainer && tCountTotal != numTKeys)
         {
             throw new InvalidDataException(
-                $"SKA platform: per-bone T key counts total {tCountTotal}, exceeding declared total {numTKeys}");
+                $"SKA platform: per-bone T key counts total {tCountTotal}, " +
+                $"not compatible with declared total {numTKeys}");
         }
 
-        var qBytes = (long)numQKeys * qKeySize;
-        var tBytes = (long)numTKeys * qKeySize;
-        var streamsEnd = (long)off + qBytes + tBytes;
-        if (streamsEnd > data.Length)
+        // THPS4 PC/PS2 platform files retain the loader buffer's two-byte base
+        // bias in the serialized offsets: a one-bone byte-count table starts its
+        // 16-byte keys at file offset 30, not 32. Older fixtures/files can use
+        // conventional file-relative alignment, so try both and accept only a
+        // layout whose complete key/custom stream consumes EOF exactly.
+        var alignedOff = Align4(off);
+        Span<int> candidates = stackalloc int[2];
+        if (hasHiResKeys && !hasWideFramePointers)
+        {
+            candidates[0] = off;
+            candidates[1] = alignedOff;
+        }
+        else
+        {
+            candidates[0] = alignedOff;
+            candidates[1] = off;
+        }
+
+        InvalidDataException? firstError = null;
+        for (var i = 0; i < candidates.Length; i++)
+        {
+            var keyDataStart = candidates[i];
+            if (i > 0 && keyDataStart == candidates[0])
+                continue;
+
+            try
+            {
+                return ParseStreams(
+                    data, version, flags, duration, hasHiResKeys,
+                    numBones, numQKeys, numTKeys, numCustomKeys,
+                    perBoneQCount, perBoneTCount, boneNames, keyDataStart,
+                    requireExactContainer);
+            }
+            catch (InvalidDataException ex)
+            {
+                firstError ??= ex;
+            }
+        }
+
+        if (alignedOff == off && firstError != null)
+            throw firstError;
+
+        throw new InvalidDataException(
+            $"SKA platform: no exact key-stream layout was valid ({firstError?.Message ?? "unknown error"})",
+            firstError);
+    }
+
+    private static SkaAnimation ParseStreams(
+        ReadOnlySpan<byte> data,
+        uint version,
+        uint flags,
+        float duration,
+        bool hasHiResKeys,
+        int numBones,
+        uint numQKeys,
+        uint numTKeys,
+        uint numCustomKeys,
+        int[] perBoneQCount,
+        int[] perBoneTCount,
+        uint[]? boneNames,
+        int keyDataStart,
+        bool requireExactContainer)
+    {
+        var keySize = hasHiResKeys ? 16 : 8;
+        var qBytes = (long)numQKeys * keySize;
+        var tBytes = (long)numTKeys * keySize;
+        var streamsEnd = (long)keyDataStart + qBytes + tBytes;
+        if (keyDataStart < 0 || streamsEnd > data.Length)
         {
             throw new InvalidDataException(
-                $"SKA platform: declared Q/T key blocks end at 0x{streamsEnd:X}, beyond file length 0x{data.Length:X}");
+                $"SKA platform: declared Q/T key blocks end at 0x{streamsEnd:X}, " +
+                $"beyond file length 0x{data.Length:X}");
         }
 
-        // Q keyframe data
-        var qDataStart = off;
-        var qDataEnd = (int)((long)off + qBytes);
-
-        // T keyframe data begins immediately after the complete declared Q block.
-        var tDataStart = qDataEnd;
-
-        // Decode per-bone tracks
+        var qDataEnd = checked(keyDataStart + (int)qBytes);
+        var qOff = keyDataStart;
+        var tOff = qDataEnd;
         var tracks = new SkaBoneTrack[numBones];
-        var qOff = qDataStart;
-        var tOff = tDataStart;
 
         for (var bone = 0; bone < numBones; bone++)
         {
             var rotKeys = new SkaRotationKey[perBoneQCount[bone]];
-            for (var k = 0; k < perBoneQCount[bone]; k++)
+            for (var k = 0; k < rotKeys.Length; k++)
             {
-                if (isHiRes)
+                var header = BitConverter.ToUInt16(data[qOff..]);
+                var timestamp = header & 0x7FFF;
+                var signBit = (header & 0x8000) != 0;
+                float qx;
+                float qy;
+                float qz;
+                if (hasHiResKeys)
                 {
-                    var header = BitConverter.ToUInt16(data[qOff..]);
-                    var timestamp = header & 0x3FFF;
-                    var signBit = (header & 0x8000) != 0;
-                    var qx = BitConverter.ToSingle(data[(qOff + 2)..]);
-                    var qy = BitConverter.ToSingle(data[(qOff + 6)..]);
-                    var qz = BitConverter.ToSingle(data[(qOff + 10)..]);
+                    ValidateHiResPadding(data, qOff, "Q", bone, k);
+                    qx = BitConverter.ToSingle(data[(qOff + 4)..]);
+                    qy = BitConverter.ToSingle(data[(qOff + 8)..]);
+                    qz = BitConverter.ToSingle(data[(qOff + 12)..]);
                     if (!float.IsFinite(qx) || !float.IsFinite(qy) || !float.IsFinite(qz))
                     {
                         throw new InvalidDataException(
                             $"SKA platform: bone {bone} high-resolution Q key {k} contains a non-finite component");
                     }
-
-                    var time = timestamp / 60f;
-                    rotKeys[k] = new SkaRotationKey(time, SkaFile.ReconstructQuat(qx, qy, qz, signBit));
-                    qOff += 14;
                 }
                 else
                 {
-                    var header = BitConverter.ToUInt16(data[qOff..]);
-                    var timestamp = header & 0x3FFF;
-                    var signBit = (header & 0x8000) != 0;
-                    var qx = BitConverter.ToInt16(data[(qOff + 2)..]) / 16384f;
-                    var qy = BitConverter.ToInt16(data[(qOff + 4)..]) / 16384f;
-                    var qz = BitConverter.ToInt16(data[(qOff + 6)..]) / 16384f;
-                    var time = timestamp / 60f;
-                    rotKeys[k] = new SkaRotationKey(time, SkaFile.ReconstructQuat(qx, qy, qz, signBit));
-                    qOff += 8;
+                    qx = BitConverter.ToInt16(data[(qOff + 2)..]) / 16384f;
+                    qy = BitConverter.ToInt16(data[(qOff + 4)..]) / 16384f;
+                    qz = BitConverter.ToInt16(data[(qOff + 6)..]) / 16384f;
                 }
+
+                rotKeys[k] = new SkaRotationKey(
+                    timestamp / 60f,
+                    SkaFile.ReconstructQuat(qx, qy, qz, signBit));
+                qOff += keySize;
             }
 
             var transKeys = new SkaTranslationKey[perBoneTCount[bone]];
-            for (var k = 0; k < perBoneTCount[bone]; k++)
+            for (var k = 0; k < transKeys.Length; k++)
             {
-                if (isHiRes)
+                var timestamp = BitConverter.ToInt16(data[tOff..]);
+                if (timestamp < 0)
+                    throw new InvalidDataException($"SKA platform: bone {bone} T key {k} has a negative timestamp");
+
+                float tx;
+                float ty;
+                float tz;
+                if (hasHiResKeys)
                 {
-                    var timestamp = BitConverter.ToInt16(data[tOff..]);
-                    var tx = BitConverter.ToSingle(data[(tOff + 2)..]);
-                    var ty = BitConverter.ToSingle(data[(tOff + 6)..]);
-                    var tz = BitConverter.ToSingle(data[(tOff + 10)..]);
+                    ValidateHiResPadding(data, tOff, "T", bone, k);
+                    tx = BitConverter.ToSingle(data[(tOff + 4)..]);
+                    ty = BitConverter.ToSingle(data[(tOff + 8)..]);
+                    tz = BitConverter.ToSingle(data[(tOff + 12)..]);
                     if (!float.IsFinite(tx) || !float.IsFinite(ty) || !float.IsFinite(tz))
                     {
                         throw new InvalidDataException(
                             $"SKA platform: bone {bone} high-resolution T key {k} contains a non-finite component");
                     }
-
-                    var time = timestamp / 60f;
-                    transKeys[k] = new SkaTranslationKey(time, new Vector3(tx, ty, tz));
-                    tOff += 14;
                 }
                 else
                 {
-                    var timestamp = BitConverter.ToInt16(data[tOff..]);
-                    var tx = BitConverter.ToInt16(data[(tOff + 2)..]) / 32f;
-                    var ty = BitConverter.ToInt16(data[(tOff + 4)..]) / 32f;
-                    var tz = BitConverter.ToInt16(data[(tOff + 6)..]) / 32f;
-                    var time = timestamp / 60f;
-                    transKeys[k] = new SkaTranslationKey(time, new Vector3(tx, ty, tz));
-                    tOff += 8;
+                    tx = BitConverter.ToInt16(data[(tOff + 2)..]) / 32f;
+                    ty = BitConverter.ToInt16(data[(tOff + 4)..]) / 32f;
+                    tz = BitConverter.ToInt16(data[(tOff + 6)..]) / 32f;
                 }
+
+                transKeys[k] = new SkaTranslationKey(timestamp / 60f, new Vector3(tx, ty, tz));
+                tOff += keySize;
             }
 
             tracks[bone] = new SkaBoneTrack
@@ -217,12 +270,64 @@ internal static class SkaPlatformParser
             };
         }
 
+        if (requireExactContainer && (qOff != qDataEnd || tOff != streamsEnd))
+            throw new InvalidDataException("SKA platform: per-bone counts did not consume the declared Q/T streams");
+
+        var customKeys = ParseCustomTail(
+            data, checked((int)streamsEnd), numCustomKeys, requireExactContainer);
         return new SkaAnimation
         {
             Version = version,
             Flags = flags,
             Duration = duration,
-            BoneTracks = tracks
+            BoneTracks = tracks,
+            CustomKeys = customKeys
         };
     }
+
+    private static SkaCustomKey[] ParseCustomTail(
+        ReadOnlySpan<byte> data, int streamEnd, uint numCustomKeys,
+        bool requireExactContainer)
+    {
+        try
+        {
+            return SkaCustomKeyParser.ParseLittleEndianExact(
+                data, streamEnd, numCustomKeys, "SKA platform",
+                allowTerminalAlignmentPadding: !requireExactContainer);
+        }
+        catch (InvalidDataException rawError)
+        {
+            var aligned = Align4(streamEnd);
+            if (aligned == streamEnd || aligned > data.Length)
+                throw;
+            for (var i = streamEnd; i < aligned; i++)
+            {
+                if (data[i] != 0)
+                    throw;
+            }
+
+            try
+            {
+                return SkaCustomKeyParser.ParseLittleEndianExact(
+                    data, aligned, numCustomKeys, "SKA platform",
+                    allowTerminalAlignmentPadding: !requireExactContainer);
+            }
+            catch (InvalidDataException)
+            {
+                throw rawError;
+            }
+        }
+    }
+
+    private static void ValidateHiResPadding(
+        ReadOnlySpan<byte> data, int offset, string kind, int bone, int key)
+    {
+        if (data[offset + 2] != 0 || data[offset + 3] != 0)
+        {
+            throw new InvalidDataException(
+                $"SKA platform: bone {bone} high-resolution {kind} key {key} has nonzero alignment padding");
+        }
+    }
+
+    private static int Align4(int value) => checked((value + 3) & ~3);
 }

@@ -53,13 +53,41 @@ public static class StrConverter
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        return ConvertToMp4Core(
+            inputPath,
+            outputDir,
+            progress,
+            outputStem: null,
+            cancellationToken: cancellationToken);
+    }
+
+    internal static SfdConvertResult ConvertToMp4WithStem(
+        string inputPath,
+        string outputDir,
+        string outputStem,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        return ConvertToMp4Core(inputPath, outputDir, progress, outputStem, cancellationToken);
+    }
+
+    private static SfdConvertResult ConvertToMp4Core(
+        string inputPath,
+        string outputDir,
+        IProgress<double>? progress,
+        string? outputStem,
+        CancellationToken cancellationToken)
+    {
         var ffmpeg = SfdConverter.FindFfmpeg();
         if (ffmpeg == null)
             return new SfdConvertResult { ErrorMessage = "ffmpeg not found on PATH" };
 
+        if (outputStem != null && !VideoOutputStemPlanner.IsSafeOutputStem(outputStem))
+            return new SfdConvertResult { ErrorMessage = "Output stem must be a safe file-name stem." };
+
         Directory.CreateDirectory(outputDir);
         var outputPath = Path.Combine(outputDir,
-            Path.GetFileNameWithoutExtension(inputPath) + ".mp4");
+            (outputStem ?? Path.GetFileNameWithoutExtension(inputPath)) + ".mp4");
 
         string? tempAudioDirectory = null;
         string? tempWavPath = null;

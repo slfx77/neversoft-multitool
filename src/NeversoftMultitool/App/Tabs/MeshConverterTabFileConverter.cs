@@ -42,7 +42,8 @@ internal static class MeshConverterTabFileConverter
         float worldzoneScale = 1f,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true,
-        Ps2Skeleton? preparedSkeleton = null)
+        Ps2Skeleton? preparedSkeleton = null,
+        bool includeCollisionOverlay = false)
     {
         var (glbBytes, triangles, _) = ConvertToGlbPreview(
             entry,
@@ -50,7 +51,8 @@ internal static class MeshConverterTabFileConverter
             worldzoneScale,
             visibilityOverrides,
             includeLevelObjects,
-            preparedSkeleton);
+            preparedSkeleton,
+            includeCollisionOverlay);
         return (glbBytes, triangles);
     }
 
@@ -61,7 +63,8 @@ internal static class MeshConverterTabFileConverter
             float worldzoneScale = 1f,
             IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
             bool includeLevelObjects = true,
-            Ps2Skeleton? preparedSkeleton = null)
+            Ps2Skeleton? preparedSkeleton = null,
+            bool includeCollisionOverlay = false)
     {
         var effectiveWorldzoneScale = MeshGuiCoordinateScalePolicy.Resolve(
             entry.IsPakWorldzone, worldzoneScale);
@@ -71,7 +74,8 @@ internal static class MeshConverterTabFileConverter
             effectiveWorldzoneScale,
             visibilityOverrides,
             includeLevelObjects,
-            preparedSkeleton));
+            preparedSkeleton,
+            includeCollisionOverlay));
         var groups = document.VisibilityGroups.ToArray();
         var (glbBytes, triangles) = ModelExportService.BuildGlbBytes(document);
         return (glbBytes, triangles, groups);
@@ -88,6 +92,7 @@ internal static class MeshConverterTabFileConverter
         string? blenderHelperPath = null,
         bool includeLevelObjects = true,
         Ps2Skeleton? preparedSkeleton = null,
+        bool includeCollisionOverlay = false,
         CancellationToken cancellationToken = default)
     {
         var effectiveWorldzoneScale = MeshGuiCoordinateScalePolicy.Resolve(
@@ -98,7 +103,8 @@ internal static class MeshConverterTabFileConverter
             effectiveWorldzoneScale,
             visibilityOverrides,
             includeLevelObjects,
-            preparedSkeleton));
+            preparedSkeleton,
+            includeCollisionOverlay));
         return ModelExportService.Export(
             document,
             new MeshExportRequest
@@ -119,7 +125,8 @@ internal static class MeshConverterTabFileConverter
         float worldzoneScale = 1f,
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool includeLevelObjects = true,
-        Ps2Skeleton? preparedSkeleton = null)
+        Ps2Skeleton? preparedSkeleton = null,
+        bool includeCollisionOverlay = false)
     {
         return new MeshImportRequest
         {
@@ -131,6 +138,7 @@ internal static class MeshConverterTabFileConverter
             HasPlacedPsxCompanion = entry.HasPlacedPsxCompanion,
             VisibilityOverrides = visibilityOverrides,
             IncludeLevelObjects = includeLevelObjects,
+            IncludeCollisionOverlay = includeCollisionOverlay,
             WorldzoneTimeOfDay = worldzoneTimeOfDay,
             WorldzoneScale = MeshGuiCoordinateScalePolicy.Resolve(
                 entry.IsPakWorldzone, worldzoneScale),

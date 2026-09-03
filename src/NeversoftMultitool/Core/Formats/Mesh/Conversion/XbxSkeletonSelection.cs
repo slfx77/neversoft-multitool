@@ -71,8 +71,10 @@ internal static class MeshGuiRenderPolicy
     public static bool RequiresEntryRebuild(
         bool isPakWorldzone,
         bool hasSupportedLevelObjectCompanion,
-        bool supportsExplicitXbxSkeleton) =>
+        bool supportsExplicitXbxSkeleton,
+        bool hasSupportedCollisionOverlayCompanion = false) =>
         isPakWorldzone
         || hasSupportedLevelObjectCompanion
-        || supportsExplicitXbxSkeleton;
+        || supportsExplicitXbxSkeleton
+        || hasSupportedCollisionOverlayCompanion;
 }

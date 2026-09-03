@@ -3,7 +3,8 @@ using System.Buffers.Binary;
 namespace NeversoftMultitool.Core.BinaryIO;
 
 /// <summary>
-///     Decodes DXT1, DXT3, and DXT5 (S3TC) compressed texture blocks to RGBA32.
+///     Decodes BC1/DXT1, BC2/DXT3, BC3/DXT5 and BC5/DXN compressed texture
+///     blocks to RGBA32.
 /// </summary>
 public static class DxtDecoder
 {
@@ -77,6 +78,43 @@ public static class DxtDecoder
                     allowTransparentMode: false);
                 offset += 16;
             }
+        }
+
+        return output;
+    }
+
+    /// <summary>
+    ///     Decode unsigned BC5 / ATI2 / DXN data to an opaque tangent-space
+    ///     normal map. The two stored BC4 channels are returned as R (X) and G
+    ///     (Y); positive Z is reconstructed into B.
+    /// </summary>
+    public static byte[] DecodeBc5(ReadOnlySpan<byte> data, int width, int height)
+    {
+        var (output, blocksX, blocksY) = PrepareDecode(
+            data.Length, width, height, 16, "BC5");
+        var offset = 0;
+
+        for (var by = 0; by < blocksY; by++)
+        {
+            for (var bx = 0; bx < blocksX; bx++)
+            {
+                DecodeBc4Block(
+                    data.Slice(offset, 8), output, bx * 4, by * 4,
+                    width, height, channel: 0);
+                DecodeBc4Block(
+                    data.Slice(offset + 8, 8), output, bx * 4, by * 4,
+                    width, height, channel: 1);
+                offset += 16;
+            }
+        }
+
+        for (var destination = 0; destination < output.Length; destination += 4)
+        {
+            var nx = output[destination] / 127.5 - 1.0;
+            var ny = output[destination + 1] / 127.5 - 1.0;
+            var nz = Math.Sqrt(Math.Max(0.0, 1.0 - nx * nx - ny * ny));
+            output[destination + 2] = (byte)Math.Round((nz + 1.0) * 127.5);
+            output[destination + 3] = 255;
         }
 
         return output;
@@ -234,6 +272,50 @@ public static class DxtDecoder
                 var idx = (int)((bits >> bitIndex) & 0x07);
                 var dest = (oy * width + ox) * 4;
                 output[dest + 3] = alphas[idx];
+            }
+        }
+    }
+
+    private static void DecodeBc4Block(ReadOnlySpan<byte> block, byte[] output,
+        int px, int py, int width, int height, int channel)
+    {
+        var a0 = block[0];
+        var a1 = block[1];
+        var bits = block[2] | ((ulong)block[3] << 8) | ((ulong)block[4] << 16) |
+                   ((ulong)block[5] << 24) | ((ulong)block[6] << 32) | ((ulong)block[7] << 40);
+
+        Span<byte> values = stackalloc byte[8];
+        values[0] = a0;
+        values[1] = a1;
+        if (a0 > a1)
+        {
+            values[2] = (byte)((6 * a0 + a1 + 3) / 7);
+            values[3] = (byte)((5 * a0 + 2 * a1 + 3) / 7);
+            values[4] = (byte)((4 * a0 + 3 * a1 + 3) / 7);
+            values[5] = (byte)((3 * a0 + 4 * a1 + 3) / 7);
+            values[6] = (byte)((2 * a0 + 5 * a1 + 3) / 7);
+            values[7] = (byte)((a0 + 6 * a1 + 3) / 7);
+        }
+        else
+        {
+            values[2] = (byte)((4 * a0 + a1 + 2) / 5);
+            values[3] = (byte)((3 * a0 + 2 * a1 + 2) / 5);
+            values[4] = (byte)((2 * a0 + 3 * a1 + 2) / 5);
+            values[5] = (byte)((a0 + 4 * a1 + 2) / 5);
+            values[6] = 0;
+            values[7] = 255;
+        }
+
+        for (var y = 0; y < 4; y++)
+        {
+            var outputY = py + y;
+            if (outputY >= height) break;
+            for (var x = 0; x < 4; x++)
+            {
+                var outputX = px + x;
+                if (outputX >= width) continue;
+                var selector = (int)((bits >> (3 * (y * 4 + x))) & 7);
+                output[(outputY * width + outputX) * 4 + channel] = values[selector];
             }
         }
     }

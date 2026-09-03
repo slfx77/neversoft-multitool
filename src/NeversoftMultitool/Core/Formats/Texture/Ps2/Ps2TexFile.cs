@@ -47,15 +47,15 @@ public static class Ps2TexFile
 
             var version = BitConverter.ToUInt32(data, 0);
 
+            // PSP IMG uses the same GE payload under version 2 (Remix) and
+            // version 4 (Project 8). Known build words distinguish both from
+            // the PS2 formats that reuse those version numbers.
+            if (Psp.PspImgFile.IsPspImg(data))
+                return Psp.PspImgFile.Parse(data);
+
             // Version 4 is shared between THUG TEX dictionaries and THAW IMG files.
             if (version == 4 && IsThawImg(data))
                 return ParseThawImg(data);
-
-            // Version 2 is shared between PS2 v2 IMG and the Remix PSP IMG
-            // re-encode; the PSP build word at +4 discriminates (measured:
-            // all 4,515 PSP files carry it, none of 12,558 PS2 v2 files do).
-            if (version == 2 && Psp.PspImgFile.IsPspImg(data))
-                return Psp.PspImgFile.Parse(data);
 
             return version switch
             {

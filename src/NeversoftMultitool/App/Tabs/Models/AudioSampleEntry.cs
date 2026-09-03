@@ -10,6 +10,9 @@ public sealed class AudioSampleEntry : IListEntry
     /// <summary>The actual VAB/KAT sample index, or XA channel number.</summary>
     public required int SampleIndex { get; init; }
 
+    /// <summary>The authored stream name when the bank stores one.</summary>
+    public string? SampleName { get; init; }
+
     /// <summary>The authored cue index when this row came from an owned SFX sheet.</summary>
     internal int? CueIndex { get; init; }
 
@@ -29,7 +32,11 @@ public sealed class AudioSampleEntry : IListEntry
         get
         {
             if (CueIndex is not { } cueIndex || CueSheet == null)
-                return $"#{SampleIndex:D3}";
+            {
+                return string.IsNullOrWhiteSpace(SampleName)
+                    ? $"#{SampleIndex:D3}"
+                    : $"#{SampleIndex:D5} {SampleName}";
+            }
 
             var cue = $"Cue #{cueIndex:D3} → sample #{SampleIndex:D3}";
             return Parent.CueSheets.Count > 1 ? $"{CueSheet.FileName}: {cue}" : cue;

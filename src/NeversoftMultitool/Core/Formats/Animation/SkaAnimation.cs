@@ -23,14 +23,21 @@ public sealed class SkaAnimation
     /// </summary>
     internal SkaIntermediateMetadata? IntermediateMetadata { get; init; }
 
+    /// <summary>
+    ///     Project 8 / Proving Ground's 0x20-byte wrapper and section-addressed
+    ///     THAW-family payload. The payload's first word is its 0x28/0x48 header
+    ///     size, retained in <see cref="Version" /> for inspection.
+    /// </summary>
+    internal bool IsNextGenWrappedFormat { get; init; }
+
     public bool IsCompressedTime => (Flags & (1u << 26)) != 0;
     public bool IsPreRotatedRoot => (Flags & (1u << 25)) != 0;
     public bool UsesCompressTable => (Flags & (1u << 23)) != 0;
     public bool IsPlatformFormat => (Flags & (1u << 28)) != 0;
     public bool IsIntermediateFormat => (Flags & (1u << 30)) != 0;
 
-    /// <summary>THAW v0x28 container (all three platforms + P8/THPG).</summary>
-    public bool IsThawFormat => Version == 0x28;
+    /// <summary>THAW-family container, including the later section-addressed revision.</summary>
+    public bool IsThawFormat => Version == 0x28 || IsNextGenWrappedFormat;
 
     /// <summary>
     ///     THAW bits 14+17 (always paired in the corpus): translation keys are

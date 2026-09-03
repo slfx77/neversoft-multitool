@@ -150,6 +150,19 @@ public class MeshTypeDetectorParityTests
         Assert.Null(MeshTypeDetector.MatchSuffix("readme.txt"));
     }
 
+    [Theory]
+    [InlineData("alccol.dat", true)]
+    [InlineData("Anl_Chickencol.dat", true)]
+    [InlineData("col.dat", false)]
+    [InlineData("level.col.dat", false)]
+    public void Thps4PcDatCollisionGate_RequiresADelimiterFreeNonEmptyStem(
+        string name,
+        bool expected)
+    {
+        Assert.Equal(expected, MeshTypeDetector.IsThps4PcDatCollisionFileName(name));
+        Assert.Equal(expected, MeshTypeDetector.MatchSuffix(name) != null);
+    }
+
     [Fact]
     public void KnownSuffixes_AreDistinct()
     {

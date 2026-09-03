@@ -49,13 +49,13 @@ public class AudioFileEntry : BaseFileEntry, IListEntry
     protected override string ProcessingVerb => "Converting...";
 
     /// <summary>
-    ///     Whether this format supports expand/collapse (VAB and KAT have
-    ///     multiple samples or owned cues). XA files are only expandable once a background
+    ///     Whether this format supports expand/collapse (VAB, KAT, FSB3, and THAW XMA
+    ///     have multiple samples or owned cues). XA files are only expandable once a background
     ///     probe has found more than one interleaved channel — single-channel
     ///     XA stays a flat, directly-previewable row.
     /// </summary>
     public bool IsExpandable =>
-        AudioFormat is "VAB" or "KAT"
+        AudioFormat is "VAB" or "KAT" or "FSB3" or "THAW XMA"
         || (AudioFormat == "XA" && CachedChildren is { Count: > 0 });
 
     /// <summary>

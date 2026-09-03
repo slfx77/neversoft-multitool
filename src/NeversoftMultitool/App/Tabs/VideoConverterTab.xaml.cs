@@ -152,7 +152,8 @@ public sealed partial class VideoConverterTab : UserControl, IDisposable
             var entries = new List<SfdFileEntry>();
             foreach (var archiveEntry in backend.Entries)
             {
-                if (!VideoConverterTabOperations.IsVideoFile(archiveEntry.Name)) continue;
+                var source = new ArchiveAssetSource(backend, archiveEntry);
+                if (!VideoConverterTabOperations.IsVideoFile(source)) continue;
                 entries.Add(VideoConverterTabOperations.CreateEntryForArchiveEntry(backend, archiveEntry));
             }
 

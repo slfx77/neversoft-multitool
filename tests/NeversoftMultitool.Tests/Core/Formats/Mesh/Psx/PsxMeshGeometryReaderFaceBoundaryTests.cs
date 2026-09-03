@@ -27,7 +27,8 @@ public sealed class PsxMeshGeometryReaderFaceBoundaryTests
 
         var mesh = ReadMesh(reader);
 
-        Assert.Single(mesh.Faces);
+        var face = Assert.Single(mesh.Faces);
+        Assert.Equal((ushort)0x0510, face.CollisionFlags);
         var readInfo = Assert.Single(mesh.FaceReadInfos);
         Assert.Equal(16, readInfo.BytesConsumed);
         Assert.Equal(0, readInfo.UnderreadBytes);
@@ -97,6 +98,7 @@ public sealed class PsxMeshGeometryReaderFaceBoundaryTests
         data[70] = 0x80;
         data[71] = 0;
         WriteUInt16(data, 72, 0); // normal index
+        WriteUInt16(data, 74, 0x0510); // collision/surface flags
         return data;
     }
 

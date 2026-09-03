@@ -38,6 +38,32 @@ public static class NgcSceneFile
                && BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(0x2C)) == Sentinel;
     }
 
+    /// <summary>
+    ///     Returns true only when the complete payload is compatible with the
+    ///     THAW GameCube layout this parser implements. Later Wii games retained
+    ///     the same <c>0xAAFFEEFF</c> sentinel while changing records after the
+    ///     header, so <see cref="IsNgcScene" /> alone is only a family signature
+    ///     and must not be used as a support verdict.
+    /// </summary>
+    public static bool TryParse(byte[] data, out XbxScene? scene)
+    {
+        try
+        {
+            scene = Parse(data);
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            scene = null;
+            return false;
+        }
+        catch (OverflowException)
+        {
+            scene = null;
+            return false;
+        }
+    }
+
     public static XbxScene Parse(byte[] data)
     {
         if (!IsNgcScene(data))
@@ -131,6 +157,21 @@ public static class NgcSceneFile
                              + (long)numNrm * 6;
         RequireRange(poolEnd, offset, fixedPoolBytes, "NGC scene fixed pool arrays");
 
+        // The normal count is serialized as u16. Four large THAW levels wrap
+        // it once while retaining the additional 65,536 packed normals in the
+        // declared pool; their display-list indices likewise cover the entire
+        // u16 domain. Normals are the final array in this THAW layout, so an
+        // entire extra 65,536-entry block is an unambiguous overflow marker.
+        // Smaller residuals are alignment/opaque pool data and must not relax
+        // index validation.
+        const long wrappedNormalBlockBytes = 65_536L * 6;
+        var consumedPoolBytes = checked((long)(offset - poolStart) + fixedPoolBytes);
+        var residualPoolBytes = (long)numPoolBytesRaw - consumedPoolBytes;
+        var hasSingleWrappedNormalBlock = numNrm > 0
+                                          && residualPoolBytes >= wrappedNormalBlockBytes
+                                          && residualPoolBytes < wrappedNormalBlockBytes * 2;
+        var effectiveNumNrm = hasSingleWrappedNormalBlock ? 65_536 : numNrm;
+
         var numPos = checked((int)numPosRaw);
         var materialOffsets = offset;
         offset += numMaterials * 32;
@@ -150,7 +191,7 @@ public static class NgcSceneFile
             posPoolOffset, numPos,
             colPoolOffset, numCol,
             texPoolOffset, numTex,
-            nrmPoolOffset, numNrm);
+            nrmPoolOffset, effectiveNumNrm);
 
         var materials = ReadMaterials(
             span, materialOffsets, numMaterials, passOffsets, numPassItems, materialTextured);
@@ -159,13 +200,14 @@ public static class NgcSceneFile
         // addresses it, so only require it to be in bounds when there is
         // something to read there.
         var sectors = new List<XbxSector>(numObjects);
+        var objectPositionPools = new List<NgcSceneObjectPositionPool>(numObjects);
         if (numObjects > 0)
         {
             RequireRange(span.Length, (int)declaredPoolEnd, (long)numObjects * ObjectHeaderSize,
                 "NGC scene object headers");
             offset = (int)declaredPoolEnd;
             for (var obj = 0; obj < numObjects; obj++)
-                offset = ReadObject(span, offset, obj, pools, sectors);
+                offset = ReadObject(span, offset, obj, pools, sectors, objectPositionPools);
         }
         else
         {
@@ -178,8 +220,28 @@ public static class NgcSceneFile
         {
             Materials = materials,
             Sectors = sectors.ToArray(),
-            Links = links
+            Links = links,
+            NgcPositionPools = new NgcScenePositionPools
+            {
+                StaticPositions = ReadStaticPositions(span, pools),
+                Objects = objectPositionPools.ToArray()
+            }
         };
+    }
+
+    private static Vector3[] ReadStaticPositions(ReadOnlySpan<byte> span, PoolLayout pools)
+    {
+        var positions = new Vector3[pools.NumPos];
+        for (var i = 0; i < positions.Length; i++)
+        {
+            var offset = pools.PosOffset + i * 12;
+            positions[i] = new Vector3(
+                BinaryPrimitives.ReadSingleBigEndian(span[offset..]),
+                BinaryPrimitives.ReadSingleBigEndian(span[(offset + 4)..]),
+                BinaryPrimitives.ReadSingleBigEndian(span[(offset + 8)..]));
+        }
+
+        return positions;
     }
 
     private static XbxMaterial[] ReadMaterials(
@@ -238,7 +300,8 @@ public static class NgcSceneFile
         int offset,
         int objectIndex,
         PoolLayout pools,
-        List<XbxSector> sectors)
+        List<XbxSector> sectors,
+        List<NgcSceneObjectPositionPool> objectPositionPools)
     {
         RequireRange(span.Length, offset, ObjectHeaderSize,
             $"NGC scene object {objectIndex} header");
@@ -265,6 +328,7 @@ public static class NgcSceneFile
 
         var meshes = new List<XbxMesh>(numMeshes);
         uint sectorChecksum = 0;
+        var renderChecksumIsUniform = true;
         for (var m = 0; m < numMeshes; m++)
         {
             RequireRange(span.Length, offset, DlHeaderSize,
@@ -274,8 +338,10 @@ public static class NgcSceneFile
             var flags = BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 8)..]);
             var checksum = BinaryPrimitives.ReadUInt32BigEndian(span[(offset + 12)..]);
             var meshSphere = ReadVector4(span, offset + 16);
-            if (sectorChecksum == 0)
+            if (m == 0)
                 sectorChecksum = checksum;
+            else if (checksum != sectorChecksum)
+                renderChecksumIsUniform = false;
 
             var dlStart = offset + DlHeaderSize;
             RequireRange(span.Length, dlStart, dlSizeRaw,
@@ -316,6 +382,15 @@ public static class NgcSceneFile
             Meshes = meshes.ToArray()
         });
 
+        objectPositionPools.Add(new NgcSceneObjectPositionPool
+        {
+            ObjectIndex = objectIndex,
+            RenderChecksum = sectorChecksum,
+            HasRenderChecksum = numMeshes > 0,
+            RenderChecksumIsUniform = renderChecksumIsUniform,
+            SkinPositions = skinVerts.Select(static vertex => vertex.Position).ToArray()
+        });
+
         return offset;
     }
 
@@ -335,6 +410,7 @@ public static class NgcSceneFile
         int numSkinVerts,
         int objectIndex)
     {
+        var start = offset;
         var verts = new List<SkinVertex>(numSkinVerts);
 
         for (var list = 0; list < numSingleLists; list++)
@@ -380,6 +456,13 @@ public static class NgcSceneFile
             offset += (int)recordBytes;
         }
 
+        if (verts.Count != numSkinVerts)
+        {
+            throw new InvalidDataException(
+                $"NGC scene object {objectIndex} declares {numSkinVerts} skin vertices " +
+                $"but its single/double lists contain {verts.Count}");
+        }
+
         var result = verts.ToArray();
 
         for (var list = 0; list < numAddLists; list++)
@@ -399,14 +482,42 @@ public static class NgcSceneFile
             {
                 var weight = BinaryPrimitives.ReadInt16BigEndian(span[(weightOffset + i * 2)..]) / 16384f;
                 var target = (int)BinaryPrimitives.ReadUInt16BigEndian(span[(indexOffset + i * 2)..]);
-                if (target < result.Length)
-                    result[target] = result[target] with { Bone2 = mtx, Weight2 = weight };
+                if ((uint)target >= (uint)result.Length)
+                {
+                    throw new InvalidDataException(
+                        $"NGC scene object {objectIndex} add-skin list {list} " +
+                        $"references target vertex {target}, but only {result.Length} skin vertices exist");
+                }
+
+                result[target] = result[target] with { Bone2 = mtx, Weight2 = weight };
             }
 
             offset += (int)recordBytes;
         }
 
+        var remaining = end - offset;
+        var isAlignedZeroPadding = remaining is > 0 and < 32
+                                   && (end - start) % 32 == 0
+                                   && IsZeroFilled(span[offset..end]);
+        if (remaining != 0 && !isAlignedZeroPadding)
+        {
+            throw new InvalidDataException(
+                $"NGC scene object {objectIndex} skin lists consume {offset - start} " +
+                $"of the declared {end - start} bytes");
+        }
+
         return result;
+    }
+
+    private static bool IsZeroFilled(ReadOnlySpan<byte> span)
+    {
+        foreach (var value in span)
+        {
+            if (value != 0)
+                return false;
+        }
+
+        return true;
     }
 
     private static (Vector3 Pos, Vector3 Normal) ReadSkinPosNormal(ReadOnlySpan<byte> span, int offset)
@@ -433,16 +544,11 @@ public static class NgcSceneFile
                 matrixBytes++;
         }
 
-        var extraTexBytes = 0;
+        var extraTexModes = new AttrMode[7];
         for (var t = 1; t < 8; t++)
         {
             var mode = DecodeAttrMode((vcdHi >> (2 * t)) & 3, $"tex{t}", dlOffset);
-            extraTexBytes += mode switch
-            {
-                AttrMode.Index8 => 1,
-                AttrMode.Index16 => 2,
-                _ => 0
-            };
+            extraTexModes[t - 1] = mode;
         }
 
         return new VertexDescriptor(
@@ -452,7 +558,7 @@ public static class NgcSceneFile
             DecodeAttrMode((vcdLo >> 13) & 3, "color0", dlOffset),
             DecodeAttrMode((vcdLo >> 15) & 3, "color1", dlOffset),
             DecodeAttrMode(vcdHi & 3, "tex0", dlOffset),
-            extraTexBytes);
+            extraTexModes);
     }
 
     private static AttrMode DecodeAttrMode(uint value, string attribute, int dlOffset)
@@ -535,8 +641,36 @@ public static class NgcSceneFile
                 var posIdx = ReadAttrIndex(span, ref vo, descriptor.Position);
                 var nrmIdx = ReadAttrIndex(span, ref vo, descriptor.Normal);
                 var colIdx = ReadAttrIndex(span, ref vo, descriptor.Color0);
-                ReadAttrIndex(span, ref vo, descriptor.Color1);
+                var col1Idx = ReadAttrIndex(span, ref vo, descriptor.Color1);
                 var texIdx = ReadAttrIndex(span, ref vo, descriptor.Tex0);
+
+                var positionCount = skinned ? skinVerts.Length : pools.NumPos;
+                var normalCount = skinned ? skinVerts.Length : pools.NumNrm;
+                ValidateAttrIndex(descriptor.Position, posIdx, positionCount, "position", context, required: true);
+                // Skinned display lists carry COLOR indices even though their
+                // scene declares no serialized colour pool. The runtime binds
+                // those through skinned render state; this reader cannot resolve
+                // that external array, so it preserves the tuple split and emits
+                // the safe default white without dereferencing the index.
+                var hasUnboundSkinColors = skinned && pools.NumCol == 0;
+                ValidateAttrIndex(descriptor.Normal, nrmIdx, normalCount, "normal", context);
+                ValidateAttrIndex(
+                    descriptor.Color0, colIdx, pools.NumCol, "color0", context,
+                    allowUnboundPool: hasUnboundSkinColors);
+                ValidateAttrIndex(
+                    descriptor.Color1, col1Idx, pools.NumCol, "color1", context,
+                    allowUnboundPool: hasUnboundSkinColors);
+                ValidateAttrIndex(descriptor.Tex0, texIdx, pools.NumTex, "tex0", context);
+                for (var extraTex = 0; extraTex < descriptor.ExtraTexModes.Length; extraTex++)
+                {
+                    var extraTexIndex = ReadAttrIndex(span, ref vo, descriptor.ExtraTexModes[extraTex]);
+                    ValidateAttrIndex(
+                        descriptor.ExtraTexModes[extraTex],
+                        extraTexIndex,
+                        pools.NumTex,
+                        $"tex{extraTex + 1}",
+                        context);
+                }
 
                 var key = (posIdx, nrmIdx, colIdx, texIdx);
                 if (!tupleMap.TryGetValue(key, out var vertexIndex))
@@ -582,6 +716,32 @@ public static class NgcSceneFile
                 return value;
             default:
                 return -1;
+        }
+    }
+
+    private static void ValidateAttrIndex(
+        AttrMode mode,
+        int index,
+        int count,
+        string attribute,
+        string context,
+        bool required = false,
+        bool allowUnboundPool = false)
+    {
+        if (mode == AttrMode.None)
+        {
+            if (required)
+                throw new InvalidDataException($"{context} omits its required {attribute} attribute");
+            return;
+        }
+
+        if (allowUnboundPool && count == 0)
+            return;
+
+        if ((uint)index >= (uint)count)
+        {
+            throw new InvalidDataException(
+                $"{context} references {attribute} index {index}, outside its {count}-entry pool");
         }
     }
 
@@ -787,11 +947,11 @@ public static class NgcSceneFile
         AttrMode Color0,
         AttrMode Color1,
         AttrMode Tex0,
-        int ExtraTexBytes)
+        AttrMode[] ExtraTexModes)
     {
         public int Stride => MatrixIndexBytes
                              + Size(Position) + Size(Normal) + Size(Color0) + Size(Color1)
-                             + Size(Tex0) + ExtraTexBytes;
+                             + Size(Tex0) + ExtraTexModes.Sum(Size);
 
         private static int Size(AttrMode mode)
         {

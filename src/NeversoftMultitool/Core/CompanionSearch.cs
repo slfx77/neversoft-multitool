@@ -34,8 +34,8 @@ public static class CompanionSearch
         {
             foreach (var dirName in knownDirNames)
             {
-                var sibling = Path.Combine(parent, dirName);
-                if (!Directory.Exists(sibling)) continue;
+                var sibling = FindDirectory(parent, dirName);
+                if (sibling == null) continue;
 
                 match = TryMatchInDir(sibling, stem, extensions);
                 if (match != null) return match;
@@ -50,8 +50,8 @@ public static class CompanionSearch
         {
             foreach (var dirName in knownDirNames)
             {
-                var candidateDir = Path.Combine(ancestor, dirName);
-                if (!Directory.Exists(candidateDir)) continue;
+                var candidateDir = FindDirectory(ancestor, dirName);
+                if (candidateDir == null) continue;
 
                 match = TryMatchInDir(candidateDir, stem, extensions);
                 if (match != null) return match;
@@ -187,7 +187,82 @@ public static class CompanionSearch
             if (File.Exists(candidate))
                 return candidate;
         }
+        if (OperatingSystem.IsWindows())
+            return null;
+
+        string[] files;
+        try
+        {
+            files = Directory.GetFiles(dir);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        foreach (var ext in extensions)
+        {
+            var requestedName = stem + ext;
+            string? match = null;
+            foreach (var file in files)
+            {
+                if (!Path.GetFileName(file).Equals(
+                        requestedName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (match != null)
+                    return null;
+                match = file;
+            }
+
+            if (match != null)
+                return match;
+        }
 
         return null;
+    }
+
+    private static string? FindDirectory(string parent, string name)
+    {
+        var exact = Path.Combine(parent, name);
+        if (Directory.Exists(exact))
+            return exact;
+        if (OperatingSystem.IsWindows())
+            return null;
+        if (!Directory.Exists(parent))
+            return null;
+
+        string? match = null;
+        try
+        {
+            foreach (var directory in Directory.EnumerateDirectories(parent))
+            {
+                if (!Path.GetFileName(directory).Equals(
+                        name, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (match != null)
+                    return null;
+                match = directory;
+            }
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        return match;
     }
 }

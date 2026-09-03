@@ -5,6 +5,8 @@ internal readonly record struct NgcTexEntry(
     uint Checksum,
     int Width,
     int Height,
+    byte WidthPadding,
+    byte HeightPadding,
     byte FormatA,
     byte FormatB,
     int DataSize,

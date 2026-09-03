@@ -35,17 +35,20 @@ public class CutsceneAnimGateTests
         w.Write((byte)0); // bone 0: 1 Q, 0 T
         w.Write((byte)0);
         w.Write((byte)1); // bone 1: 0 Q, 1 T
-        // per-bone frames = 4 bytes, already 4-aligned
-        // Q key (standard, 8 bytes): header + 3×i16
+        // OBJECTANIMDATA uses 16-byte high-resolution records regardless of
+        // whether bit 22 widens the per-bone count table.
+        // Q key: header + alignment pad + 3×f32
         w.Write((ushort)0);
+        w.Write((ushort)0);
+        w.Write(0f);
+        w.Write(0f);
+        w.Write(0f);
+        // T key: timestamp + alignment pad + 3×f32
         w.Write((short)0);
-        w.Write((short)0);
-        w.Write((short)0);
-        // T key (standard, 8 bytes): timestamp + 3×i16
-        w.Write((short)0);
-        w.Write((short)32);
-        w.Write((short)0);
-        w.Write((short)0);
+        w.Write((ushort)0);
+        w.Write(1f);
+        w.Write(0f);
+        w.Write(0f);
 
         var anim = SkaFile.Parse(ms.ToArray());
 
@@ -56,7 +59,7 @@ public class CutsceneAnimGateTests
         Assert.Single(anim.BoneTracks[1].TranslationKeys);
         Assert.Equal(0xAAAA0001u, anim.BoneTracks[0].BoneNameChecksum);
         Assert.Equal(0xBBBB0002u, anim.BoneTracks[1].BoneNameChecksum);
-        // T key wrote 32 into the tx slot (32/32 = 1); landing it here proves the
+        // T key wrote one into the tx slot; landing it here proves the
         // OBJECTANIMDATA bone-name array was skipped before the per-bone frames.
         Assert.Equal(new Vector3(1, 0, 0), anim.BoneTracks[1].TranslationKeys[0].Translation);
     }

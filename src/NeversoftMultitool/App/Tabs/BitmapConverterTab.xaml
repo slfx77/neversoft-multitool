@@ -24,7 +24,7 @@
           Text="Bitmap Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert Neversoft RLE/BMR/ZLB, N64 fullscreen images, and standard BMP/TGA bitmaps to PNG"
+          Text="View and convert Neversoft RLE/BMR/ZLB, N64 fullscreen images, and standard BMP/TGA/TIFF/PNG/JPEG/GIF bitmaps"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>

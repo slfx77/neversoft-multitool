@@ -635,8 +635,9 @@ public sealed class GltfModelExporter : IModelExporter
             .SelectMany(static primitive => primitive.NativeMetadata)
             .OfType<PsxSemiTransparentLiftMetadata>()
             .FirstOrDefault();
+        var collisionGroups = BuildCollisionGroups(modelMesh);
         if (drawOrder == null && sky == null && billboard == null && colourPulse == null &&
-            semiLift == null && !psxVertexCarriers)
+            semiLift == null && collisionGroups == null && !psxVertexCarriers)
             return;
 
         var extras = new System.Text.Json.Nodes.JsonObject();
@@ -677,10 +678,55 @@ public sealed class GltfModelExporter : IModelExporter
         if (colourPulse != null)
             extras["neversoftColourPulse"] = true;
 
+        if (collisionGroups != null)
+            extras["neversoftCollisionGroups"] = collisionGroups;
+
         if (psxVertexCarriers)
             extras["neversoftPsxVertexCarriers"] = 1;
 
         mesh.Extras = extras;
+    }
+
+    /// <summary>
+    ///     Preserves the classification boundaries of PSX/RW inline collision
+    ///     primitives. Both collision writers intentionally use one overlay
+    ///     material, and <see cref="MeshBuilder{TMaterial,TvG,TvM,TvS}.UsePrimitive" />
+    ///     consequently coalesces every classification into one glTF primitive.
+    ///     These ordered, zero-based ranges address that merged triangle stream.
+    /// </summary>
+    private static System.Text.Json.Nodes.JsonArray? BuildCollisionGroups(ModelMesh modelMesh)
+    {
+        System.Text.Json.Nodes.JsonArray? groups = null;
+        var triangleStart = 0;
+        foreach (var primitive in modelMesh.Primitives)
+        {
+            var triangleCount = primitive.TriangleCount;
+            var psx = primitive.NativeMetadata
+                .OfType<PsxCollisionFlagsRenderMetadata>()
+                .FirstOrDefault();
+            var rw = primitive.NativeMetadata
+                .OfType<RwBspCollisionFlagsRenderMetadata>()
+                .FirstOrDefault();
+
+            if (psx != null || rw != null)
+            {
+                var group = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["triangleStart"] = triangleStart,
+                    ["triangleCount"] = triangleCount,
+                    ["collisionFlags"] = (int)(psx?.CollisionFlags ?? rw!.CollisionFlags)
+                };
+                if (psx != null)
+                    group["loaderInvisible"] = psx.LoaderInvisible;
+
+                groups ??= [];
+                groups.Add(group);
+            }
+
+            triangleStart += triangleCount;
+        }
+
+        return groups;
     }
 
     private static int AddSkinnedMesh(

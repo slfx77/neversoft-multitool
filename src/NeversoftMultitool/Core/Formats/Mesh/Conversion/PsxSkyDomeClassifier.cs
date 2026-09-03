@@ -196,7 +196,7 @@ internal static class PsxSkyDomeClassifier
     ///     its own node and the lowest wins. A counter running across nodes would
     ///     give the second node's copies ranks 2 and 3 and invent an order.
     /// </summary>
-    private static Dictionary<uint, int> CollectBackgroundRegistrations(
+    internal static Dictionary<uint, int> CollectBackgroundRegistrations(
         TrgFile trg,
         out TrgPosition? anchor)
     {

@@ -11,6 +11,19 @@ public sealed class XbxScene
     public required XbxSector[] Sectors { get; init; }
     public required XbxLink[] Links { get; init; }
 
+    /// <summary>
+    ///     Exact source-order position pools retained by the GameCube scene
+    ///     reader. Other scene readers leave this null.
+    /// </summary>
+    public NgcScenePositionPools? NgcPositionPools { get; init; }
+
+    /// <summary>
+    ///     The hierarchy records are authored local-to-parent placement matrices
+    ///     for rigid sectors and should be applied during static export. Older
+    ///     parsers leave this false until their hierarchy semantics are proven.
+    /// </summary>
+    public bool ApplyHierarchyTransforms { get; init; }
+
     public int TotalTriangles => Sectors.Sum(s => s.TotalTriangles);
     public int TotalVertices => Sectors.Sum(s => s.TotalVertices);
 }

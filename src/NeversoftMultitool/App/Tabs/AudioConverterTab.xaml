@@ -157,7 +157,7 @@
           Text="Audio Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert ADX, XA, VAB, VAG, KAT, PCM, SND, PSS, and VID audio to WAV; paired SFX cue sheets are applied to their banks"
+          Text="Convert ADX, XA, VAB, VAG, KAT, THAW XMA DAT/WAD and FSB3 MP3/XMA banks, PCM, SND, THPS4 PC DEE/SMO, late PS3 .wav.ps3 and Xbox 360 .wav.xen, PSS/PMF soundtracks, VID, standard WAV/WMA, DS SWAV/STRM/HWAS, extensionless Wii DSP-ADPCM, and PSP AT3 audio to WAV; paired SFX cue sheets are applied to their banks"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>

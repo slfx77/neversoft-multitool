@@ -79,7 +79,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
         IReadOnlyDictionary<string, bool>? visibilityOverrides = null,
         bool preserveCamera = false,
         bool includeLevelObjects = true,
-        XbxSkeletonSelection? xbxSkeletonSelection = null)
+        XbxSkeletonSelection? xbxSkeletonSelection = null,
+        bool includeCollisionOverlay = false)
     {
         var cts = await ReplacePreviewCancellationAsync();
         if (cts == null) return null;
@@ -101,7 +102,8 @@ internal sealed class MeshConverterTabPreview : IDisposable
                     worldzoneTimeOfDay,
                     visibilityOverrides: visibilityOverrides,
                     includeLevelObjects: includeLevelObjects,
-                    preparedSkeleton: xbxSkeletonSelection?.Skeleton), token);
+                    preparedSkeleton: xbxSkeletonSelection?.Skeleton,
+                    includeCollisionOverlay: includeCollisionOverlay), token);
 
             if (token.IsCancellationRequested || !IsCurrentPreview(cts)) return null;
 

@@ -79,7 +79,7 @@ public static class NdsAudioDecoder
 
             Directory.CreateDirectory(outputDir);
             WavWriter.WritePcm16(Path.Combine(outputDir, stem + ".wav"), sampleRate, channels, samples);
-            return new AudioConvertResult { Success = true, SamplesWritten = samples.Length / channels };
+            return new AudioConvertResult { Success = true, SamplesWritten = 1 };
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or ArgumentException
                                    or OverflowException or UnauthorizedAccessException)

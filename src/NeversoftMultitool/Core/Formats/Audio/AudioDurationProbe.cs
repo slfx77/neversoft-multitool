@@ -23,15 +23,27 @@ public static class AudioDurationProbe
                 "XA" => ProbeXa(data),
                 "VAG" => VagDecoder.Probe(data)?.DurationSeconds,
                 "PCM" => XboxPcmDecoder.Probe(data)?.DurationSeconds,
+                "SWAV" or "STRM" or "HWAS" => NdsAudioDecoder.Probe(data)?.DurationSeconds,
+                "DSP" => WiiDspAudio.Probe(data)?.DurationSeconds,
+                "WAV" => StandardAudioFormatSupport.ProbeWave(data)?.DurationSeconds,
+                "WMA" => StandardAudioFormatSupport.ProbeWindowsMediaAudio(data)?.DurationSeconds,
+                "DEE" => Thps4PcDeeAudio.Probe(data)?.DurationSeconds,
+                "SMO" => Thps4PcSmoAudio.Probe(data)?.DurationSeconds,
+                "PS3 MP3" => LatePlatformAudio.ProbeMpegLayer3(data)?.DurationSeconds,
+                "PS3 FSB3" => LatePlatformAudio.ProbePs3Fsb3(data)?.DurationSeconds,
+                "XMA1" => LatePlatformAudio.ProbeXma1(data)?.DurationSeconds,
                 "SND" => Thug2PcSndDecoder.Probe(data)?.DurationSeconds,
                 "PSS" => PssAudioExtractor.Probe(data)?.DurationSeconds,
+                "PMF" => PsmfAudioExtractor.Probe(data) is { HasAudio: true } pmf
+                    ? pmf.DurationSeconds
+                    : null,
                 "VID" => Vid1AudioExtractor.ProbeTracks(data)
                     .Select(static track => track.DurationSeconds)
                     .Where(static duration => duration is > 0)
                     .DefaultIfEmpty()
                     .Max(),
                 "SEQ" => ProbeSeq(data),
-                "VAB" or "KAT" => null,
+                "VAB" or "KAT" or "FSB3" or "THAW XMA" => null,
                 _ => null
             };
         }

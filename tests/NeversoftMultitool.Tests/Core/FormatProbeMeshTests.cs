@@ -155,6 +155,40 @@ public sealed class FormatProbeMeshTests
     }
 
     [Fact]
+    public void ProbeMesh_Thps4ColFileV8_Supported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".col.ps2", BitConverter.GetBytes(8));
+        try
+        {
+            var result = FormatProbe.ProbeMesh(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("COL Collision (v8)", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeMesh_XenColFileBigEndianV10_Supported()
+    {
+        var data = new byte[4];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(data, 10);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".col.xen", data);
+        try
+        {
+            var result = FormatProbe.ProbeMesh(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("X360 COL Collision (v10)", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void ProbeMesh_BspValidMagic_Supported()
     {
         var tempFile = FormatProbeTestHelper.CreateTempFile(".bsp", BuildRwRoot(0x000B, 0, 12));

@@ -12,7 +12,7 @@ public static class ColCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to a COL collision file (.col.xbx, .col) or directory"
+            Description = "Path to a COL collision file (.col.xbx, .col.ps2, .col.xen, *col.dat, .col) or directory"
         };
         var outputOption = new Option<string>("-o", "--output")
         {

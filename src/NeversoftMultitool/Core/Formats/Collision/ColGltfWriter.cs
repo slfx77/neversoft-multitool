@@ -79,6 +79,21 @@ public static class ColGltfWriter
     private static VERTEX MakeVertex(ColObject obj, int index)
     {
         var pos = obj.Vertices[index];
+        var colorOffset = index * 4;
+        if (colorOffset >= 0 && colorOffset + 3 < obj.VertexColorsRgba.Length)
+        {
+            var rgba = obj.VertexColorsRgba;
+            return new VERTEX(
+                new VertexPositionNormal(pos, Vector3.UnitY),
+                new VertexColor1Texture1(
+                    new Vector4(
+                        rgba[colorOffset] / 255f,
+                        rgba[colorOffset + 1] / 255f,
+                        rgba[colorOffset + 2] / 255f,
+                        rgba[colorOffset + 3] / 255f),
+                    Vector2.Zero));
+        }
+
         // Intensity → grayscale vertex color (0=black, 255=white)
         var intensity = index < obj.Intensities.Length ? obj.Intensities[index] / 255f : 1f;
         var color = new Vector4(intensity, intensity, intensity, 1f);

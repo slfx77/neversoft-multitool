@@ -458,7 +458,9 @@ internal static class CharacterAnimationConverter
             if (fsPath != null)
                 table = SkaCommand.FindCompressTable(fsPath);
 
-            return SkaFile.ParseExportableCharacterAnimation(bytes, table);
+            return Thps4PcDatAnimationFile.IsCandidateFileName(probe.Source.EntryName)
+                ? Thps4PcDatAnimationFile.ParseExact(bytes, table)
+                : SkaFile.ParseExportableCharacterAnimation(bytes, table);
         }
         catch
         {
@@ -483,7 +485,9 @@ internal static class CharacterAnimationConverter
 
             var bytes = File.ReadAllBytes(defaultPath);
             var table = SkaCommand.FindCompressTable(defaultPath);
-            return SkaFile.ParseExportableCharacterAnimation(bytes, table);
+            return Thps4PcDatAnimationFile.IsCandidateFileName(defaultPath)
+                ? Thps4PcDatAnimationFile.ParseExact(bytes, table)
+                : SkaFile.ParseExportableCharacterAnimation(bytes, table);
         }
         catch
         {
@@ -493,9 +497,7 @@ internal static class CharacterAnimationConverter
 
     private static string StripAnimExtension(string fileName)
     {
-        // Strip ".ska", ".ska.ps2", etc. so animation track names are clean.
-        var idx = fileName.IndexOf(".ska", StringComparison.OrdinalIgnoreCase);
-        return idx > 0 ? fileName[..idx] : Path.GetFileNameWithoutExtension(fileName);
+        return SkaCommand.GetOutputStem(fileName);
     }
 
     public sealed record Result(byte[]? GlbBytes, int Triangles, string? Error)

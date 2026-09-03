@@ -147,7 +147,9 @@ public static class AudioOutputStemPlanner
     {
         var normalized = fileName.Replace('\\', '/');
         var leaf = normalized[(normalized.LastIndexOf('/') + 1)..];
-        var stem = Path.GetFileNameWithoutExtension(leaf);
+        var stem = LatePlatformAudio.HasSupportedFileName(leaf)
+            ? LatePlatformAudio.GetSourceStem(leaf)
+            : Path.GetFileNameWithoutExtension(leaf);
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(stem
             .Select(character => character < ' ' || invalid.Contains(character) ? '_' : character)

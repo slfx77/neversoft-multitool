@@ -10,12 +10,13 @@ public static class AudioCommand
 {
     private static readonly string[] SupportedExtensions =
     [
-        ".adx", ".xa", ".vab", ".kat", ".sfx", ".seq", ".vag", ".pcm", ".snd", ".pss", ".vid",
-        ".swav", ".strm", ".hwas",
+        ".adx", ".xa", ".vab", ".kat", ".sfx", ".seq", ".vag", ".pcm", ".snd", ".dee", ".smo", ".pss", ".pmf", ".vid", ".fsb",
+        ..HandheldAudioFormatSupport.Extensions,
+        ..StandardAudioFormatSupport.Extensions,
         // PSP ATRAC3/ATRAC3plus, and the Wii builds' VID1 audio-only movies,
         // which ship misnamed .ogg (their PAYLOAD really is Ogg Vorbis, so the
         // name is honest one level down). Both routed 2026-08-26.
-        ".at3", ".ogg"
+        ".ogg"
     ];
 
     public static Command Create()
@@ -23,7 +24,7 @@ public static class AudioCommand
         var inputArgument = new Argument<string>("input")
         {
             Description =
-                "Path to directory containing audio files (.adx, .xa, .vab, .vag, .kat, .sfx, .pcm, .snd, .pss, .vid, .at3, .ogg, .swav, .strm, .hwas)"
+                "Path to directory containing supported audio files, including THAW XMA DAT/WAD pairs, FSB3 banks, THPS4 PC DEE/SMO, PSP PMF soundtracks, late .wav.ps3/.wav.xen, and extensionless Wii DSP-ADPCM (.adx, .xa, .vab, .vag, .kat, .sfx, .pcm, .snd, .dee, .smo, .pss, .pmf, .vid, .fsb, .fsb.ps3, .fsb.xen, .wav.ps3, .wav.xen, .at3, .ogg, .swav, .strm, .hwas, .wav, .wma)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -40,7 +41,9 @@ public static class AudioCommand
             DefaultValueFactory = _ => 0
         };
 
-        var command = new Command("audio", "Convert ADX/XA/VAB/VAG/KAT/SFX/PCM/SND/PSS/VID audio files to WAV");
+        var command = new Command(
+            "audio",
+            "Convert Neversoft, THPS4 PC DEE/SMO, PSP PMF, late PS3/X360, THAW XMA/FSB3, handheld (including Wii DSP), WAV, and WMA audio files to WAV");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -76,15 +79,14 @@ public static class AudioCommand
         }
 
         var allFiles = Directory.GetFiles(input);
-        var audioFiles = allFiles
-            .Where(f => SupportedExtensions.Contains(
-                Path.GetExtension(f).ToLowerInvariant()))
-            .ToList();
+        var audioFiles = SelectNamedCandidatePaths(allFiles).ToList();
 
-        // Probe extensionless files for SPU-ADPCM audio
+        // Probe extensionless files for Nintendo DSP-ADPCM first, then the
+        // older raw SPU-ADPCM family. The Wii format has a complete header and
+        // exact payload identity, so it must win before the permissive raw gate.
         var extensionlessFiles = allFiles
             .Where(f => string.IsNullOrEmpty(Path.GetExtension(f)))
-            .Where(f => VagDecoder.Probe(f) != null)
+            .Where(IsSupportedHeaderlessAudio)
             .ToList();
         audioFiles.AddRange(extensionlessFiles);
 
@@ -104,7 +106,7 @@ public static class AudioCommand
         if (extensionlessFiles.Count > 0)
             AnsiConsole.MarkupLine(
                 $"Found [green]{audioFiles.Count}[/] audio file(s) " +
-                $"({extensionlessFiles.Count} detected as headerless SPU-ADPCM)");
+                $"({extensionlessFiles.Count} detected as headerless audio)");
         else
             AnsiConsole.MarkupLine($"Found [green]{audioFiles.Count}[/] audio file(s)");
 
@@ -119,7 +121,13 @@ public static class AudioCommand
             cancellationToken.ThrowIfCancellationRequested();
             var file = audioFiles[fileIndex];
             var filename = Path.GetFileName(file);
-            var ext = Path.GetExtension(file).ToLowerInvariant();
+            var ext = LatePlatformAudio.HasSupportedFileName(file)
+                ? ".lateaudio"
+                : ThawXmaBank.HasSupportedFileName(file)
+                ? ".xmawad"
+                : Fsb3AudioBank.HasSupportedFileName(file)
+                    ? ".fsb"
+                    : Path.GetExtension(file).ToLowerInvariant();
             var result = ConvertFile(
                 file,
                 ext,
@@ -176,6 +184,42 @@ public static class AudioCommand
         string outputDirectory,
         int sampleRate)
     {
+        if (extension == ".xmawad")
+            return ThawXmaBank.ConvertToWav(file, outputStem, outputDirectory);
+
+        if (extension == ".lateaudio")
+            return LatePlatformAudio.ConvertToWav(file, outputStem, outputDirectory);
+
+        if (extension == ".fsb")
+            return Fsb3AudioBank.ConvertToWav(file, outputStem, outputDirectory);
+
+        if (extension == ".dee")
+            return Thps4PcDeeAudio.ConvertToWav(file, outputStem, outputDirectory);
+
+        if (extension == ".smo")
+            return Thps4PcSmoAudio.ConvertToWav(file, outputStem, outputDirectory);
+
+        if (extension == ".pmf")
+            return PsmfAudioExtractor.ConvertToWav(file, outputStem, outputDirectory);
+
+        var standardFormat = StandardAudioFormatSupport.DetectFormat(extension);
+        if (standardFormat != null)
+        {
+            try
+            {
+                return StandardAudioFormatSupport.ConvertToWav(
+                           standardFormat,
+                           File.ReadAllBytes(file),
+                           outputStem,
+                           outputDirectory)
+                       ?? new AudioConvertResult { ErrorMessage = "Unsupported standard audio format" };
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return new AudioConvertResult { ErrorMessage = ex.Message };
+            }
+        }
+
         var legacyStem = Path.GetFileNameWithoutExtension(file);
         if (outputStem.Equals(legacyStem, StringComparison.Ordinal))
         {
@@ -193,6 +237,7 @@ public static class AudioCommand
                 // STRM music out of a cart's SDAT sound archive.
                 ".swav" or ".strm" or ".hwas" => NdsAudioDecoder.ConvertToWav(file, outputDirectory),
                 ".snd" => Thug2PcSndDecoder.ConvertToWav(file, outputDirectory),
+                ".dee" => Thps4PcDeeAudio.ConvertToWav(file, outputDirectory),
                 ".pss" => PssAudioExtractor.ConvertToWav(file, outputDirectory),
                 // .ogg here is a VID1 audio-only movie, not Ogg Vorbis at the
                 // container level; ConvertVid1Audio gates on the magic so a real
@@ -202,7 +247,7 @@ public static class AudioCommand
                 ".kat" => KatExtractor.ExtractToWav(file, outputDirectory),
                 ".sfx" => SfxExtractor.ExtractToWav(file, outputDirectory),
                 ".seq" => SeqExtractor.ConvertToWav(file, outputDirectory),
-                "" => VagDecoder.ConvertToWav(file, outputDirectory, sampleRate),
+                "" => ConvertHeaderlessAudio(file, outputStem, outputDirectory, sampleRate),
                 _ => new AudioConvertResult { ErrorMessage = "Unsupported format" }
             };
         }
@@ -232,15 +277,77 @@ public static class AudioCommand
                 ".pcm" => XboxPcmDecoder.ConvertToWav(data, outputStem, outputDirectory),
                 ".swav" or ".strm" or ".hwas" => NdsAudioDecoder.ConvertToWav(data, outputStem, outputDirectory),
                 ".snd" => Thug2PcSndDecoder.ConvertToWav(data, outputStem, outputDirectory),
+                ".dee" => Thps4PcDeeAudio.ConvertToWav(data, outputStem, outputDirectory),
                 ".pss" => PssAudioExtractor.ConvertToWav(data, outputStem, outputDirectory),
                 ".vid" or ".ogg" => ConvertVid1Audio(data, outputStem, outputDirectory),
                 ".at3" => At3Decoder.ConvertToWav(data, outputStem, outputDirectory),
                 ".kat" => KatExtractor.ExtractToWav(data, outputStem, outputDirectory),
-                "" => VagDecoder.ConvertToWav(data, outputStem, outputDirectory, sampleRate),
+                "" => WiiDspAudio.IsWiiDsp(data)
+                    ? WiiDspAudio.ConvertToWav(data, outputStem, outputDirectory)
+                    : VagDecoder.ConvertToWav(data, outputStem, outputDirectory, sampleRate),
                 _ => new AudioConvertResult { ErrorMessage = "Unsupported format" }
             };
         }
         catch (Exception ex)
+        {
+            return new AudioConvertResult { ErrorMessage = ex.Message };
+        }
+    }
+
+    internal static string[] SelectNamedCandidatePaths(IEnumerable<string> paths)
+    {
+        return paths
+            .Where(static path =>
+            {
+                if (LatePlatformAudio.HasSupportedFileName(path))
+                    return LatePlatformAudio.Probe(path) != null;
+
+                if (ThawXmaBank.HasSupportedFileName(path)
+                    || Fsb3AudioBank.HasSupportedFileName(path))
+                {
+                    return true;
+                }
+
+                var extension = Path.GetExtension(path).ToLowerInvariant();
+                return extension switch
+                {
+                    ".dee" => Thps4PcDeeAudio.Probe(path) != null,
+                    ".smo" => Thps4PcSmoAudio.Probe(path) != null,
+                    ".pmf" => PsmfAudioExtractor.Probe(path)?.HasAudio == true,
+                    _ => SupportedExtensions.Contains(extension)
+                };
+            })
+            .ToArray();
+    }
+
+    private static bool IsSupportedHeaderlessAudio(string filePath)
+    {
+        try
+        {
+            var data = File.ReadAllBytes(filePath);
+            return WiiDspAudio.IsWiiDsp(data)
+                   || (data.Length > 0 && data.Length % 16 == 0 && VagDecoder.Probe(data) != null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static AudioConvertResult ConvertHeaderlessAudio(
+        string filePath,
+        string outputStem,
+        string outputDirectory,
+        int sampleRate)
+    {
+        try
+        {
+            var data = File.ReadAllBytes(filePath);
+            return WiiDspAudio.IsWiiDsp(data)
+                ? WiiDspAudio.ConvertToWav(data, outputStem, outputDirectory)
+                : VagDecoder.ConvertToWav(data, outputStem, outputDirectory, sampleRate);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new AudioConvertResult { ErrorMessage = ex.Message };
         }

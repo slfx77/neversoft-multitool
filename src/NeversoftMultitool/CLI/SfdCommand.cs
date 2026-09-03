@@ -11,7 +11,7 @@ public static class SfdCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing video files (.sfd, .pss, .bik, .bik.xen, .pmf)"
+            Description = "Path to directory containing video files (.sfd, .pss, .bik, .bik.xen, .pmf, .tgr, .smo)"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -69,7 +69,7 @@ public static class SfdCommand
         if (sfdFiles.Length == 0)
         {
             AnsiConsole.MarkupLine(
-                "[yellow]No video files (.sfd, .pss, .bik, .bik.xen, .pmf) found in the specified directory.[/]");
+                "[yellow]No video files (.sfd, .pss, .bik, .bik.xen, .pmf, .tgr, .smo) found in the specified directory.[/]");
             return 0;
         }
 
@@ -106,7 +106,7 @@ public static class SfdCommand
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(output);
         cancellationToken.ThrowIfCancellationRequested();
-        AnsiConsole.MarkupLine($"Found [green]{sfdFiles.Length}[/] SFD file(s)");
+        AnsiConsole.MarkupLine($"Found [green]{sfdFiles.Length}[/] video file(s)");
 
         var stopwatch = Stopwatch.StartNew();
         var totalConverted = 0;
@@ -171,12 +171,15 @@ public static class SfdCommand
                 // Must use the same compound-suffix rule the converter names its
                 // output with, or foo.bik and foo.bik.xen produce two distinct
                 // keys but one output file — a silent overwrite instead of the
-                // duplicate-stem error this guard exists to raise.
+                // duplicate-stem error this guard exists to raise. MP4 output
+                // names are Windows/case-insensitive even when this CLI is run
+                // from a case-sensitive host.
                 static path => FfmpegVideoFormats.GetOutputStem(path),
-                StringComparer.Ordinal)
+                StringComparer.OrdinalIgnoreCase)
             .Where(static group => group.Count() > 1)
             .Select(static group => group.Key)
-            .OrderBy(static stem => stem, StringComparer.Ordinal)
+            .OrderBy(static stem => stem, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static stem => stem, StringComparer.Ordinal)
             .ToArray();
     }
 

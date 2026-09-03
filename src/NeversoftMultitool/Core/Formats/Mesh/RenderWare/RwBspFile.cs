@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.RenderWare;
@@ -164,7 +165,8 @@ public static class RwBspFile
         if (!TryReadStruct(data, ref offset, endOffset, out _, out var structSize))
             return null;
 
-        var pos = offset;
+        var structStart = offset;
+        var pos = structStart;
         if (structSize < 44 || (long)structSize > endOffset - pos)
             return null;
 
@@ -193,7 +195,11 @@ public static class RwBspFile
         if (requiredStructSize > structSize)
             return null;
 
-        var structEnd = pos + (int)structSize;
+        // structSize is measured from the beginning of the STRUCT payload,
+        // not from the cursor after the three atomic header fields. Using the
+        // latter quietly borrowed 12 bytes from the following extension and
+        // also made collision-plugin discovery start inside that extension.
+        var structEnd = structStart + (int)structSize;
 
         // Bounding box (6 floats = 24 bytes) — skip
         pos += 24;
@@ -281,6 +287,16 @@ public static class RwBspFile
             pos += 8;
         }
 
+        // Each THPS3 atomic sector carries a Neversoft extension whose first
+        // four bytes are payload version 6, immediately followed by one u16
+        // collision flag for every triangle in the sector. Additional bytes
+        // after that exact count are separate sector metadata and deliberately
+        // stay opaque. Keep ordinary BSP rendering tolerant, but expose flags
+        // only when one unique, fully bounded version-6 payload proves the
+        // triangle-order join.
+        var triangleCollisionFlags = ParseTriangleCollisionFlags(
+            data, structEnd, endOffset, numTriangles);
+
         return new RwBspSection
         {
             MatListWindowBase = matListWindowBase,
@@ -288,8 +304,75 @@ public static class RwBspFile
             Normals = normals,
             Colors = colors,
             UVs = uvs,
-            Triangles = triangles
+            Triangles = triangles,
+            TriangleCollisionFlags = triangleCollisionFlags
         };
+    }
+
+    private static ushort[] ParseTriangleCollisionFlags(
+        byte[] data,
+        int offset,
+        int endOffset,
+        int triangleCount)
+    {
+        if (triangleCount < 0 || triangleCount > (int.MaxValue - sizeof(uint)) / sizeof(ushort))
+            return [];
+
+        var requiredPayloadBytes = sizeof(uint) + triangleCount * sizeof(ushort);
+        ushort[]? result = null;
+
+        while (offset < endOffset)
+        {
+            if (!TryReadAnyChunk(data, ref offset, endOffset, out var type, out var size))
+                return [];
+
+            var chunkEndLong = (long)offset + size;
+            if (chunkEndLong > endOffset || chunkEndLong > data.Length)
+                return [];
+            var chunkEnd = (int)chunkEndLong;
+
+            if (type == RW_EXTENSION)
+            {
+                var pluginOffset = offset;
+                while (pluginOffset < chunkEnd)
+                {
+                    if (!TryReadAnyChunk(
+                            data, ref pluginOffset, chunkEnd,
+                            out var pluginType, out var pluginSize))
+                    {
+                        return [];
+                    }
+
+                    var pluginEndLong = (long)pluginOffset + pluginSize;
+                    if (pluginEndLong > chunkEnd || pluginEndLong > data.Length)
+                        return [];
+                    var pluginEnd = (int)pluginEndLong;
+
+                    if (pluginType == RW_NS_MATERIAL_PLG
+                        && pluginSize >= requiredPayloadBytes
+                        && BinaryPrimitives.ReadUInt32LittleEndian(
+                            data.AsSpan(pluginOffset, sizeof(uint))) == 6)
+                    {
+                        // More than one matching payload would make ownership
+                        // ambiguous, so do not silently take first or last.
+                        if (result != null)
+                            return [];
+
+                        result = new ushort[triangleCount];
+                        var flagsOffset = pluginOffset + sizeof(uint);
+                        for (var i = 0; i < result.Length; i++)
+                            result[i] = BinaryPrimitives.ReadUInt16LittleEndian(
+                                data.AsSpan(flagsOffset + i * sizeof(ushort), sizeof(ushort)));
+                    }
+
+                    pluginOffset = pluginEnd;
+                }
+            }
+
+            offset = chunkEnd;
+        }
+
+        return result ?? [];
     }
 
     /// <summary>

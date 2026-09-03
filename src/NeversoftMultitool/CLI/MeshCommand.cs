@@ -69,6 +69,15 @@ public static class MeshCommand
                 + "authored colours for the viewer to light — the file records WHICH faces the "
                 + "engine lights but never WHICH light, so the rig cannot be inferred."
         };
+        var collisionOverlayOption = new Option<bool>("--collision-overlay")
+        {
+            Description =
+                "Include a proven collision surface in supported level exports (inline PSX-lineage "
+                + "level faces, THPS3 BSP triangle flags, exact-stem COL, authored THPS2X "
+                + "DDM/PSX pairs, or structurally bound NGC pools including unique typed PAK "
+                + "peers). Off by default; ambiguous, malformed, and structurally incompatible "
+                + "sources are ignored."
+        };
         var n64AnimationsOption = new Option<bool>("--n64-animations")
         {
             Description =
@@ -131,6 +140,7 @@ public static class MeshCommand
         command.Options.Add(worldzoneTimeOfDayOption);
         command.Options.Add(worldzoneDebugDirOption);
         command.Options.Add(psxLightOption);
+        command.Options.Add(collisionOverlayOption);
         command.Options.Add(n64AnimationsOption);
         command.Options.Add(n64AnimationOption);
         command.Options.Add(oneShotOption);
@@ -206,7 +216,8 @@ public static class MeshCommand
                 blenderHelperPath,
                 animationOptions,
                 cancellationToken,
-                parseResult.GetValue(worldzoneDebugDirOption)));
+                worldzoneDebugDirectory: parseResult.GetValue(worldzoneDebugDirOption),
+                includeCollisionOverlay: parseResult.GetValue(collisionOverlayOption)));
         });
 
         return command;
@@ -228,7 +239,8 @@ public static class MeshCommand
         string? blenderHelperPath,
         MeshAnimationExportOptions animationOptions,
         CancellationToken cancellationToken,
-        string? worldzoneDebugDirectory = null)
+        string? worldzoneDebugDirectory = null,
+        bool includeCollisionOverlay = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var isSingleFile = File.Exists(input);
@@ -317,7 +329,8 @@ public static class MeshCommand
                     psxLightPreset,
                     exportStem,
                     animationOptions,
-                    worldzoneDebugDirectory);
+                    worldzoneDebugDirectory,
+                    includeCollisionOverlay: includeCollisionOverlay);
 
                 if (result.OutputPaths.Count == 0)
                     throw new InvalidDataException("Mesh export produced no output.");

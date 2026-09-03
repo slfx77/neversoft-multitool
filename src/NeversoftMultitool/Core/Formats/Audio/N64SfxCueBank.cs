@@ -43,6 +43,8 @@ public sealed record N64SfxCueBank(
         {
             var offset = index * RecordSize;
             var raw = data.Slice(offset, RecordSize);
+            Require(BinaryPrimitives.ReadUInt32BigEndian(raw) != TerminatorValue,
+                $"N64 SFX cue table has an early FFFFFFFF terminator at record {index}");
             for (var padOffset = 12; padOffset < RecordSize; padOffset++)
             {
                 Require(raw[padOffset] == 0,

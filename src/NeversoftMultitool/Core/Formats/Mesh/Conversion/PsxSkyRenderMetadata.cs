@@ -1,8 +1,10 @@
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 /// <summary>
-///     Marks a primitive as belonging to a PSX sky/background layer
-///     (<see cref="PsxSkyDomeClassifier" /> — TRG BackgroundCreate join). The
+///     Marks a primitive as belonging to a camera-locked sky/background layer.
+///     PSX families derive this through <see cref="PsxSkyDomeClassifier" /> and
+///     TRG <c>BackgroundCreate</c>; THPS3 PS2 and THPS4 Windows use their
+///     authored <c>Levels.qb</c> sky-world/scene joins. The
 ///     glTF exporter publishes it as mesh extras <c>neversoftSky</c> (+
 ///     <c>neversoftSkyColor</c>, the TRG SetSkyColor backdrop RGB); the in-app
 ///     viewer renders tagged meshes first without depth writes, camera-locks
@@ -22,8 +24,10 @@ public sealed record PsxSkyRenderMetadata(uint? SkyColor = null, int LayerIndex 
     : NativeRenderMetadata("psx_sky");
 
 /// <summary>
-///     Document-scope record of the TRG's <c>SetSkyColor</c> backdrop — the
-///     colour the engine clears the framebuffer to every frame
+///     Document-scope record of an authored framebuffer-clear backdrop. PSX
+///     families read it from TRG <c>SetSkyColor</c>; THPS3 PS2 reads the
+///     single-player branch's <c>SetBackgroundColor</c> from
+///     <c>SKATE3/Scripts/levels.qb</c>. It is the colour the engine clears the framebuffer to every frame
 ///     (<c>Db_UpdateSky</c>: <c>Draw.isbg = 1</c> with this RGB; the default
 ///     after <c>Db_Init</c> is black, and 0xFFFF/0xFFFF disables clearing).
 /// </summary>
@@ -39,6 +43,6 @@ public sealed record PsxSkyRenderMetadata(uint? SkyColor = null, int LayerIndex 
 ///     Note the fog is NOT this colour: the engine's depth-cue fades toward
 ///     <c>M3d_FadeColour</c> (TRG 0xC8), an independent register — skny sets
 ///     backdrop (0,9,25) but fade (25,9,0).
-/// </summary>
+/// </remarks>
 public sealed record PsxSkyBackdropMetadata(uint SkyColor)
     : NativeRenderMetadata("psx_sky_backdrop");

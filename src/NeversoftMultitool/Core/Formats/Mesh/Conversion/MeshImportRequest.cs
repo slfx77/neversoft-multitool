@@ -47,6 +47,16 @@ public sealed class MeshImportRequest
     /// </summary>
     public bool IncludeLevelObjects { get; init; } = true;
 
+    /// <summary>
+    ///     Compose a proven collision surface into a supported level scene.
+    ///     Inline PSX-lineage level faces and THPS3 BSP triangle flags need no second
+    ///     file. Companion pairing remains deliberately conservative: same
+    ///     directory/archive owner, one unambiguous platform-compatible payload,
+    ///     THPS2X's complete DDM/PSX authored-level marker set, or a structurally
+    ///     proven NGC external render-scene position pool.
+    /// </summary>
+    public bool IncludeCollisionOverlay { get; init; }
+
     public WorldzoneTimeOfDay WorldzoneTimeOfDay { get; init; } =
         WorldzoneTimeOfDay.All;
 

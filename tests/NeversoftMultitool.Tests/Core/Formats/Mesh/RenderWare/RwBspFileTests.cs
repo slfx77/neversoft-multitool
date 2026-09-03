@@ -103,6 +103,47 @@ public sealed class RwBspFileTests(TestPaths paths)
         var triangle = Assert.Single(section.Triangles);
         Assert.Equal((0, 0, 0, 0),
             ((int)triangle.V0, (int)triangle.V1, (int)triangle.V2, (int)triangle.MaterialIndex));
+        Assert.Empty(section.TriangleCollisionFlags);
+    }
+
+    [Fact]
+    public void Parse_AtomicNeversoftExtension_PreservesOrderedCollisionFlags()
+    {
+        var world = RwBspFile.Parse(BuildSingleAtomicWorldWithCollisionFlags(0x04C0));
+
+        var section = Assert.Single(world.Sections);
+        Assert.Equal(new ushort[] { 0x04C0 }, section.TriangleCollisionFlags);
+    }
+
+    [Fact]
+    public void Parse_AtomicNeversoftExtension_WrongVersionFailsClosed()
+    {
+        var data = BuildSingleAtomicWorldWithCollisionFlags(0x04C0);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(188, 4), 5);
+
+        var section = Assert.Single(RwBspFile.Parse(data).Sections);
+
+        Assert.Empty(section.TriangleCollisionFlags);
+    }
+
+    [Fact]
+    public void Parse_AtomicNeversoftExtension_OpaquePluginTailIsAllowed()
+    {
+        var data = BuildSingleAtomicWorldWithCollisionFlags(0x04C0, opaqueTailBytes: 7);
+
+        var section = Assert.Single(RwBspFile.Parse(data).Sections);
+
+        Assert.Equal(new ushort[] { 0x04C0 }, section.TriangleCollisionFlags);
+    }
+
+    [Fact]
+    public void Parse_AtomicNeversoftExtension_DuplicatePayloadFailsClosed()
+    {
+        var data = BuildSingleAtomicWorldWithCollisionFlags(0x04C0, pluginCopies: 2);
+
+        var section = Assert.Single(RwBspFile.Parse(data).Sections);
+
+        Assert.Empty(section.TriangleCollisionFlags);
     }
 
     // ── Parse known files ──
@@ -228,6 +269,48 @@ public sealed class RwBspFileTests(TestPaths paths)
             string.Join("\n", failures.Take(20)));
     }
 
+    [CorpusFact]
+    public void Parse_AllBspAtomicTriangles_HaveExactCollisionAvailability()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var files = paths.FindSampleFiles(BuildName, "*.bsp").ToArray();
+        Assert.SkipWhen(files.Length == 0, "No BSP files found");
+
+        var buildRoot = Path.Combine(paths.SampleBuildsDir!, BuildName);
+        var filesWithoutFlags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var triangleCount = 0L;
+        foreach (var file in files)
+        {
+            var world = RwBspFile.Parse(file);
+            for (var sectionIndex = 0; sectionIndex < world.Sections.Length; sectionIndex++)
+            {
+                var section = world.Sections[sectionIndex];
+                triangleCount += section.Triangles.Length;
+                if (section.Triangles.Length > 0
+                    && section.TriangleCollisionFlags.Length != section.Triangles.Length)
+                {
+                    filesWithoutFlags.Add(
+                        Path.GetRelativePath(buildRoot, file).Replace('\\', '/'));
+                }
+            }
+        }
+
+        // The three DCC/source BSPs predate the runtime Neversoft collision
+        // payload. They remain ordinary renderable BSPs, while collision mode
+        // deliberately declines them. Every shipped/prebuilt world, including
+        // every main and sky level BSP, has a complete one-u16-per-triangle join.
+        Assert.Equal(43, files.Length);
+        Assert.True(triangleCount > 0);
+        Assert.Equal(
+            [
+                "SKATE3/Intermediate/Models/SkWare_RW.bsp",
+                "SKATE3/Intermediate/Models/SkWare_RW_2.bsp",
+                "SKATE3/Source/Ware/Ware.bsp"
+            ],
+            filesWithoutFlags.Order(StringComparer.OrdinalIgnoreCase));
+    }
+
     // ── glTF output ──
 
     [CorpusFact]
@@ -331,6 +414,52 @@ public sealed class RwBspFileTests(TestPaths paths)
         BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(148, 4), 2f);
         BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(152, 4), 3f);
         // Triangle at 156 is all zero: material 0 and three references to vertex 0.
+        return data;
+    }
+
+    private static byte[] BuildSingleAtomicWorldWithCollisionFlags(
+        ushort flags,
+        int opaqueTailBytes = 0,
+        int pluginCopies = 1)
+    {
+        // WORLD = STRUCT(64 bytes total) + ATOMIC. ATOMIC starts with a
+        // 76-byte STRUCT and one EXTENSION containing one or more plugins.
+        // Each 0x0294AF01 plugin is version 6 + one u16 plus an optional opaque
+        // tail, matching the larger payloads carried by the real BSP sectors.
+        var pluginPayloadSize = sizeof(uint) + sizeof(ushort) + opaqueTailBytes;
+        var pluginTotalSize = 12 + pluginPayloadSize;
+        var extensionPayloadSize = pluginCopies * pluginTotalSize;
+        var data = new byte[176 + extensionPayloadSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0, 4), 0x000B);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4, 4), (uint)(data.Length - 12));
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12, 4), 0x0001);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16, 4), 52);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(52, 4), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(56, 4), 1);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(76, 4), 0x0009);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(80, 4), (uint)(data.Length - 88));
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(88, 4), 0x0001);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(92, 4), 64);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(104, 4), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(108, 4), 1);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(144, 4), 1f);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(148, 4), 2f);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(152, 4), 3f);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(164, 4), 0x0003);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(168, 4), (uint)extensionPayloadSize);
+        for (var copy = 0; copy < pluginCopies; copy++)
+        {
+            var pluginOffset = 176 + copy * pluginTotalSize;
+            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(pluginOffset, 4), 0x0294AF01);
+            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(pluginOffset + 4, 4),
+                (uint)pluginPayloadSize);
+            BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(pluginOffset + 12, 4), 6);
+            BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(pluginOffset + 16, 2), flags);
+            data.AsSpan(pluginOffset + 18, opaqueTailBytes).Fill(0xA5);
+        }
         return data;
     }
 }

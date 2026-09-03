@@ -38,6 +38,24 @@ public static class Vid1VideoConverter
             SfdConverter.FindFfmpeg,
             RunNativeDecodePipeline,
             progress,
+            outputStem: null,
+            cancellationToken: cancellationToken);
+    }
+
+    internal static SfdConvertResult ConvertToMp4WithStem(
+        string inputPath,
+        string outputDir,
+        string outputStem,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        return ConvertToMp4(
+            inputPath,
+            outputDir,
+            SfdConverter.FindFfmpeg,
+            RunNativeDecodePipeline,
+            progress,
+            outputStem,
             cancellationToken);
     }
 
@@ -47,6 +65,7 @@ public static class Vid1VideoConverter
         Func<string?> findFfmpeg,
         NativeDecodePipelineRunner runNativeDecodePipeline,
         IProgress<double>? progress = null,
+        string? outputStem = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -60,9 +79,12 @@ public static class Vid1VideoConverter
         if (ffmpeg == null)
             return new SfdConvertResult { ErrorMessage = "ffmpeg not found on PATH" };
 
+        if (outputStem != null && !VideoOutputStemPlanner.IsSafeOutputStem(outputStem))
+            return new SfdConvertResult { ErrorMessage = "Output stem must be a safe file-name stem." };
+
         Directory.CreateDirectory(outputDir);
         var stem = Path.GetFileNameWithoutExtension(inputPath);
-        var outputPath = Path.Combine(outputDir, stem + ".mp4");
+        var outputPath = Path.Combine(outputDir, (outputStem ?? stem) + ".mp4");
         var stagedOutputPath = Path.Combine(outputDir, $".{Guid.NewGuid():N}.tmp.mp4");
         var tempDir = Path.Combine(Path.GetTempPath(), "NeversoftMultitool", "Vid1Video", Guid.NewGuid().ToString("N"));
         var tempVideoPath = Path.Combine(tempDir, stem + ".m4v");

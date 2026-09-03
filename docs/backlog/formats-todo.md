@@ -12,6 +12,24 @@ PS2 `.stex`, bare `.col`/`.skin` routing, PSX colour-pulse playback, and the N64
 foundation have shipped since the earlier audit. Their investigations are retained under *Done*; do not
 schedule work from their old descriptions.
 
+**End-goal checkpoint 2026-09-02:** the non-GBA baseline is 50 staged build directories / 623,478
+extracted or loose files. Later media and structural routes have moved substantially since the historical
+notes below: P8/PG SKA key streams parse 44,649/44,649; every THPS4 PC delimiter-free TEX/IMG/COL/
+SKIN/MDL/SCN/SKA family and DEE/SMO media route ships; PSP PMF audio ships; late
+`.wav.ps3`/`.wav.xen` audio ships; big-endian X360 collision renders; and an exact-stem
+PS2/Xbox/THPS4-PC collision overlay is available opt-in. The 670 proof-bound PSX/Dreamcast/
+Spider-Man-Windows environment surfaces and complete THPS3 runtime BSP collision flags now use that
+same opt-in route, with raw collision vertices and the runtime's unconditional face-class rejection.
+All 24 authored THPS2X DDM main-level
+families also compose their TRG-authored sky/background layers and exact-stem v6 PSX collision
+surface. THPS3 PS2 now composes all 13 single-player main BSPs from the exact shipping
+`SKATE3/Scripts/levels.qb`, including 11 authored skies and 11 unambiguous backdrop colours. These do
+not imply native late-rig binding. PSP static worlds and embedded textures now consume all 668
+`.psp_level` files exactly; strict same-build manifests compose 42 Remix and 40-per-build P8 main
+variants while leaving ambiguous editor/mission/global layers standalone. These results do not imply
+full Wii and remaining PSP level composition, or systematic gameplay-object coverage. Collectables and level objects
+remain the intentional final stage; see `docs/corpus-robustness.md` for the conservative matrix.
+
 **Status legend:** 🔴 Open · 🔶 Partial · 🟢 Verified this session · ✅ Done · ⚪ By design
 
 ---
@@ -28,21 +46,75 @@ with the evidence already gathered:
 
 | Family | Volume | Status from triage |
 | --- | --- | --- |
-| ~~**`FA CE CA A7` texture container**~~ | ~~35,920 files~~ | **SHIPPED 2026-08-27** — 12,335/12,335 files / 90,477 records parse; DXT1, DXT5 and ARGB8888 decode (960 pixel-identical to the PS3 oracle, 4 differing). See CLAUDE.md. **Remaining: DXN/BC5 (Xenon format 0x31, 11,384 textures)** — BC5 normal maps the PS3 build doesn't ship, so they have no cross-platform oracle; DDXConv's `IsAti2Format`/`UnswizzleSubTile` is the reference for their 8-byte sub-block tiling if we take them on. |
-| **next-gen `.ska`** (partly shipped) | 44,649 of 51,279 remain | **THAW X360's 6,630 SHIPPED 2026-08-27** — routing + the `data/anims` / `DATA/ANIMS/*.bin.ps3` compress-table lookup; 182/182 in a full cutscene directory (was 122/182). **Remaining: P8 + PG, 44,649 files — but MUCH closer than recorded (re-measured 2026-08-28).** The "version word 0" in the earlier census is **not a version at all — it is a 32-byte WRAPPER**: `{u32 0, u32 0xFFFFFFFF, u32 fileSize, u32 payloadOffset=0x20, 4x u32 0xFFFFFFFF}`, exact on 741/741 P8 and 2500/2500 PG cutscene files. Strip it and the payload is the SAME THAW family: **P8's payload word is 0x28 on 741/741** — the version this codebase already parses — and **PG's is 0x48 on 2500/2500**, with a byte-identical header up to +0x0C (same flags `0x06935000`, same duration float, same `0x00651A85` count word) and then a 32-byte block of two 1.0 floats inserted before the rest resumes. **0x48 - 0x28 = 32 = exactly that block, i.e. the word is the HEADER SIZE, not a format id** — so P8 and PG are one format at two header sizes, not two new formats. **The addressing is now derived too.** Where THAW carries a 20-byte all-0xFF bone mask, P8/PG carry a **four-word, strictly-ascending, FILE-relative section-offset table** at `payload + headerSize - 0x10` (so +0x18 for P8, +0x38 for PG — exactly the 32-byte shift). Measured: **ascending on 741/741 and 2500/2500, and every final offset lands inside the file on 741/741 and 2500/2500 (100%)**; relative to the payload instead it is only 433/741 and 1965/2500, which is what pins the base as the file rather than the payload. So the earlier "pointer-addressed" reading was right about the addressing and wrong only about the version word. Remaining work is decoding the four sections and header-variant handling in `SkaFile` — not a new parser. Note a naive strip-and-reparse still fails: the THAW path expects qBytes/tBytes SIZES at payload +0x28/+0x2C, which here are section OFFSETS. |
-| **PSP mesh `0xC0EDBABE`** (`.skin.psp`/`.skin`/`.geom.psp`) | 9,509 files / 215 MB | **9,509/9,509 consume exactly**; PSP GE display list, vertex format and embedded textures derived, validated by in-build PS2 twins (bounding boxes to the 1/16 quantum, 201/206) and legible "TONY HAWK'S PRO SKATER 4" branding decoded out of an embedded texture. Rigid export buildable now; skinned bind pose needs the weight-248 normalisation + `.ske` bone-index join. |
-| **`.img` on new platforms** | 42,761 files / 1.3 GB | Project 8 PSP's 6,282 v4 "seSV" files are **byte-for-byte the shipped `PspImgFile`** and need only a version-gate widening. `.img.xen` derived (13,712/13,712 headers parse; 601 multi-mip should export level 0 only; 14 DXN must be declined). A Wii `.img.ngc` width fix will legitimately change the dimensions of 286 files that convert scrambled today. |
-| **`FA AA BA CA` scene container** (`.skin`/`.mdl`/`.scn` on `.xen`/`.ps3`) | 11,182 files / 547 MB | **THAW SHIPPED 2026-08-28** (`NextGenSceneFile`, routed through `MeshTypeDetector`/`MeshContentProbe`/`MeshModelParser`, so the `mesh` CLI and the GUI open these directly): 809/809 files in the THAW X360 cutscene tree convert to **305,605 triangles with 0 glTF validator errors and 0 warnings**, and `baseball_bat` matches its GameCube twin end-to-end at 107 verts / 152 tris / 107-of-107 identical positions. Materials are emitted as untextured placeholders — the next-gen material record is not derived, so no texture binding is claimed. **Two shared defects surfaced with it, both of the same shape — a rule that looked universal but encoded a hidden assumption.** (1) `ModelDocumentGeometryAdapter.IsDegenerate` culled triangles on an ABSOLUTE area epsilon, i.e. an assumption about the units a format is authored in — P8 stores a whole cutscene character inside ~0.4 units, so two thirds of its real triangles were dropped (1,892 -> 671 on one file). The threshold is now scaled by the longest edge and **clamped at 1 so it can only relax, never tighten**; the clamp was added after a purely relative form quietly dropped slivers across N64, GBA, NDS and THAW PC, moving pinned censuses. THAW's own sweep moves 305,605 -> **310,700**; `baseball_bat` stays at exactly 152 and still matches its GameCube twin. (2) `IsNextGenScene` detected on the `FAAABACA` sentinel alone, but that word is exporter filler, not a platform marker: **all 723 THAW PC scene files carry it**, and this check sits ahead of the little-endian THAW reader, so it claimed every one and broke a working corpus. It now also requires the header to resolve BIG-endian — 0/723 THAW PC and 0/4,242 THAW GC claimed, next-gen unaffected. Both were invisible to a default test run because the tests that catch them are `[CorpusFact]`. **PROJECT 8 AND PROVING GROUND SHIPPED** (`NextGenLaterRevision`; P8 the same day, PG on 2026-08-28 once the two were found to be one format): whole-build sweeps convert **PG 713/1,646 files → 1,587,368 triangles** and **P8 786/1,296 → 1,364,089**, both **0 glTF validator errors and 0 warnings**. P8's own cutscene tree improved with the unification, 80/193 → **108/193** and 92,110 → **422,203** triangles. Derivation below. The container is the shipped THAW `ThawSceneFile` layout read big-endian, with the 28 reserved header bytes filled by the `FAAABACA` sentinel; BABEFACE + pad still locate the CScene. Next-gen structs are their OWN sizes: CScene object 160 B (`sectorCount`/`offCSector`/`offCGeom`/`offSMesh` at +0x78/+0x7C/+0x80/+0x8C), CSector 64 B (checksum +0x04, flags +0x1C), CGeom 112 B (bounds +0x20/+0x30, meshCount +0x5C), **sMesh 128 B** — sphere centre +0x00, radius +0x10, material checksum +0x14, a four-byte VERTEX DECLARATION at +0x18 (normal/tangent/uv/colour offsets), `u16 indexCount`+`u16 vertexCount` at +0x20, vertex-buffer pointer +0x50, vertex byte size +0x5C, index-buffer pointer +0x70. **The pointers were the missing piece: each points at a 20-byte GPU descriptor and the data starts at descriptor+20** (the blob before the VB is the byte-REVERSE of the one before the IB, so it is runtime state — take the stride from `vbSize/vertexCount`, which is exact on every mesh). Vertex: `float32 BE ×3` position, two 10/10/10/2 packed unit vectors, BGRA colour (128 = 1.0), `float32 ×2` UV; indices are BE u16 tri-strips. Sweep: **3,960/3,960 THAW X360 files, 95,571 meshes, 3.76 M vertices, zero parse failures**; on the non-skinned `.mdl`/`.scn` families (26,185 meshes) zero indices out of range and zero positions outside the file's own declared bbox. Cross-platform proof vs the GameCube twin (`baseball_bat`, independent GX code path): 107 verts, 152 tris, identical bbox, **107/107 positions byte-identical**. **Remaining:** (a) skinned `.skin` layout — 16 bytes between position and normal (weights + bone indices) undecoded; (b) materials (record 476 B here vs PC's, drives texture binding); (c) `.xen`/`.ps3` are not yet in `MeshTypeDetector`, so nothing is routed. **P8 DERIVED AND SHIPPED 2026-08-28** — same FAAABACA container and same **128-byte sMesh**, but a later revision throughout: CScene begins directly with `bounds_min` (no version/objSize prefix), CGeom bounds at +0x10/+0x20 with meshCount +0x4C, and sMesh moves to sphere centre +0x00, **radius +0x0C**, material checksum +0x14 (unchanged from THAW and PC), `u16 indexCount` +0x24 / `u16 vertexCount` +0x26, index-domain buffer +0x40, **vertex buffer +0x60**. Buffers use a **48-byte descriptor with a `CAFEBAB4` x4 magic**, first-batch count +0x20, that batch's bone palette +0x24 (NOT a class word — see below), two filler slots, data at +0x30; stride 32, position float32 BE x3 at +0 as in THAW. Because the 16-byte magic is a strong anchor, the sMesh table is best LOCATED rather than trusted from CScene offsets — requiring every record's +0x60 to resolve to a descriptor whose count matches +0x26 recovers it exactly, and CScene field offsets are NOT stable across P8 file kinds (fitting them to one file gave 821/3380). Verified: **every single-batch mesh decodes exactly — 141/141 (P8 138, PG 3) reproduce the declared bounding-sphere radius to ratio 1.000**, an oracle a wrong base/stride/format cannot satisfy. **RESOLVED:** batched meshes are a CHAIN — a 48-byte descriptor holds the first batch's count at +0x20 with data at +0x30, and every later batch is introduced by a 16-byte header whose leading big-endian word is its count; the chain sums exactly to `vertexCount` (78+78+550+550 = 1256; 18+101+18+16+16 = 169). **PROVING GROUND IS THE SAME FORMAT, and two readings had to be corrected to see it (2026-08-28).** (1) P8's indices were located by searching for a `FACEF001 FACEF000` pair, and PG contains no such pair anywhere — but those words are unresolved-pointer FILLER of the `BAADF00D` family, and the two builds merely park it in different slots: P8 writes it into the index block's header where PG writes zeros, and PG writes it into the vertex descriptor's tail and the inter-batch headers where P8 writes zeros. **The record STATES its index block at +0x5C in both builds**, with the payload +0x20 in, so no search is needed — and reading the stated pointer recovered files in P8 as well (cutscene tree 80 → 108 files, 92,110 → 422,203 triangles). The attribute block is the analogous stated pair: pointer +0x40, **byte size +0x4C** (`vertexCount*16`), `FFFFFFFF`/0 when absent. (2) The descriptor word at +0x24 was read as a class flag; it actually takes ~70 values, does not correlate with batching at all, and its multi-byte forms are ascending zero-terminated byte triples (`15 2B 2D 00`, `23 17 18 00`, `02 03 04 00`) — a per-batch **bone palette**, read but not consumed. Demanding it be a class rejected the sMesh table outright on most of PG; the real anchor test is `0 < firstBatchCount <= vertexCount` (3201/3201 PG, 3386/3393 P8). Cross-build Rosetta: the shared `bam_mugging` cutscene has byte-identical mesh records apart from four unresolved pointer slots and identical vertex bytes apart from one word, and the reader agrees on all 6 meshes / 1,892 triangles / every position and index in both builds. Every mesh in both sweeps reproduces its declared bounding-sphere radius at ratio 1.000, with the highest index it uses being its own last vertex. **THE NO-DESCRIPTOR POPULATION IS A SECOND VERTEX LAYOUT, AND IT IS THE LEVELS (2026-08-29).** A record whose `+0x60` is `0xFFFFFFFF` has no descriptor: the whole vertex, position first, sits in the `+0x40` block at a per-mesh stride the record states as `+0x4C / vertexCount` (16-56 bytes observed). The two layouts are perfectly disjoint, no file mixes them, and the split is by FILE KIND — every `.skin` uses descriptors, every `.mdl` (1,687) and `.scn` (361) is descriptor-less, zero counter-examples either way. `z_bw_bridge`'s 3.1 MB zone states **698 meshes at strides 24/28/32/36/40/44/48/52**, so no fixed stride could ever have read it. The **mesh table is stated as well** (offset `scene+0x80`, count `scene+0x4C`), which removes 78 records the search anchor invented — 60 of them passing every oracle *vacuously* with `indexCount == 0` and `radius == 0` — and recovers 93 real ones; the offset word is validated with a fallback to the search rather than trusted, since it is constant within a build (352 P8 / 368 PG over 3,824 files) and the corpus cannot tell a field from a constant there. The declared **bounding sphere stays a HARD gate**: it is the only check specific to vertex-base correctness (a batch walk "consumes exactly" from any base whose first count is big enough), and the populations separate hugely — authored staleness tops out at ratio 2.39 on 8 of 6,609 meshes (proven authored: the separately mastered PS3 build ships a *corrected* radius over byte-identical positions) while a misread base lands at 1e36 or infinity. New sweeps: **PG 1,536/1,646 → 2,204,550 triangles, P8 1,233/1,296 → 1,655,508, 0 validator errors and 0 warnings across 2,769 GLBs**. The 110 PG / 63 P8 non-conversions are authored-empty and provably so — exactly the files whose scene bounding box is degenerate (inverted on P8, all-zero on PG), set-identity with zero exceptions. **PS3 SHIPPED FOR PROJECT 8, REFUSED FOR PROVING GROUND (2026-08-30).** PS3 moves the attribute stream and index buffer into a sibling **VRAM companion** — the kind is SWAPPED, not suffixed (`.skin.ps3`→`.skiv.ps3`, `.mdl`→`.mdv`, `.scn`→`.scv`) — addressed by the same `+0x40`/`+0x5C` pointers as **RAW offsets from byte 0, no scene base and no `0x20` header skip**, resolved through the existing `AssetSource.TryReadCompanion`. **P8 PS3: 615/1,807 files → 653,648 triangles, 0 validator errors/warnings**, with `anl_pigeon` decoding position-for-position identically to its Xbox 360 copy; the wrong-companion control scores 0/103. **PG's PS3 descriptor is longer** — 0x40 bytes, `FACEF000 FACEF001` at +0x38/+0x3C, count +0x30, data +0x40 (231/231 PG-PS3, 0 of 708 elsewhere) — and reproduces 99/99 spheres where the X360 shape gets 0/99. **But PG-PS3's topology is wrong and the build is DECLINED rather than shipped broken**: the bounding sphere is order-INSENSITIVE and the glTF validator only checks index range, so both passed while the model rendered as a shattered fan. A locality oracle (median triangle edge ÷ bounding radius) puts P8 PS3 at 0.21-0.39 — matching its X360 sibling — and PG PS3 at 0.50-0.62 for single- and multi-batch meshes alike, at every index base 0x00-0x60 and for the swapped-pointer and positions-in-VRAM alternatives, so it is neither a shift, nor the batch chain, nor a swapped pointer. **Still open:** (ii) the attribute stride is stated at **+0x5A** (a fixed 16 holds for only 60% of meshes) with the layout declared at +0x18..+0x23 — byte +0x1A is UV0's offset, +0x1B the colour's, and the u16 at +0x1C a 2-bit-per-slot mask over 8 texcoord slots (`stride == (+0x1A-32) + 4*popcount2(mask)`, 6,510/6,510; 1-7 UV sets, 28% genuinely differing); the reader now uses it for UV0 but does not emit the extra sets; (iii) **authored normals now SHIP** on the descriptor path — the vertex carries three 11/11/10 packed signed unit vectors at +0x10/+0x14/+0x18, unit on **100.000% of 97,296 vertices vs a 6.3% control**, and **+0x10 is the normal** (mean signed dot with our emitted facet normal +0.909 P8 / +0.923 PG, the other two ±0.007); the positive sign independently confirms the strip winding. Derived normals now run only for the descriptor-less layout. Still unused: +0x1C is `BAADF00D` on 100%, +0x0C is two BE u16 fractions with an implied third (blend-weight shaped, but no bone-index field found so skinning is not claimed), and the colour word is `0xAARRGGBB` with **alpha first**; (iv) materials remain untextured placeholders on both revisions. **The sentinel-less files need no work**: all 1,350 are whole-file-compressed duplicates (raw DEFLATE on X360, Okumura LZSS on PS3) whose payloads are SHA-identical to scenes already present uncompressed — zero new assets. |
-| **`.fsb` FMOD banks** | 12 files / 1.8 GB | FSB3, structure verified to exact consume in 12/12; cross-platform XMA-vs-MP3 control at 0.999 matched. The same XMA wrapper also unlocks THAW X360's `xma.wad` (3,703 named streams / 493 MB) through its self-validating `xma.dat` index (100% tiling, 0 gaps, 0 overlaps). Note: the index's "sampleRate"/"channels" columns are constant, so those readings are HYPOTHESIS — a constant cannot discriminate. |
-| **Wii DSP-ADPCM** (extensionless streams) | 6,578 files / 563 MB | Standard Nintendo DSP-ADPCM; 6,578/6,578 satisfy `size == 0x60 + ceil(nibbles/2)`. Two independent gates settle the 0x60 data base that the predictor-index control could NOT (it scored 0.00% at both 0x60 and 0x40): a derived nibble↔sample relation, and `header 'ps' == first data byte` — both 6,578/6,578. |
-| **`.psp_level`** | 668 files / 203 MB | The only genuine derivation left in the "unknowns" family, and the **only home of P8/Remix PSP world art** (all 599 P8 PSP `.tex.psp` and 1,478 `.stex` are 4-byte stubs). Header claims reproduce (668/668 `w0==0x0B`, `w15==0x37373737`); the per-texture record is unknown. |
+| ~~**`FA CE CA A7` texture container**~~ | ~~12,335 identified files~~ | **SHIPPED 2026-09-02** — 12,335/12,335 files / 90,477 records parse; DXT1, DXT5, ARGB8888, and Xenon DXN/BC5 decode. Xenon uses complete 16-byte BC5 blocks as tiling units and every embedded allocation passes exact alignment, logical-size, and non-aliasing gates. All **3,570 non-empty PS3 dictionaries / 23,090 records** now decode: 2,388 / 15,573 use an exact named or type-hash twin; 1,083 / 6,577 reuse a byte-identical dictionary's payload only inside the same `PS3_GAME/USRDIR/DATA` build and only when every eligible owner supplies one byte-identical exact-length payload; 19 / 91 use exact raw-PAK names; and 80 / 849 use a preserved typed-table ordinal only after the complete descriptor/payload population agrees on count, name CRC, collision-neutral logical stem, and required size. The ordinal invariant agrees with **877/877 independently exact-name controls, zero counterexamples**. Raw, wrapper-decoded, and PAB-backed owners use the shared archive reader. Conflicting exact-name spellings, short owners, cross-build matches, duplicate descriptor keys, incomplete populations, and metadata mismatches fail closed; an existing `_VRAM.PAK` remains authoritative. |
+| ~~**next-gen `.ska`**~~ | ~~44,649 P8/PG files~~ | **STRUCTURAL KEY-STREAM PARSING SHIPPED 2026-09-02** — strict big-endian wrapper/section/size/track gates accept P8 X360 9,467/9,467, P8 PS3 9,467/9,467, PG X360 8,641/8,641, and PG PS3 17,074/17,074 (**44,649/44,649 total**). This establishes bounded quaternion/translation keys, including PG's header variant and fixed-prefix tracks. It is deliberately not a claim of native skeleton/mesh binding or visual-motion validation; those joins remain open. |
+| ~~**PSP mesh `0xC0EDBABE`**~~ (`.skin.psp`/`.skin`/`.geom.psp`) | ~~9,509 files / 215 MB~~ | **RIGID EXPORT SHIPPED 2026-09-02** — 9,509 wrappers produce 6,894,277 vertices and 4,600,331 theoretical triangles through detector, probe, GUI, CLI, and GLB. Another 543 authored-empty/name-collision wrappers fail closed. The PSP GE display lists, vertex layouts, indices, normals, UVs, colours, and rigid bind positions are parsed; weight bytes are validated but are not applied until the `.ske` bone-index join is derived. |
+| ~~**`.img` on new platforms**~~ | ~~36,479 files / remaining volume~~ | **SHIPPED 2026-09-02 for every derived family.** PSP: 4,515 THUG2 Remix plus 3,141 in each P8 Final/Rev1 build (**10,797 build-tree `.img.psp` files total; 6,282 P8**). Xbox 360: 13,712/13,712 `.img.xen`, including 1,034 raw-DEFLATE wrappers, 601 multi-mip descriptors, DXT1/3/5, and all 14 DXN/BC5 maps. Wii: 12,127/12,127 `.img.ngc` (11,917 direct plus 210 evidence-gated padded crops). PS3: 2,851/2,853 `.img.ps3`; the two rejects are physically truncated payloads. All routes share preview and PNG export; PSP `.psp_level` embedded art now uses its own shipped world-container decoder. |
+| **`FA AA BA CA` scene container** (`.skin`/`.mdl`/`.scn` on `.xen`/`.ps3`) | 11,182 files / 547 MB | **THAW SHIPPED 2026-08-28** (`NextGenSceneFile`, routed through `MeshTypeDetector`/`MeshContentProbe`/`MeshModelParser`, so the `mesh` CLI and the GUI open these directly): 809/809 files in the THAW X360 cutscene tree convert to **305,605 triangles with 0 glTF validator errors and 0 warnings**, and `baseball_bat` matches its GameCube twin end-to-end at 107 verts / 152 tris / 107-of-107 identical positions. Materials are emitted as untextured placeholders — the next-gen material record is not derived, so no texture binding is claimed. **Two shared defects surfaced with it, both of the same shape — a rule that looked universal but encoded a hidden assumption.** (1) `ModelDocumentGeometryAdapter.IsDegenerate` culled triangles on an ABSOLUTE area epsilon, i.e. an assumption about the units a format is authored in — P8 stores a whole cutscene character inside ~0.4 units, so two thirds of its real triangles were dropped (1,892 -> 671 on one file). The threshold is now scaled by the longest edge and **clamped at 1 so it can only relax, never tighten**; the clamp was added after a purely relative form quietly dropped slivers across N64, GBA, NDS and THAW PC, moving pinned censuses. THAW's own sweep moves 305,605 -> **310,700**; `baseball_bat` stays at exactly 152 and still matches its GameCube twin. (2) `IsNextGenScene` detected on the `FAAABACA` sentinel alone, but that word is exporter filler, not a platform marker: **all 723 THAW PC scene files carry it**, and this check sits ahead of the little-endian THAW reader, so it claimed every one and broke a working corpus. It now also requires the header to resolve BIG-endian — 0/723 THAW PC and 0/4,242 THAW GC claimed, next-gen unaffected. Both were invisible to a default test run because the tests that catch them are `[CorpusFact]`. **PROJECT 8 AND PROVING GROUND SHIPPED** (`NextGenLaterRevision`; P8 the same day, PG on 2026-08-28 once the two were found to be one format): whole-build sweeps convert **PG 713/1,646 files → 1,587,368 triangles** and **P8 786/1,296 → 1,364,089**, both **0 glTF validator errors and 0 warnings**. P8's own cutscene tree improved with the unification, 80/193 → **108/193** and 92,110 → **422,203** triangles. Derivation below. The container is the shipped THAW `ThawSceneFile` layout read big-endian, with the 28 reserved header bytes filled by the `FAAABACA` sentinel; BABEFACE + pad still locate the CScene. Next-gen structs are their OWN sizes: CScene object 160 B (`sectorCount`/`offCSector`/`offCGeom`/`offSMesh` at +0x78/+0x7C/+0x80/+0x8C), CSector 64 B (checksum +0x04, flags +0x1C), CGeom 112 B (bounds +0x20/+0x30, meshCount +0x5C), **sMesh 128 B** — sphere centre +0x00, radius +0x10, material checksum +0x14, a four-byte VERTEX DECLARATION at +0x18 (normal/tangent/uv/colour offsets), `u16 indexCount`+`u16 vertexCount` at +0x20, vertex-buffer pointer +0x50, vertex byte size +0x5C, index-buffer pointer +0x70. **The pointers were the missing piece: each points at a 20-byte GPU descriptor and the data starts at descriptor+20** (the blob before the VB is the byte-REVERSE of the one before the IB, so it is runtime state — take the stride from `vbSize/vertexCount`, which is exact on every mesh). Vertex: `float32 BE ×3` position, two 10/10/10/2 packed unit vectors, BGRA colour (128 = 1.0), `float32 ×2` UV; indices are BE u16 tri-strips. Sweep: **3,960/3,960 THAW X360 files, 95,571 meshes, 3.76 M vertices, zero parse failures**; on the non-skinned `.mdl`/`.scn` families (26,185 meshes) zero indices out of range and zero positions outside the file's own declared bbox. Cross-platform proof vs the GameCube twin (`baseball_bat`, independent GX code path): 107 verts, 152 tris, identical bbox, **107/107 positions byte-identical**. **Remaining across next-gen scene families:** skin weights/bone indices and authored material/texture binding are not derived; P8 PS3 remains a validated subset and Proving Ground PS3 topology remains intentionally disabled. **P8 DERIVED AND SHIPPED 2026-08-28** — same FAAABACA container and same **128-byte sMesh**, but a later revision throughout: CScene begins directly with `bounds_min` (no version/objSize prefix), CGeom bounds at +0x10/+0x20 with meshCount +0x4C, and sMesh moves to sphere centre +0x00, **radius +0x0C**, material checksum +0x14 (unchanged from THAW and PC), `u16 indexCount` +0x24 / `u16 vertexCount` +0x26, index-domain buffer +0x40, **vertex buffer +0x60**. Buffers use a **48-byte descriptor with a `CAFEBAB4` x4 magic**, first-batch count +0x20, that batch's bone palette +0x24 (NOT a class word — see below), two filler slots, data at +0x30; stride 32, position float32 BE x3 at +0 as in THAW. Because the 16-byte magic is a strong anchor, the sMesh table is best LOCATED rather than trusted from CScene offsets — requiring every record's +0x60 to resolve to a descriptor whose count matches +0x26 recovers it exactly, and CScene field offsets are NOT stable across P8 file kinds (fitting them to one file gave 821/3380). Verified: **every single-batch mesh decodes exactly — 141/141 (P8 138, PG 3) reproduce the declared bounding-sphere radius to ratio 1.000**, an oracle a wrong base/stride/format cannot satisfy. **RESOLVED:** batched meshes are a CHAIN — a 48-byte descriptor holds the first batch's count at +0x20 with data at +0x30, and every later batch is introduced by a 16-byte header whose leading big-endian word is its count; the chain sums exactly to `vertexCount` (78+78+550+550 = 1256; 18+101+18+16+16 = 169). **PROVING GROUND IS THE SAME FORMAT, and two readings had to be corrected to see it (2026-08-28).** (1) P8's indices were located by searching for a `FACEF001 FACEF000` pair, and PG contains no such pair anywhere — but those words are unresolved-pointer FILLER of the `BAADF00D` family, and the two builds merely park it in different slots: P8 writes it into the index block's header where PG writes zeros, and PG writes it into the vertex descriptor's tail and the inter-batch headers where P8 writes zeros. **The record STATES its index block at +0x5C in both builds**, with the payload +0x20 in, so no search is needed — and reading the stated pointer recovered files in P8 as well (cutscene tree 80 → 108 files, 92,110 → 422,203 triangles). The attribute block is the analogous stated pair: pointer +0x40, **byte size +0x4C** (`vertexCount*16`), `FFFFFFFF`/0 when absent. (2) The descriptor word at +0x24 was read as a class flag; it actually takes ~70 values, does not correlate with batching at all, and its multi-byte forms are ascending zero-terminated byte triples (`15 2B 2D 00`, `23 17 18 00`, `02 03 04 00`) — a per-batch **bone palette**, read but not consumed. Demanding it be a class rejected the sMesh table outright on most of PG; the real anchor test is `0 < firstBatchCount <= vertexCount` (3201/3201 PG, 3386/3393 P8). Cross-build Rosetta: the shared `bam_mugging` cutscene has byte-identical mesh records apart from four unresolved pointer slots and identical vertex bytes apart from one word, and the reader agrees on all 6 meshes / 1,892 triangles / every position and index in both builds. Every mesh in both sweeps reproduces its declared bounding-sphere radius at ratio 1.000, with the highest index it uses being its own last vertex. **THE NO-DESCRIPTOR POPULATION IS A SECOND VERTEX LAYOUT, AND IT IS THE LEVELS (2026-08-29).** A record whose `+0x60` is `0xFFFFFFFF` has no descriptor: the whole vertex, position first, sits in the `+0x40` block at a per-mesh stride the record states as `+0x4C / vertexCount` (16-56 bytes observed). The two layouts are perfectly disjoint, no file mixes them, and the split is by FILE KIND — every `.skin` uses descriptors, every `.mdl` (1,687) and `.scn` (361) is descriptor-less, zero counter-examples either way. `z_bw_bridge`'s 3.1 MB zone states **698 meshes at strides 24/28/32/36/40/44/48/52**, so no fixed stride could ever have read it. The **mesh table is stated as well** (offset `scene+0x80`, count `scene+0x4C`), which removes 78 records the search anchor invented — 60 of them passing every oracle *vacuously* with `indexCount == 0` and `radius == 0` — and recovers 93 real ones; the offset word is validated with a fallback to the search rather than trusted, since it is constant within a build (352 P8 / 368 PG over 3,824 files) and the corpus cannot tell a field from a constant there. The declared **bounding sphere stays a HARD gate**: it is the only check specific to vertex-base correctness (a batch walk "consumes exactly" from any base whose first count is big enough), and the populations separate hugely — authored staleness tops out at ratio 2.39 on 8 of 6,609 meshes (proven authored: the separately mastered PS3 build ships a *corrected* radius over byte-identical positions) while a misread base lands at 1e36 or infinity. New sweeps: **PG 1,536/1,646 → 2,204,550 triangles, P8 1,233/1,296 → 1,655,508, 0 validator errors and 0 warnings across 2,769 GLBs**. The 110 PG / 63 P8 non-conversions are authored-empty and provably so — exactly the files whose scene bounding box is degenerate (inverted on P8, all-zero on PG), set-identity with zero exceptions. **PS3 SHIPPED FOR PROJECT 8, REFUSED FOR PROVING GROUND (2026-08-30).** PS3 moves the attribute stream and index buffer into a sibling **VRAM companion** — the kind is SWAPPED, not suffixed (`.skin.ps3`→`.skiv.ps3`, `.mdl`→`.mdv`, `.scn`→`.scv`) — addressed by the same `+0x40`/`+0x5C` pointers as **RAW offsets from byte 0, no scene base and no `0x20` header skip**, resolved through the existing `AssetSource.TryReadCompanion`. **P8 PS3: 615/1,807 files → 653,648 triangles, 0 validator errors/warnings**, with `anl_pigeon` decoding position-for-position identically to its Xbox 360 copy; the wrong-companion control scores 0/103. **PG's PS3 descriptor is longer** — 0x40 bytes, `FACEF000 FACEF001` at +0x38/+0x3C, count +0x30, data +0x40 (231/231 PG-PS3, 0 of 708 elsewhere) — and reproduces 99/99 spheres where the X360 shape gets 0/99. **But PG-PS3's topology is wrong and the build is DECLINED rather than shipped broken**: the bounding sphere is order-INSENSITIVE and the glTF validator only checks index range, so both passed while the model rendered as a shattered fan. A locality oracle (median triangle edge ÷ bounding radius) puts P8 PS3 at 0.21-0.39 — matching its X360 sibling — and PG PS3 at 0.50-0.62 for single- and multi-batch meshes alike, at every index base 0x00-0x60 and for the swapped-pointer and positions-in-VRAM alternatives, so it is neither a shift, nor the batch chain, nor a swapped pointer. **Still open:** (ii) the attribute stride is stated at **+0x5A** (a fixed 16 holds for only 60% of meshes) with the layout declared at +0x18..+0x23 — byte +0x1A is UV0's offset, +0x1B the colour's, and the u16 at +0x1C a 2-bit-per-slot mask over 8 texcoord slots (`stride == (+0x1A-32) + 4*popcount2(mask)`, 6,510/6,510; 1-7 UV sets, 28% genuinely differing); the reader now uses it for UV0 but does not emit the extra sets; (iii) **authored normals now SHIP** on the descriptor path — the vertex carries three 11/11/10 packed signed unit vectors at +0x10/+0x14/+0x18, unit on **100.000% of 97,296 vertices vs a 6.3% control**, and **+0x10 is the normal** (mean signed dot with our emitted facet normal +0.909 P8 / +0.923 PG, the other two ±0.007); the positive sign independently confirms the strip winding. Derived normals now run only for the descriptor-less layout. Still unused: +0x1C is `BAADF00D` on 100%, +0x0C is two BE u16 fractions with an implied third (blend-weight shaped, but no bone-index field found so skinning is not claimed), and the colour word is `0xAARRGGBB` with **alpha first**; (iv) materials remain untextured placeholders on both revisions. **The sentinel-less files need no work**: all 1,350 are whole-file-compressed duplicates (raw DEFLATE on X360, Okumura LZSS on PS3) whose payloads are SHA-identical to scenes already present uncompressed — zero new assets. |
+| ~~**`.fsb` FMOD banks / THAW X360 XMA banks**~~ | ~~14 banks / 2.3 GB~~ | **SHIPPED 2026-09-02** — strict FSB3.1 parsing consumes all 12 banks / 1,782,745,082 bytes exactly and exposes all 22,454 authored names: 5,418 PS3 MP3 streams and 17,036 X360 XMA1 streams. Named raw extraction emits exact MP3 or canonical RIFF/XMA; CLI and GUI convert either codec to per-stream PCM WAV through ffmpeg, with staged atomic targets and a real-corpus XMA decode test. The shared probe content-gates compound `.fsb.ps3` / `.fsb.xen` names, and conversion paths independently fail closed on the same parser. **THAW X360's paired `xma.dat`/`xma.wad` family is shipped too:** the two BE indices consume exactly 3,703 streams / 516,990,976 WAD bytes, with every 2 KiB-aligned range forming a gapless permutation through EOF. Existing QBKey resources name 2,425 streams; the remaining 1,278 use deterministic `0xHASH` names without bundling a corpus-sized lookup. Both measured dialects (3,592 22.05 kHz mono effects; 111 48 kHz stereo music) extract as canonical RIFF/XMA and decode through the same ffmpeg bridge; corpus tests pin the full population and a real decode. |
+| ~~**late `.wav.ps3` / `.wav.xen` audio**~~ | ~~6,534 files / 65,231,394 B~~ | **SHIPPED 2026-09-02** — 3,759 PS3 files (3,530 raw MP3 + 229 one-stream FSB3) and 2,775 Xenon RIFF/XMA1 files classify exactly. Probe, GUI, CLI, duration, collision-safe naming, and staged WAV conversion share the content gate; one real file from each of the 27 authored codec/rate/channel/loop layouts decodes through ffmpeg. FSB-contained MP3 is trimmed at a strictly validated zero alignment tail before transcoding; raw `.wav.ps3` MP3 remains exact-to-EOF. |
+| ~~**Wii DSP-ADPCM** (extensionless streams)~~ | ~~6,578 files / 563 MB~~ | **SHIPPED 2026-09-02** — 6,578/6,578 satisfy `size == 0x60 + ceil(nibbles/2)`, the derived nibble↔sample relation, and `header ps == first data byte`. Content-gated extensionless discovery, probe, GUI preview, CLI, and PCM WAV conversion use the same decoder. |
+| **Wii scenes / levels** | 1,591 candidates | **PARTIAL** — the THAW GameCube layout safely covers 11/392 DHJ and 56/1,199 Proving Ground Wii candidates. The remaining candidates fail closed; full scene, sky/background, and object composition is still open. |
+| ~~**`.psp_level`**~~ | ~~668 files / 203 MB~~ | **STATIC WORLD + EMBEDDED TEXTURES SHIPPED 2026-09-02.** All 668/668 files consume exactly: Remix 80 / 80,327,774 bytes; P8 Final 294 / 61,488,910; P8 Rev1 294 / 61,488,910. The shared scene path emits 1,785,387 GE strips, 8,646,324 vertices, and 5,075,550 theoretical triangles with decoded T4/T8 embedded textures and explicit fixed/float vertex layouts. Same-build QB evidence also ships a strict authored composition subset: Remix 42 main variants (40 sky, two explicit no-sky) and each P8 build 40 world-zone variants (36 sky, four no-sky), in runtime sky→main order with independent namespaces and camera-locked sky metadata. Five Remix editor themes are recorded but not auto-joined because one shared main has no unique selected theme; P8 missions, SFX layers, global and `z_world` remain standalone. Missing/ambiguous/malformed optional composition falls back to standalone. Remaining: the trailing 64-byte dynamic-object records are bounded/skipped, not rendered. |
 | ~~**`.tif` on disc**~~ | ~~8,531 corpus-wide~~ | **SHIPPED 2026-08-26** with mip export — `TiffMipChain` retargets the header IFD pointer per level (7,308/7,308 frames decode; 1,487/1,487 chains exactly floor-halved), writing `_mipN.png` companions. See CLAUDE.md. |
-| **hash-named pak entries** | 3,657 files | 8 extension keys resolved by forward-hash against a 15/15 control: `.vtex`/`.vstex`/`.vimg`/`.vskin`/`.vmdl`/`.vgeom`/`.vfnt`/`.mhkc`. Adding them to `PakArchive.KnownTypes` improves generated NAMES only — no decoder exists for those payloads yet. |
+| **hash-named pak entries** | 3,657 files | 8 extension keys resolved by forward-hash against a 15/15 control and now registered in `PakArchive.KnownTypes`: `.vtex`/`.vstex`/`.vimg`/`.vskin`/`.vmdl`/`.vgeom`/`.vfnt`/`.mhkc`. `.vtex`/`.vstex` are consumed as PS3 texture VRAM twins under exact-name, same-build byte-identical-content, or complete typed-population ownership proof; collision-renamed texture entries are paired only under the last gate. `.vimg` is consumed by the PS3 IMG path. The mesh/font/collision-side payload meanings remain inspection work. |
 
 Closed as non-content: `.pup` (PS3 firmware), `DATA/SPACERS/spacer_N.dat` (5,850 filler files), ghost saves.
-Open research (explicitly NOT a cheap win): **PMF ATRAC3+ audio** — the demux is proven correct
-(1,325 × 752-byte frames, all opening `0F D0`) but ffmpeg's atrac3plus decoder stalls ~14% in
-under every channel-id tried, so this is decoder-level work, not integration.
+
+### ✅ PSP PMF ATRAC3+ audio — SHIPPED 2026-09-02
+
+The earlier decoder-stall conclusion was a framing error rather than an ffmpeg limitation. Strict PSMF
+private-PES demux now removes each eight-byte PSP frame header, wraps the 568/752-byte ATRAC3+ bodies
+in OMA, and rejects inter-packet garbage outside declared stuffing/padding. All 334 PMFs classify:
+333 carry audio and decode to PCM16 WAV or AAC in the converted MP4; `ICON1.PMF` is the sole authored
+video-only stream. Corpus gates cover path and archive-byte conversion, both layouts, and the complete
+1,325-frame former failure case.
+
+### ✅ Collision v8/v9/v10 rendering and conservative overlay — SHIPPED 2026-09-02
+
+Standalone COL rendering now covers 11,265 little-endian v8/v9/v10 files, with only the known
+legacy-v1 `canada.col.ps2` rejected; THAW X360 adds 764/764 big-endian v10 files (32,034 objects,
+1,268,567 vertices, 996,233 faces). THPS4 PC's separately gated 601 `*col.dat` files are described
+above. The Levels tab and `mesh --collision-overlay` can opt into a translucent collision layer only
+for a same-owner, exact-stem companion whose endian and complete payload validate. The loose-file
+census finds 3,365/3,620 PS2 `.geom.ps2` → `.col.ps2` pairs, 90/192 Xbox `.scn.xbx` → `.col.xbx`
+pairs, and 29/29 THPS4 PC delimiter-free `*scn.dat` → `*col.dat` pairs. All 13 authored THPS4 main
+levels compose the render scene and v8 overlay. THPS2X has 104 exact-stem DDM/PSX structural pairs,
+all carrying non-super PSX revision 6, but only the 24 pairs with both exact `_o.ddm` and `_t.trg`
+authored-level markers are promoted. Those 24 collision payloads contain 19,527 objects/meshes and
+328,442 structurally valid faces (306,154 visible plus 22,288 hidden collision-only), producing
+485,549 non-degenerate overlay triangles; 89 other declared face records fail the parser's structural
+gates. Many broad PS2/Xbox pairs are objects rather than levels. No exact loose X360 scene/COL pairs exist, and NGC, PS3,
+hashed/offset, malformed, ambiguous, or remote-directory candidates remain excluded. NGC/Wii COL
+positions are still external, so their inspection route cannot be promoted to rendered overlay.
+
+### ✅ THPS2X authored sky/background composition — SHIPPED 2026-09-02
+
+DDM level conversion now reads each exact `<level>_t.trg` and joins only the objects registered by
+`BackgroundCreate`. All 500/500 authored registrations resolve without ambiguity to 25 unique sky
+objects across 24 level families; 20 levels have sky geometry and four deliberately do not. The
+shared viewer/export path retains backdrop colour, placement anchor, camera-lock semantics, and the
+authored paint order for multi-layer skies.
+
+### ✅ THPS3 PS2 authored BSP sky/background composition — SHIPPED 2026-09-02
+
+The default RenderWare BSP viewer/export route now reads the exact shipping
+`SKATE3/Scripts/levels.qb` master list and its `loadlevelgeometry` calls. All 13 single-player mains
+resolve uniquely beneath the same build's runtime `SKATE3/pre` tree; 11 compose an authored sky BSP
+and 11 retain an unambiguous `SetBackgroundColor`. Foundry and Warehouse explicitly author no sky,
+while Tutorials proves why basename guessing is wrong by pairing `Tut.bsp` with
+`Sk3Ed_Bch_Sky.bsp`. Main and sky keep independent texture providers and material windows, sky
+geometry is camera-locked, and optional missing/malformed composition fails open to the standalone
+main BSP. Corpus gates pin the exact 13-entry manifest/resolution list, all 13 composed documents,
+Burnside's valid untextured sky geometry, and a real Tutorials GLB export.
+
+THPS3 collision now has a dedicated default-off view over the main BSP only. The Neversoft atomic
+extension supplies a version-6 side table with one little-endian `u16` flag per triangle: 39/43 BSPs
+carry a complete non-empty runtime payload and emit 771,579 of 772,002 triangles across 394 flag
+values. Three DCC/source exports correctly lack the plugin and `Ware_Test10.bsp` is authored-empty.
+Truncated sector salvage, incomplete flag ownership, or invalid indices fail closed; 423 geometric
+degenerates are omitted. The camera-locked sky is never mislabeled as level collision, and GLB/Blend
+metadata retains exact classification groups after the shared translucent material is merged.
 
 ### ✅ THUG2 PS2 v2 IMG GS-swizzled class — SHIPPED 2026-08-26 (2,629 files were failing)
 
@@ -92,18 +164,12 @@ research (both blocked on disassembling the game's own loader). Status:
   unidentified families turned out to be the **geometry** and **animation** formats. Full
   derivation, including the controls that make the naming sound and the refutations that do not
   work, in `docs/formats/ds-gob-gfc.md`. Remaining DS work is tracked as its own phase list below.
-- 🔴 **DS formats above the static tier** — with naming solved, these are now reachable:
-  **animation** (Sk8land 11,156 indexed clips, `{u32 ?, nRot, nTrans, version}` + two per-joint
-  offset tables, `nRot == jointCount` for 76/77 model sets; DHJ/PG ship theirs inside `comp`
-  containers), **skinning** (the geometry prologue's variable-stride joint records are still
-  skipped, and `NdsGxInterpreter` discards the MTX_RESTORE slot at vertex-emit time),
-  **collisionspheres** (`{u32 count, u32 totalLength, u32 offsets[]}`, 229 files),
-  **pvs**, **`.hwas` streamed audio** (57 MB of DHJ+PG soundtrack; 512-byte header, one continuous
-  4-bit sign+magnitude ADPCM stream — the nibble histogram is unambiguous, the exact step/index
-  variant is not yet read out of ARM7), the **`comp`/`pmoc`** container, and **GUI wiring** (DS is
-  CLI-only; `nds-mesh` bypasses `MeshModelParser` on `ModelSourceKind.Generic`).
-  `tools/vendor/bizhawk-nds/` (BizHawk 2.9.1 + melonDS) is provisioned for dynamic analysis and
-  smoke-tested headlessly.
+- 🔶 **DS formats above the static tier** — animation clips, model-set skeleton association,
+  collision worlds, and SWAV/STRM/HWAS PCM/ADPCM conversion now ship through shared routes.
+  The animation outcome remains partial: Sk8land has 77 models / 11,156 applicable clips; DHJ has
+  322 applicable bindings but 121 currently bake, and Proving Ground has 467 applicable bindings
+  but 131 bake because singular joint transforms fail closed. Remaining DS composition work includes
+  skinning fidelity, collision-sphere/PVS semantics, and systematic level/sky/object assembly.
 - 🔴 **GBA 3D level meshes** — `tools/research/gba-3d/FINDINGS.md`. Confirmed geometry is STORED (not
   procedural): a raw ROM model region (~0x750000+ in THPS2) with a bounds+count+pointer descriptor
   table and small-index face lists, reached via an in-RAM object directory. The vertex-position codec
@@ -125,9 +191,20 @@ research (both blocked on disassembling the game's own loader). Status:
   (2 synthetic-key `[Fact]` building a test-key-encrypted cluster + a key-free end-to-end
   `[CorpusFact]`). Proving Ground Wii is the Page 44 Neversoft-engine port; its DATA partition is
   `.ngc`/`.ps2`/`.skin`/`.qb` lineage that converts through the existing parsers.
-- 🔴 **THPS4 PC new extensions** — census surfaced `SND*.DEE` (streamed audio?), `.SMO`, `*FNT.DAT`.
-  Probe after the discs settle; the `.fnt` pipeline may inform the DAT fonts. `.tgr` on CD2 is Bink
-  (`BIKi` magic) — plays via the existing ffmpeg path.
+- ✅ **THPS4 PC delimiter-free DAT + media — SHIPPED 2026-09-02.** `.tgr` ships for all 27 content-gated BIKi movies.
+  All 3,612 DEE carriers satisfy their strict BIKi/Bink-DCT profile and decode to PCM16 WAV; all 47
+  SMO soundtrack carriers satisfy a separate stereo profile and now route directly to WAV as well as
+  through the video path. Delimiter-free `*tex.dat` is **601/601** (8,332 RGBA textures / 38,093
+  exact-size mips, one authored-empty dictionary) and `*col.dat` is **601/601** v8 (11,701 objects,
+  646,877 vertices, 669,796 faces). The collision gate validates the complete post-face BSP graph,
+  proves every face reachable through 1,557,770 object-local references, and consumes exact EOF.
+  All **880/880 `*img.dat`** files decode through their P8/BGRA32 layouts. The independent early-PC
+  scene parser consumes **420/420 `*skin.dat`, 152/152 `*mdl.dat`, and 29/29 `*scn.dat`** exactly,
+  preserving planar vertex pools, materials, hierarchy placement, and companion textures; all scenes
+  render. `Levels.qb` supplies 13 exact sky/main compositions and two editor shells (including
+  Motox → Hof_Sky and excluding unused residue). Finally, **1,966/1,966 `*ska.dat`** files parse with
+  the shipped 2,048-entry Q/T tables and reach the shared animation export IR. Each family has its own
+  strict name and payload gate rather than a generic `.dat` alias.
 
 ### 🔴 PS1-era residual extension survey — 2026-08-17 (answers "any PSX-side gaps left?")
 
@@ -264,7 +341,7 @@ header + 0..N byte permutations visible in the raw), `trickdb.dat`/`sizes.dat`/`
 data tables/manifests), `.psh` (already parsed as part-name headers). THPS2's 1,283 `.bmp` route
 through the existing BMP facade.
 
-### 🔶 THAW GameCube platform — textures ✅ 2026-07-07, meshes ✅ 2026-07-08, collision inspection ✅ 2026-08-10
+### 🔶 THAW GameCube platform — textures ✅ 2026-07-07, meshes ✅ 2026-07-08, collision inspection ✅ 2026-08-10, proof-bound rendering ✅ 2026-09-02
 - Source: 2026-07-07 corpus census + format RE sessions (textures 07-07, meshes 07-08).
 - ✅ **Textures done**: `.tex.ngc` (722) + `.img.ngc` (2,647) parse via `NgcTexFile` (extended from the
   earlier committed skeleton). Format (established via PC↔GC Rosetta pairs, pixel-exact on `anl_pigeon`,
@@ -308,9 +385,27 @@ through the existing BMP facade.
   has NO cell table — the engine builds supersectors at runtime. **Vertex positions are absent BY
   DESIGN, not wiped**: `InitCollObjTriData` binds `mp_raw_vert_pos` to the render scene's
   `mp_pos_pool`, which answers the old "needs a study of how the engine sources the vertices" —
-  any future geometry reconstruction first needs an authoritative collision→scene-pool identity and index-domain
-  oracle (the collision file itself provides neither); the inspector intentionally synthesizes no geometry. Pinned by
+  the collision file itself still provides neither positions nor an ownership oracle. The `ngccol`
+  inspector therefore remains topology/metadata-only and synthesizes no geometry. Pinned by
   `NgcColFileTests` (fixture + strictness + corpus totals).
+- ✅ **Proof-bound collision rendering and overlay shipped 2026-09-02.** `NgcSceneFile` now retains
+  the source-order scene-wide float pool and per-object s16/32 skin lists. The shared `mesh`, GUI,
+  GLB, and default-off `mesh --collision-overlay` paths admit a `.col.ngc` only when ownership and
+  coordinates are exact: one same-directory loose `<stem>.mdl/.skin/.scn.ngc`, or one COL plus one
+  typed render entry in the selected PAK directory; matching object count/checksum/order; exactly
+  one position-pool kind whose total count equals `totalVerts`; finite positions; every face index
+  in range; every referenced point inside both object and scene bounds (the audited collision/render
+  compiler precision requires a 1/32-unit tolerance for both static and skin winners); and at least
+  one non-degenerate triangle. No basename proximity,
+  cross-directory/hash search, size-only pairing, or synthetic coordinate fallback exists. Scene
+  overlay is fail-open; standalone collision conversion and the GUI collision row are fail-closed.
+  The canonical loose audit accepts **210/722** families (**23 static MDL + 187 skin**), declines
+  **495** incompatible non-empty families, and identifies **17** authored-empty families. The 680
+  PAK-expanded typed-entry copies independently yield **225 accepted, 289 declined, and 166 empty**;
+  direct hash-named archive rendering is additionally pinned on a real APK/MPK owner. Pigeon proves
+  both a 45-triangle standalone GLB and a 45-triangle translucent scene overlay. Tests cover wrong
+  owners, multiple typed candidates, malformed peers, pool ambiguity, checksums, counts, ranges,
+  bounds, empty/degenerate geometry, loose corpus totals, and archive ownership.
 - ✅ **`.apk.ngc` / `.pak.ngc` archives — extraction shipped 2026-07-09, offset model CORRECTED
   2026-07-10.** They are big-endian Neversoft PAKs (sentinel-detected; `PakArchive` handles both
   endians). `.mpk.ngc` = the companion DATA file (like PS2 .pab), not padding — 3,603 of 4,424 are
@@ -580,7 +675,8 @@ through the existing BMP facade.
     JSON with `sampleRate: null` and cue mapping marked unresolved. The four-ROM corpus pins 1,775
     waves / 320 loops, complete asset hashes and P/A/Z offsets, and Spider-Man's final loop ending raw
     at `D+0xCC == P`. This command remains inspection-only: it reports no inferred sample rate and does
-    not execute BFX/song bytecode, apply pitch, expand loops, or join Neversoft cues;
+    not execute BFX/song bytecode or join Neversoft cues. Exact initial-effect playback is exposed by
+    the separate audited-ROM `n64-audio-decode --effect` route below;
   - ✅ **N64 Sound Tools ROM-global mixer profile — SHIPPED 2026-08-11.**
     `n64-audio-runtime-inspect <game.z64> -o runtime.json` is deliberately separate from PTR/WBK/BFX/SFX
     inspection and has no standalone mode. Schema v1 resolves only the four audited final ROMs using an
@@ -594,9 +690,9 @@ through the existing BMP facade.
     `osAiSetFrequency`. With the pinned NTSC clock 48,681,812, the routine rounds to divisor 2208, writes
     AI DACRATE 2207, and returns 22047 by integer division. The manifest calls this a
     `romGlobalMixerOutput` and publishes the country/clock/routine evidence coordinates and routine
-    hash; per-wave rate and cue mapping remain unresolved, pitch/loop scheduling is not applied, and
-    playback is not executed. Existing bank schemas stay byte-identical and
-    `n64-audio-decode --sample-rate` remains mandatory with no mixer-derived default;
+    hash. This is not an authored per-wave or cue rate, but the exact initial-effect decoder below
+    consumes it as the Sound Tools mixer basis. Existing bank schemas stay byte-identical; raw
+    `n64-audio-decode --index` still requires `--sample-rate` and never guesses from the mixer;
   - ✅ **N64 ABI1 stored-wave decode — SHIPPED 2026-08-10.** `N64AdpcmDecoder` consumes the validated
     WBK slice and parsed predictor book as 9-byte frames / 16 mono samples using the signed-32 wrapping
     and saturated-history behavior of the ABI1/libultra audio-microcode runtime. Synthetic nibble,
@@ -605,9 +701,12 @@ through the existing BMP facade.
     dialect is pinned across 3,390,907 frames: predictors 0–3 and scales 0–12 only. The separate
     `n64-audio-decode <PTR|ROM> --index N --sample-rate Hz -o out.wav` route requires the rate from the
     caller and emits one selected stored wave once as mono PCM16; explicit PTR input also requires
-    `--wave`. Parsing, range checks, decoding, and WAV-size validation complete before the destination is
-    touched. Authoritative per-wave/cue rate discovery, loop scheduling, pitch application, BFX
-    execution, and cue ownership remain separate;
+    `--wave`. Its audited-ROM `--effect N` alternative selects the exact initial BFX local wave/PTR
+    target, applies signed PTR base-note/fine-tune plus BFX-note pitch with Nintendo's runtime
+    polynomial over the returned 22047 Hz mixer rate, and writes the stored infinite ALADPCM loop as
+    a WAV `smpl` record. It rejects unknown ROMs, incomplete initial grammars, caller-supplied rates,
+    finite-loop conversion, and runtime-clamped silent pitches before touching output. It does not
+    resample, render envelopes, execute later bytecode, or accept a cue as its selection input;
   - ✅ **Nintendo Sound Tools BFX inspection — SHIPPED 2026-08-10.** These no-magic big-endian
     `fx_header_t` banks store signed default priorities, file-relative component offsets, opaque effect
     payloads, and an EOF-consuming u16 local-wave→PTR table. `N64SoundToolsFxBank` owns every byte and
@@ -621,17 +720,22 @@ through the existing BMP facade.
     `81 <packed-local>` or the sole Spider-Man `95 <loop-count> 81 <packed-local>` wrapper—then resolves a
     nullable initial event only when the exact following grammar is present: `84 env[7] 9C pan A6 volume
     note<80 packed-length`. It exposes raw operands, the proven runtime pan half, `0x60` rest labeling, and
-    finite versus `0x7FFF` indefinite length without inventing MIDI, duration, rate, pitch, or playback
-    semantics. Continuation classification is separate and exact: direct remaining `80`, direct `80 E2`
+    finite versus `0x7FFF` indefinite length without inventing MIDI or duration semantics. Continuation
+    classification is separate and exact: direct remaining `80`, direct `80 E2`
     with only `E2` retained as uninterpreted-after-stop, or wrapper count `0xFF` plus `96 80` as infinite
     repeat. Wrong/truncated grammar, out-of-range bindings, and every other suffix remain nullable; neither
-    resolver scans later bytes or changes structural BFX acceptance. Across 13,737 carved assets the
+    resolver scans later bytes or changes structural BFX acceptance. Across 13,864 carved assets the
     predicate still finds exactly four candidates and zero false positives, pinning 1,680 components/effects,
     30,626 opaque bytes, and 1,608 mappings. All 1,680 initial bindings/events classify (1,339 finite-stop,
     340 indefinite-unreachable-stop, one infinite repeat) and cover all 1,608 local waves. The manifest
-    preserves every raw component byte and reports `opaqueBeyondInitialEvent`; Neversoft cue ownership and
-    per-wave rate remain unresolved, pitch/loop scheduling is not applied, and playback/decode/WAV output is
-    not executed. This is Nintendo Sound Tools BFX, not the unrelated Codemasters WTC `.bfx` family
+    preserves every raw component byte and reports `opaqueBeyondInitialEvent`. The playback resolver now
+    executes only this proven initial event/continuation boundary: all 1,680 effects select a PTR wave,
+    exact signed pitch yields WAV rates 9,270/11,024/11,679/22,047 across the corpus, and all 320 stored
+    loops use libaudio's `[start,end)`/`count == -1` semantics. The envelope control equations and
+    finite stop times are now source- and ROM-pinned for all 14 non-flat corpus effects, but playback
+    does not yet emulate naudio's squared gain, exponential ramp, and equal-power stereo pan; envelopes
+    and later bytecode therefore remain unrendered.
+    This is Nintendo Sound Tools BFX, not the unrelated Codemasters WTC `.bfx` family
     documented elsewhere in this file;
   - ✅ **Strict N64 raw SFX cue inspection — SHIPPED 2026-08-10.** `N64SfxCueBank` consumes zero or
     more complete 16-byte big-endian records followed by the exact `FFFFFFFF` terminator, preserves every
@@ -639,9 +743,20 @@ through the existing BMP facade.
     cues.json` uses one deterministic aggregate schema for a direct bank or all strict structural matches
     carved from a ROM. The archive carver now shares the same byte-only predicate, correcting two THPS2
     tables that the old semantic note-range heuristic named `.bin`; ROM inspection still scans every asset
-    instead of treating suffixes as proof. The four-ROM scan covers 13,737 assets and pins 83 banks / 3,172 records (THPS1 0,
+    instead of treating suffixes as proof. The four-ROM scan covers 13,864 assets and pins 83 banks / 3,172 records (THPS1 0,
     THPS2 14/671, THPS3 14/572, Spider-Man 55/1,929), including the valid empty THPS1 aggregate.
-    Alias-to-BFX/PTR ownership, rate/pitch application, loop scheduling, and playback remain unresolved;
+    Schema v3 consumes SHA-pinned compiled THPS2/3/Spider-Man alias tables and their executable
+    consumers. Raw `aliasRaw` remains `u32`; THPS2/3 runtime lookup uses its low 16 bits and exports
+    that normalized `lookupAlias`, while Spider-Man preserves all 32 bits. THPS2/3 table targets are
+    big-endian `u16` (low 10-bit BFX index plus preserved high routing flags); Spider-Man uses a
+    distinct big-endian `u32` packed-class encoding and full-word `0xFA0` no-target sentinel. A cue-bank
+    identity does not prove the mutable live owner, so THPS2 remains **622 fixed targets + 34 proven
+    no-play + 15 live-state choices = 671**. Twelve choices have exhaustive outcome sets; the three
+    `158` records retain an unestablished other-selector outcome. THPS3 is **542 + 30 no-play = 572**.
+    Spider-Man is **1,696 + 233 no-play = 1,929** with zero dynamic/out-of-range records. Typed code/data
+    hashes, encodings, runtime-state layout and branches, plus the exact selected BFX/PTR source, size,
+    SHA-256, and singleton-binding basis are exported.
+    THPS1 has no cues. Playback meanings for every non-alias raw cue operand remain unresolved;
   - ✅ **N64 direct/compressed animation — conservative binding slice shipped 2026-08-10, exact flat-map profile added 2026-08-11.**
     The reader consumes big-endian 0x2A tables plus 24-byte big-endian `SMatrix` records and mixed-endian
     0x2C tables/channel payloads. Each direct slot is bounded by the next pool offset, sized from playback
@@ -798,8 +913,9 @@ formats. NO planned support for shaders (`.shd.ngc`) or particles (`.pfx`).**
   `Thug2PcSndCodec` / `Thug2PcSndDecoder`; full provenance is in
   `docs/formats/thug2-pc-snd.md`.
 - ⚪ Not formats / no action: `.dep` (build path lists), `.chk` (checksum text), `.anr` (text
-  anchor scripts), `.rec` replays, `.seq` ("Sequencer File" text on the DC proto), standard
-  `.gif/.ogg/.jpg`, installer debris. `.zoo`/`.bfx`/`.ppv` = Codemasters WTC (see PPV entry).
+  anchor scripts), `.rec` replays, `.seq` ("Sequencer File" text on the DC proto), and installer
+  debris. Standard `.gif`/`.jpg` now route through the Bitmap viewer and `.ogg` through Audio.
+  `.zoo`/`.bfx`/`.ppv` = Codemasters WTC (see PPV entry).
 
 ---
 

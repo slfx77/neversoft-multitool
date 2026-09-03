@@ -1,6 +1,6 @@
 using System.CommandLine;
 using System.Diagnostics;
-using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Rle;
 using Spectre.Console;
 
@@ -12,7 +12,7 @@ public static class RleCommand
     {
         var inputArgument = new Argument<string>("input")
         {
-            Description = "Path to directory containing .rle/.bmr/.zlb/.bmp/.tga/.tif files"
+            Description = "Path to directory containing Neversoft or standard bitmap files"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -21,7 +21,7 @@ public static class RleCommand
         };
         var widthOption = new Option<int>("-w", "--width")
         {
-            Description = "Image width in pixels for RLE/BMR (0 = auto-detect; ignored for BMP/TGA)",
+            Description = "Image width in pixels for RLE/BMR (0 = auto-detect; ignored for self-described images)",
             DefaultValueFactory = _ => 0
         };
         var verboseOption = new Option<bool>("-v", "--verbose")
@@ -29,7 +29,7 @@ public static class RleCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("rle", "Convert RLE/BMR/ZLB/BMP/TGA bitmap files to PNG");
+        var command = new Command("rle", "Convert Neversoft and standard bitmap files to PNG");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(widthOption);
@@ -71,16 +71,13 @@ public static class RleCommand
         if (rleFiles.Length == 0)
         {
             AnsiConsole.MarkupLine(
-                "[yellow]No .rle, .bmr, .zlb, .bmp, .tga, or .tif files found in the specified directory.[/]");
+                "[yellow]No supported bitmap files found in the specified directory.[/]");
             return 0;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var outputPlan = MeshOutputPathPlanner.Plan(
-            rleFiles,
-            static file => Path.GetFileNameWithoutExtension(file),
-            input);
+        var outputPlan = BitmapOutputPathPlanner.Plan(rleFiles, input);
 
         Directory.CreateDirectory(output);
         var autoDetect = width == 0;
@@ -96,18 +93,23 @@ public static class RleCommand
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var file = planned.File;
+            var file = planned.Source;
             var filename = Path.GetFileName(file);
             var data = File.ReadAllBytes(file);
             var result = BitmapFile.Convert(data, filename, autoDetect ? null : width);
 
             if (result.Success)
             {
-                var plannedOutput = string.IsNullOrEmpty(planned.Subdirectory)
-                    ? output
-                    : Path.Combine(output, planned.Subdirectory);
-                var outputFile = Path.Combine(plannedOutput, planned.Stem + ".png");
-                var levelsWritten = BitmapFile.SavePngWithMipLevels(result, data, filename, outputFile);
+                var outputFile = Path.Combine(output, planned.RelativePngPath);
+                var source = new FileSystemAssetSource(file);
+                var levelsWritten = 1;
+                if (!BitmapOutputPathPlanner.IsInPlaceFileSystemOutput(source, outputFile))
+                {
+                    var plannedOutput = Path.GetDirectoryName(outputFile);
+                    if (!string.IsNullOrEmpty(plannedOutput))
+                        Directory.CreateDirectory(plannedOutput);
+                    levelsWritten = BitmapFile.SavePngWithMipLevels(result, data, filename, outputFile);
+                }
                 converted++;
 
                 if (verbose)

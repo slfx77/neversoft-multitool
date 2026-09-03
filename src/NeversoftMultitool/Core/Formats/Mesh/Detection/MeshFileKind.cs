@@ -12,7 +12,7 @@ public enum MeshFileKind
     /// <summary>Not a mesh file, or a mesh file whose content failed its check.</summary>
     None,
 
-    /// <summary>COL collision (<c>.col.xbx</c>/<c>.wpc</c>/<c>.ps2</c>/<c>.psp</c>, and bare <c>.col</c>).</summary>
+    /// <summary>COL collision (<c>.col.xbx</c>/<c>.wpc</c>/<c>.ps2</c>/<c>.psp</c>/<c>.ngc</c>, and bare <c>.col</c>).</summary>
     Collision,
 
     /// <summary>PS2 scene/skin (<c>.skin.ps2</c>, <c>.mdl.ps2</c>, <c>.iskin.ps2</c>, content-resolved bare names).</summary>

@@ -9,11 +9,41 @@ internal static class VideoConverterTabOperations
 {
     public static bool IsVideoFile(string path)
     {
-        // FfmpegVideoFormats owns .sfd/.pss/.bik plus the compound next-gen
-        // .bik.xen and PSP .pmf; .vid/.str have their own in-process decoders.
-        return FfmpegVideoFormats.HasVideoSuffix(path)
+        // Ffmpeg-backed formats use the shared suffix registry. VID and STR
+        // have their own in-process decoders, while TGR additionally needs a
+        // content check because Neversoft also used that extension for data.
+        return (FfmpegVideoFormats.HasVideoSuffix(path)
+                && (!OrdinalFileName.HasExtension(path, ".tgr") || FfmpegVideoFormats.IsBink(path))
+                && (!OrdinalFileName.HasExtension(path, ".smo") || FfmpegVideoFormats.IsThps4PcSmo(path)))
                || OrdinalFileName.HasExtension(path, ".vid")
                || OrdinalFileName.HasExtension(path, ".str");
+    }
+
+    /// <summary>
+    ///     Archive-backed counterpart to <see cref="IsVideoFile(string)" />.
+    ///     TGR is overloaded, so its bytes must identify Bink before the entry
+    ///     is shown. Other formats preserve their established name-only gate.
+    /// </summary>
+    public static bool IsVideoFile(AssetSource source)
+    {
+        var isTgr = OrdinalFileName.HasExtension(source.EntryName, ".tgr");
+        var isSmo = OrdinalFileName.HasExtension(source.EntryName, ".smo");
+        if (!isTgr && !isSmo)
+            return FfmpegVideoFormats.HasVideoSuffix(source.EntryName)
+                   || OrdinalFileName.HasExtension(source.EntryName, ".vid")
+                   || OrdinalFileName.HasExtension(source.EntryName, ".str");
+
+        try
+        {
+            var data = source.ReadBytes();
+            return isSmo
+                ? FfmpegVideoFormats.IsThps4PcSmo(data)
+                : FfmpegVideoFormats.IsBink(data);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static IEnumerable<string> FindVideoFiles(string inputDir)
@@ -26,6 +56,10 @@ internal static class VideoConverterTabOperations
                                      && FfmpegVideoFormats.IsBink(path)
                                   || OrdinalFileName.HasSuffix(Path.GetFileName(path), ".pmf")
                                      && FfmpegVideoFormats.IsPsmf(path)
+                                  || OrdinalFileName.HasExtension(path, ".tgr")
+                                     && FfmpegVideoFormats.IsBink(path)
+                                  || OrdinalFileName.HasExtension(path, ".smo")
+                                     && FfmpegVideoFormats.IsThps4PcSmo(path)
                                   || (OrdinalFileName.HasExtension(path, ".vid") && IsVidVideoFile(path))
                                   || (OrdinalFileName.HasExtension(path, ".str") && IsStrVideoFile(path)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -68,7 +102,10 @@ internal static class VideoConverterTabOperations
             ResolutionDisplay = "",
             SizeDisplay = FormatFileSize(archiveEntry.Size),
             Source = source,
-            RelativePath = source.DisplayName
+            // The full in-archive path is the stable identity used when two
+            // entries share a leaf/output stem. Do not hash the archive's
+            // absolute filesystem location into otherwise identical results.
+            RelativePath = archiveEntry.FullName
         };
     }
 
@@ -134,32 +171,48 @@ internal static class VideoConverterTabOperations
         string outputDir,
         IProgress<double>? progress = null,
         bool previewQuality = false,
+        string? outputStem = null,
         CancellationToken cancellationToken = default)
     {
         if (IsStrFormat(path))
-            return StrConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
+            return outputStem == null
+                ? StrConverter.ConvertToMp4(path, outputDir, progress, cancellationToken)
+                : StrConverter.ConvertToMp4WithStem(
+                    path, outputDir, outputStem, progress, cancellationToken);
 
         if (OrdinalFileName.HasExtension(path, ".vid"))
-            return Vid1VideoConverter.ConvertToMp4(path, outputDir, progress, cancellationToken);
+            return outputStem == null
+                ? Vid1VideoConverter.ConvertToMp4(path, outputDir, progress, cancellationToken)
+                : Vid1VideoConverter.ConvertToMp4WithStem(
+                    path, outputDir, outputStem, progress, cancellationToken);
 
-        return SfdConverter.ConvertToMp4(path, outputDir, progress, previewQuality, cancellationToken);
+        return outputStem == null
+            ? SfdConverter.ConvertToMp4(path, outputDir, progress, previewQuality, cancellationToken)
+            : SfdConverter.ConvertToMp4WithStem(
+                path, outputDir, outputStem, progress, previewQuality, cancellationToken);
     }
 
     public static SfdConvertResult ConvertFromSource(
         SfdFileEntry entry,
         string outputDir,
         IProgress<double>? progress = null,
+        string? outputStem = null,
         CancellationToken cancellationToken = default)
     {
         // Filesystem-backed entries go through the existing path-based pipeline
         // (preserves PSS audio muxing + STR/VID codepaths).
         if (entry.Source.FileSystemPath is { } filePath)
-            return ConvertFile(filePath, outputDir, progress, cancellationToken: cancellationToken);
+            return ConvertFile(
+                filePath,
+                outputDir,
+                progress,
+                outputStem: outputStem,
+                cancellationToken: cancellationToken);
 
         // Archive-backed: for SFD, pipe bytes to ffmpeg stdin. For STR/VID, fall
         // back to a temp file since those converters need a seekable path for
         // their custom decoders.
-        var stem = Path.GetFileNameWithoutExtension(entry.FileName);
+        var stem = outputStem ?? FfmpegVideoFormats.GetOutputStem(entry.FileName);
         var data = entry.Source.ReadBytes();
 
         if (OrdinalFileName.HasExtension(entry.FileName, ".sfd") ||
@@ -172,7 +225,12 @@ internal static class VideoConverterTabOperations
         // original leaf name so converters retain deterministic output stems
         // and VID1 can classify intro/atvi by basename.
         using var staged = ArchiveVideoTempFile.Write("ArchiveVideo", entry.FileName, data);
-        return ConvertFile(staged.Path, outputDir, progress, cancellationToken: cancellationToken);
+        return ConvertFile(
+            staged.Path,
+            outputDir,
+            progress,
+            outputStem: outputStem,
+            cancellationToken: cancellationToken);
     }
 
     public static string FormatTime(TimeSpan ts)

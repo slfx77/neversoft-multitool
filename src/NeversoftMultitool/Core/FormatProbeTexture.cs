@@ -1,6 +1,7 @@
 ﻿using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Font;
 using NeversoftMultitool.Core.Formats.Texture.Gba;
+using NeversoftMultitool.Core.Formats.Texture.NextGen;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture.Pvr;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
@@ -13,19 +14,25 @@ internal static class FormatProbeTexture
 {
     private static readonly string[] XboxTexSuffixes = [".tex.xbx", ".tex.wpc", ".stex"];
     private static readonly string[] XboxImgSuffixes = [".img.xbx", ".img.wpc"];
-    private static readonly string[] NgcTexSuffixes = [".tex.ngc", ".img.ngc"];
+    private static readonly string[] NgcTexSuffixes =
+        [".tex.stex.ngc", ".stex.ngc", ".tex.ngc", ".img.ngc"];
     private static readonly string[] N64TexSuffixes = [".tex.n64", ".img.n64"];
     private static readonly string[] CrossPlatformTexSuffixes =
         [".tex.xen", ".stex.xen", ".tex.ps3", ".stex.ps3", ".tex.dat"];
-    private static readonly string[] CrossPlatformImgSuffixes = [".img.xen", ".img.ps3"];
-    // The Remix PSP suffixes route through the same parser: .tex.psp is the
-    // PS2 v5 TEX format verbatim (GS swizzle + CSM1 CLUTs included) and
-    // .img.psp is content-discriminated to PspImgFile inside Ps2TexFile.Parse.
+    // PSP suffixes route through the same parser: .tex.psp is the PS2 v5 TEX
+    // format verbatim (GS swizzle + CSM1 CLUTs included) and .img.psp is
+    // content-discriminated to the Remix/P8 PspImgFile inside Ps2TexFile.Parse.
     private static readonly string[] Ps2TextureSuffixes = [".tex.ps2", ".img.ps2", ".tex.psp", ".img.psp"];
 
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
         var name = Path.GetFileName(filePath);
+
+        if (Thps4PcDatImageFile.IsCandidateFileName(name))
+            return ProbeThps4PcDatImageFile(filePath);
+
+        if (Thps4PcDatTextureFile.IsCandidateFileName(name))
+            return ProbeThps4PcDatTextureFile(filePath);
 
         if (OrdinalFileName.HasAnySuffix(name, XboxTexSuffixes))
             return ProbeXbxTexFile(filePath);
@@ -33,7 +40,7 @@ internal static class FormatProbeTexture
         if (OrdinalFileName.HasAnySuffix(name, XboxImgSuffixes))
             return ProbeXbxImgFile(filePath);
 
-        if (OrdinalFileName.HasAnySuffix(name, NgcTexSuffixes))
+        if (IsNgcTextureFileName(name))
             return ProbeNgcTexFile(filePath);
 
         if (OrdinalFileName.HasAnySuffix(name, N64TexSuffixes))
@@ -50,16 +57,14 @@ internal static class FormatProbeTexture
                 "Open the cart (.nds) or its .gob — the pixels are separate container entries");
         }
 
-        if (OrdinalFileName.HasAnySuffix(name, CrossPlatformTexSuffixes))
+        if (IsNextGenTextureFileName(name))
             return ProbeNextGenTexFile(filePath);
 
-        if (OrdinalFileName.HasAnySuffix(name, CrossPlatformImgSuffixes))
-        {
-            return new FormatProbe.FormatProbeResult(
-                FormatProbe.FormatSupport.Unsupported,
-                "Cross-Platform IMG",
-                "Xenon/PS3 IMG single textures are not yet supported");
-        }
+        if (OrdinalFileName.HasSuffix(name, ".img.xen"))
+            return ProbeXenImgFile(filePath);
+
+        if (OrdinalFileName.HasSuffix(name, ".img.ps3"))
+            return ProbePs3ImgFile(filePath);
 
         if (OrdinalFileName.HasAnySuffix(name, Ps2TextureSuffixes))
             return ProbePs2TexFile(filePath);
@@ -82,6 +87,63 @@ internal static class FormatProbeTexture
                 "Unknown",
                 $"Unrecognized texture format: {ext}")
         };
+    }
+
+    /// <summary>
+    ///     Shared name policy for the probe, GUI and CLI. THAW GameCube STEX
+    ///     dictionaries use both <c>name.stex.ngc</c> and
+    ///     <c>name.tex.stex.ngc</c> in the shipped corpus.
+    /// </summary>
+    internal static bool IsNgcTextureFileName(string fileName)
+    {
+        return OrdinalFileName.HasAnySuffix(fileName, NgcTexSuffixes);
+    }
+
+    /// <summary>
+    ///     FACECAA7 dictionary suffixes accepted by both the probe and texture
+    ///     viewer. This intentionally excludes the distinct next-gen IMG format.
+    /// </summary>
+    internal static bool IsNextGenTextureFileName(string fileName)
+    {
+        return OrdinalFileName.HasAnySuffix(fileName, CrossPlatformTexSuffixes);
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeThps4PcDatTextureFile(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
+            return HeaderReadFailure();
+
+        var parsed = Thps4PcDatTextureFile.Parse(data);
+        return parsed.Success
+            ? new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                parsed.Textures.Count == 0
+                    ? "THPS4 PC TEX (empty dictionary)"
+                    : $"THPS4 PC TEX ({parsed.Textures.Count} textures)")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "THPS4 PC TEX",
+                parsed.ErrorMessage ?? "Not a complete THPS4 PC TEX dictionary");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeThps4PcDatImageFile(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
+            return HeaderReadFailure();
+
+        var parsed = Thps4PcDatImageFile.Parse(data);
+        if (!parsed.Success)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "THPS4 PC IMG",
+                parsed.ErrorMessage ?? "Not a complete THPS4 PC IMG image");
+        }
+
+        var texture = parsed.Textures.Single();
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Supported,
+            $"THPS4 PC IMG ({texture.Width}x{texture.Height})");
     }
 
     /// <summary>
@@ -317,6 +379,67 @@ internal static class FormatProbeTexture
     }
 
     /// <summary>
+    ///     Xbox 360 loose images. Their descriptor may itself be raw-DEFLATE
+    ///     wrapped, so recognition must decode first and validate the inner magic.
+    /// </summary>
+    private static FormatProbe.FormatProbeResult ProbeXenImgFile(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
+            return HeaderReadFailure();
+
+        if (!XenImgFile.TryInspect(data, out var info, out var error))
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Xbox 360 IMG",
+                error);
+        }
+
+        if (!info.IsSupportedFormat || info.EndianMode != 1)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Xbox 360 IMG",
+                $"Unsupported {info.FormatName}, endian mode {info.EndianMode}");
+        }
+
+        var wrapper = info.WasDeflated ? ", raw-DEFLATE" : "";
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Supported,
+            $"Xbox 360 IMG ({info.FormatName}{wrapper})");
+    }
+
+    /// <summary>
+    ///     PS3 loose-image descriptors contain metadata only, so a file is
+    ///     viewable only when its exact-size IMV/VRAM companion resolves too.
+    ///     Missing and undersized companions fail closed: folder scans then keep
+    ///     the actionable reason instead of adding an empty texture row.
+    /// </summary>
+    private static FormatProbe.FormatProbeResult ProbePs3ImgFile(string filePath)
+    {
+        if (!BinaryProbeReader.TryReadAllBytes(filePath, out var descriptor))
+            return HeaderReadFailure();
+
+        if (!Ps3ImgFile.TryInspect(descriptor, out var info, out var error))
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "PlayStation 3 IMG",
+                error);
+        }
+
+        var payload = Ps3ImgPayloadLocator.Resolve(filePath, info.PayloadSize);
+        return payload.Found
+            ? new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                $"PlayStation 3 IMG ({info.FormatName})")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                $"PlayStation 3 IMG ({info.FormatName})",
+                payload.Message);
+    }
+
+    /// <summary>
     ///     Next-gen FACECAA7 dictionaries. A PS3 file is reported as partially
     ///     supported when its VRAM twin cannot be found, because the dictionary
     ///     itself carries no pixels — that is a missing companion, not a bad file.
@@ -326,16 +449,37 @@ internal static class FormatProbeTexture
         if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
             return HeaderReadFailure();
 
-        if (!Formats.Texture.NextGen.NextGenTexFile.IsNextGenTex(data))
+        if (!Formats.Texture.NextGen.NextGenTexFile.TryProbe(data, out var isPs3, out var error))
         {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
                 "Next-Gen TEX",
-                "Not a FACECAA7 texture dictionary");
+                error);
         }
 
-        var isPs3 = OrdinalFileName.HasSuffix(Path.GetFileName(filePath), ".ps3");
-        if (isPs3 && Formats.Texture.NextGen.NextGenVramTwinLocator.TryResolve(filePath, data) == null)
+        var name = Path.GetFileName(filePath);
+        if (OrdinalFileName.HasSuffix(name, ".ps3") != isPs3
+            && (OrdinalFileName.HasSuffix(name, ".ps3") || OrdinalFileName.HasSuffix(name, ".xen")))
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Next-Gen TEX",
+                "The filename platform suffix does not match the dictionary platform");
+        }
+
+        var vramPayload = isPs3
+            ? Formats.Texture.NextGen.NextGenVramTwinLocator.TryLoad(filePath, data)
+            : null;
+        var parsed = Formats.Texture.NextGen.NextGenTexFile.Parse(data, vramPayload);
+        if (!parsed.Success)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                isPs3 ? "Next-Gen TEX (PS3)" : "Next-Gen TEX (Xbox 360)",
+                parsed.ErrorMessage ?? "Texture dictionary did not decode completely");
+        }
+
+        if (isPs3 && vramPayload == null)
         {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.PartiallySupported,
@@ -363,13 +507,30 @@ internal static class FormatProbeTexture
 
     private static FormatProbe.FormatProbeResult ProbePs2TexFile(string filePath)
     {
-        if (!BinaryProbeReader.TryReadHeader(filePath, 12, out var header, out var bytesRead))
+        if (!BinaryProbeReader.TryReadHeader(filePath, 32, out var header, out var bytesRead))
             return HeaderReadFailure();
 
         if (bytesRead < 4)
             return FileTooSmall();
 
         var version = BinaryProbeReader.ReadUInt32(header);
+
+        if (Formats.Texture.Psp.PspImgFile.IsPspImg(header.AsSpan(0, bytesRead)))
+        {
+            var formatName = version == 4 ? "PSP IMG (Project 8)" : "PSP IMG (Remix)";
+            if (!BinaryProbeReader.TryReadAllBytes(filePath, out var pspData))
+                return HeaderReadFailure();
+
+            var parsed = Formats.Texture.Psp.PspImgFile.Parse(pspData);
+            return parsed.Success
+                   && parsed.Textures.Count == 1
+                   && parsed.Textures[0].Pixels != null
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, formatName)
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    formatName,
+                    parsed.ErrorMessage ?? "PSP IMG contains no decodable texture");
+        }
 
         // The PSP builds ship deliberate 4-byte all-zero placeholder files.
         if (version == 0 && bytesRead == 4)
@@ -477,28 +638,29 @@ internal static class FormatProbeTexture
         if (!BinaryProbeReader.TryReadAllBytes(filePath, out var data))
             return HeaderReadFailure();
 
-        if (NgcTexFile.IsBareRecord(data))
-            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "NGC IMG");
-
-        if (!NgcTexFile.TryReadHeader(data, out _, out var error))
+        var isBareRecord = NgcTexFile.IsBareRecord(data);
+        var formatName = isBareRecord ? "NGC IMG" : "NGC TEX";
+        var parsed = NgcTexFile.Parse(data);
+        if (!parsed.Success)
         {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
-                "NGC TEX",
-                error);
+                formatName,
+                parsed.ErrorMessage ?? $"{formatName} did not decode completely");
         }
 
-        if (!NgcTexFile.HasSupportedFormatsOnly(data, out error))
+        if ((isBareRecord && parsed.Textures.Count != 1)
+            || parsed.Textures.Any(static texture => texture.Pixels == null))
         {
             return new FormatProbe.FormatProbeResult(
                 FormatProbe.FormatSupport.Unsupported,
-                "NGC TEX",
-                error);
+                formatName,
+                $"{formatName} contains no complete decodable texture set");
         }
 
         return new FormatProbe.FormatProbeResult(
             FormatProbe.FormatSupport.Supported,
-            "NGC TEX");
+            formatName);
     }
 
     private static FormatProbe.FormatProbeResult FileTooSmall()

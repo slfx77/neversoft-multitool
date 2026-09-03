@@ -283,7 +283,7 @@ internal static class PsxMeshGeometryReader
         var mode = reader.ReadByte();
 
         var normalIndex = reader.ReadUInt16();
-        reader.ReadInt16();
+        var collisionFlags = reader.ReadUInt16();
 
         uint textureIndex = 0;
         var textureCoordinates = new PsxTextureCoordinate[]
@@ -399,6 +399,7 @@ internal static class PsxMeshGeometryReader
                 Index2 = i2,
                 Index3 = i3,
                 NormalIndex = normalIndex,
+                CollisionFlags = collisionFlags,
                 R = r,
                 G = g,
                 B = b,

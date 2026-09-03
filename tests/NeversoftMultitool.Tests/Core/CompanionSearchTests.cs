@@ -5,6 +5,36 @@ namespace NeversoftMultitool.Tests.Core;
 public sealed class CompanionSearchTests
 {
     [Fact]
+    public void FindCompanion_UsesUniqueCaseInsensitiveDirectoryAndFileFallbacks()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"nmt-companion-fold-{Guid.NewGuid():N}");
+        var modelDirectory = Path.Combine(root, "Models");
+        var textureDirectory = Path.Combine(root, "textures");
+        var texture = Path.Combine(textureDirectory, "SKATER.TEX");
+
+        try
+        {
+            Directory.CreateDirectory(modelDirectory);
+            Directory.CreateDirectory(textureDirectory);
+            File.WriteAllBytes(texture, []);
+
+            var resolved = CompanionSearch.FindCompanion(
+                modelDirectory,
+                "skater",
+                [".tex"],
+                ["Textures"]);
+            Assert.NotNull(resolved);
+            Assert.True(File.Exists(resolved));
+            Assert.True(string.Equals(texture, resolved, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void IsSameOrDescendant_CaseOnlyDifference_RespectsComparison()
     {
         var ancestor = Path.Combine("root", "Game");

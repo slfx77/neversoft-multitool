@@ -28,7 +28,7 @@
           Text="Video Conversion"
           Style="{StaticResource SubtitleTextBlockStyle}" />
         <TextBlock
-          Text="Convert SFD, PSS, BIK, VID1 (.vid), and STR (PS1 MDEC) video files to MP4"
+          Text="Convert SFD, PSS, BIK/TGR/SMO, VID1 (.vid), and STR (PS1 MDEC) video files to MP4"
           Style="{StaticResource TabSubtitleStyle}" />
       </StackPanel>
     </Grid>

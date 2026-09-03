@@ -30,9 +30,9 @@ public sealed class SkaPlatformParserCountTests
     }
 
     [Theory]
-    [InlineData(2, 0x7FC00000u)] // X = NaN
-    [InlineData(6, 0x7F800000u)] // Y = +Infinity
-    [InlineData(10, 0xFF800000u)] // Z = -Infinity
+    [InlineData(4, 0x7FC00000u)] // X = NaN
+    [InlineData(8, 0x7F800000u)] // Y = +Infinity
+    [InlineData(12, 0xFF800000u)] // Z = -Infinity
     public void ParsePlatform_NonFiniteHighResolutionQuaternionComponent_Throws(
         int componentOffset,
         uint componentBits)
@@ -48,9 +48,9 @@ public sealed class SkaPlatformParserCountTests
     }
 
     [Theory]
-    [InlineData(2, 0x7FC00000u)] // X = NaN
-    [InlineData(6, 0x7F800000u)] // Y = +Infinity
-    [InlineData(10, 0xFF800000u)] // Z = -Infinity
+    [InlineData(4, 0x7FC00000u)] // X = NaN
+    [InlineData(8, 0x7F800000u)] // Y = +Infinity
+    [InlineData(12, 0xFF800000u)] // Z = -Infinity
     public void ParsePlatform_NonFiniteHighResolutionTranslationComponent_Throws(
         int componentOffset,
         uint componentBits)
@@ -75,9 +75,9 @@ public sealed class SkaPlatformParserCountTests
             tKeyCount: isQuaternion ? 0 : 1);
 
         BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(32), 60); // timestamp: 1 second
-        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(34), 0.25f);
-        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(38), -0.5f);
-        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(42), 0.125f);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(36), 0.25f);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(40), -0.5f);
+        BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(44), 0.125f);
 
         var animation = SkaFile.Parse(data);
 
@@ -116,13 +116,13 @@ public sealed class SkaPlatformParserCountTests
     private static byte[] BuildHighResolutionTracks(int qKeyCount, int tKeyCount)
     {
         const int keyDataOffset = 32;
-        const int highResolutionKeySize = 14;
+        const int highResolutionKeySize = 16;
         var data = new byte[keyDataOffset + highResolutionKeySize * (qKeyCount + tKeyCount)];
 
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(0, 4), 1); // version
         BinaryPrimitives.WriteUInt32LittleEndian(
             data.AsSpan(4, 4),
-            SkaFile.FlagPlatform | SkaFile.FlagHiResFramePointers);
+            SkaFile.FlagPlatform | SkaFile.FlagCameraData | SkaFile.FlagHiResFramePointers);
         BinaryPrimitives.WriteSingleLittleEndian(data.AsSpan(8, 4), 2f); // duration
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12, 4), 1); // numBones
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16, 4), (uint)qKeyCount);

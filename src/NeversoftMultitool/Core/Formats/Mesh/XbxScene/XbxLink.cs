@@ -10,6 +10,8 @@ public sealed class XbxLink
 {
     public uint SectorChecksum { get; init; }
     public uint ParentChecksum { get; init; }
+    public short ParentIndex { get; init; }
+    public sbyte BoneIndex { get; init; }
     public ushort Index { get; init; }
     public Matrix4x4 Transform { get; init; }
 }

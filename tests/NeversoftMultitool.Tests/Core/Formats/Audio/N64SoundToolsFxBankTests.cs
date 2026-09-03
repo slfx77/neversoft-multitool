@@ -89,6 +89,8 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
         "D9D694D288749ECC1E361FAE46226FA6A5B8A964CBFD153B638E61EE84B855AA";
     private const string SoundTools314DataHeaderSha256 =
         "3BE46F7BFB00800E7E61318FCAC61D0516129A5C369B62D69C68B64DF875623E";
+    private const string SoundTools314NaudioLoadSha256 =
+        "6EFD7B0012DE73CC12C2E2FF46FBE19AF88D91696B7AEBE8008C70FEDDC1B923";
     private const int NormalizedInitialEventCorpusLength = 48_857;
     private const string NormalizedInitialEventCorpusSha256 =
         "55FCF87C581C757475DE680BFBFFC94B7C12413B49B84B772E40E668051326DA";
@@ -901,7 +903,12 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
             ("ST314.TGZ:usr/src/PR/libsrc/libsoundtoolssc/player_commands.c",
                 17_078, SoundTools314PlayerCommandsSha256),
             ("ST314.TGZ:usr/src/PR/libsrc/libsoundtoolssc/libmus_data.h",
-                4_347, SoundTools314DataHeaderSha256)
+                4_347, SoundTools314DataHeaderSha256),
+            // This implementation consumes [start,end), treats count -1 as
+            // forever, and is the authoritative ALADPCM loop oracle used by
+            // the selected-effect WAV route.
+            ("ST314.TGZ:usr/src/PR/libsrc/libnaudiosc/src/n_load.c",
+                8_542, SoundTools314NaudioLoadSha256)
         };
         Assert.All(sourceOracle, static source =>
         {
@@ -1601,7 +1608,7 @@ public sealed class N64SoundToolsFxBankTests(TestPaths paths)
         Assert.True(JsonNode.DeepEquals(romJson, explicitJson));
     }
 
-    private static byte[] BuildFxData(byte[][] componentPayloads, ushort[] localWaveMap)
+    internal static byte[] BuildFxData(byte[][] componentPayloads, ushort[] localWaveMap)
     {
         if (componentPayloads.Length == 0 || componentPayloads.Any(static payload => payload.Length == 0))
             throw new ArgumentException("Synthetic BFX components must be nonempty.", nameof(componentPayloads));

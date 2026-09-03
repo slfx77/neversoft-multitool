@@ -312,24 +312,28 @@ public sealed class NgcColFileTests(TestPaths paths)
     }
 
     [Fact]
-    public void GeometryConversionRouting_ValidColNgc_RemainsExcludedFromDetectorAndGuiCandidateGate()
+    public void GeometryConversionRouting_ValidColNgc_ReachesTheStrictBindingRoute()
     {
         const string fileName = "minimal.col.ngc";
         var data = BuildMinimalFile();
 
         Assert.True(NgcColFile.IsNgcColFile(data));
-        Assert.Null(MeshTypeDetector.MatchSuffix(fileName));
-        Assert.False(MeshTypeDetector.IsMeshCandidate(fileName));
+        Assert.Equal(".col.ngc", MeshTypeDetector.MatchSuffix(fileName));
+        Assert.True(MeshTypeDetector.IsMeshCandidate(fileName));
         Assert.False(MeshTypeDetector.IsWorldzoneCandidate(fileName));
 
         var route = MeshTypeDetector.DetectFromBytes(fileName, data, data.Length);
-        Assert.Equal(MeshFileKind.None, route.Kind);
+        Assert.Equal(MeshFileKind.Collision, route.Kind);
+        Assert.True(route.IsSupported);
         Assert.False(route.RequiresContentProbe);
+        Assert.Contains("render-scene pool required", route.DisplayFormat);
 
-        // MeshConverterTabFileScanner.IsScanCandidate uses this exact gate.
+        // The scanner admits the candidate by name, then its ScanColFile path
+        // requires the exact structurally compatible scene owner before it
+        // creates a GUI entry.
         var guiScanCandidate =
             MeshTypeDetector.IsMeshCandidate(fileName) && !MeshTypeDetector.IsObjectDdm(fileName);
-        Assert.False(guiScanCandidate);
+        Assert.True(guiScanCandidate);
     }
 
     [Fact]

@@ -25,8 +25,10 @@ namespace NeversoftMultitool.Core.Formats.Collision;
 ///     pool        : u16 face-index elements to end of file
 ///     </code>
 ///     Vertex positions are NOT stored: the engine binds
-///     <c>mp_raw_vert_pos</c> to the render scene's vertex pool at load, so
-///     this parser is inspection-only by design.
+///     <c>mp_raw_vert_pos</c> to the render scene's vertex pool at load. The
+///     mesh conversion route therefore renders only after an exact owner and
+///     source-order position pool pass the structural binding gates; this
+///     parser itself remains a topology/metadata parser.
 /// </summary>
 public static class NgcColFile
 {

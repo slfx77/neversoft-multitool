@@ -1,10 +1,14 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.CLI;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace NeversoftMultitool.Tests.CLI;
 
-public sealed class RleCommandTests
+public sealed class RleCommandTests(TestPaths paths)
 {
+    private const string PgWiiBuild = "Tony Hawk's Proving Ground (2007-10-16, Wii - Final)";
+
     private static readonly byte[] PngSignature =
         [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
@@ -103,6 +107,56 @@ public sealed class RleCommandTests
             Directory.EnumerateFiles(output, "*.png").Order(StringComparer.Ordinal));
         Assert.All(expected, path =>
             Assert.Equal(PngSignature, File.ReadAllBytes(path)[..PngSignature.Length]));
+    }
+
+    [Fact]
+    public void Execute_PngInput_UsesNonDestructiveOutputName()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        Directory.CreateDirectory(input);
+        var sourcePath = Path.Combine(input, "source.png");
+        using (var image = new Image<Rgba32>(1, 1, new Rgba32(1, 2, 3, 4)))
+            image.SaveAsPng(sourcePath);
+        var original = File.ReadAllBytes(sourcePath);
+
+        Assert.Equal(0, RleCommand.Execute(
+            input,
+            input,
+            width: 0,
+            verbose: true,
+            cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(original, File.ReadAllBytes(sourcePath));
+        Assert.Equal(sourcePath, Assert.Single(Directory.EnumerateFiles(input, "*.png")));
+    }
+
+    [CorpusFact]
+    public void Execute_InPlaceMipTiff_DoesNotOverwriteAuthoredMipNamedPng()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var sourceTiff = paths.FindSampleFile(PgWiiBuild, "Houses_Nixon.tif");
+        Assert.SkipWhen(sourceTiff == null, "Five-level TIFF fixture not found");
+
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "input");
+        Directory.CreateDirectory(input);
+        File.Copy(sourceTiff!, Path.Combine(input, "foo.tif"));
+        var authoredPng = Path.Combine(input, "foo_mip1.png");
+        using (var image = new Image<Rgba32>(1, 1, new Rgba32(1, 2, 3, 4)))
+            image.SaveAsPng(authoredPng);
+        var originalPng = File.ReadAllBytes(authoredPng);
+
+        Assert.Equal(0, RleCommand.Execute(
+            input,
+            input,
+            width: 0,
+            verbose: true,
+            cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(originalPng, File.ReadAllBytes(authoredPng));
+        Assert.True(File.Exists(Path.Combine(input, "foo_converted.png")));
+        Assert.True(File.Exists(Path.Combine(input, "foo_converted_mip1.png")));
     }
 
     [Fact]

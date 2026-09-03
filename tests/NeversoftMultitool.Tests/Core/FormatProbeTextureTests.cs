@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.Core;
+using NeversoftMultitool.Core.Formats.Texture.Psp;
 using NeversoftMultitool.Tests.Core.Formats.Texture.Ngc;
 
 namespace NeversoftMultitool.Tests.Core;
@@ -541,10 +542,13 @@ public sealed class FormatProbeTextureTests
         }
     }
 
-    [Fact]
-    public void ProbeTexture_NgcTex_Supported()
+    [Theory]
+    [InlineData(".tex.ngc")]
+    [InlineData(".stex.ngc")]
+    [InlineData(".tex.stex.ngc")]
+    public void ProbeTexture_NgcTex_Supported(string suffix)
     {
-        var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.ngc", NgcTexTestBuilder.CreateDictionary());
+        var tempFile = FormatProbeTestHelper.CreateTempFile(suffix, NgcTexTestBuilder.CreateDictionary());
         try
         {
             var result = FormatProbe.ProbeTexture(tempFile);
@@ -555,6 +559,76 @@ public sealed class FormatProbeTextureTests
         {
             File.Delete(tempFile);
         }
+    }
+
+    [Theory]
+    [InlineData("zone.stex.ngc")]
+    [InlineData("skater.tex.stex.ngc")]
+    [InlineData("legacy.tex.ngc")]
+    [InlineData("single.img.ngc")]
+    public void IsNgcTextureFileName_RecognizesEveryViewerSuffix(string fileName)
+    {
+        Assert.True(FormatProbeTexture.IsNgcTextureFileName(fileName));
+    }
+
+    [Theory]
+    [InlineData(PspImgFile.Project8FinalBuildWord)]
+    [InlineData(PspImgFile.Project8Rev1BuildWord)]
+    public void ProbeTexture_Project8PspImg_UsesThePspRoute(uint buildWord)
+    {
+        var header = new byte[36];
+        BitConverter.GetBytes(4u).CopyTo(header, 0);
+        BitConverter.GetBytes(buildWord).CopyTo(header, 4);
+        BitConverter.GetBytes((ushort)1).CopyTo(header, 28);
+        BitConverter.GetBytes((ushort)1).CopyTo(header, 30);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".img.psp", header);
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("PSP IMG (Project 8)", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_Project8PspImg_RejectsMetadataOnlyHeader()
+    {
+        var header = new byte[32];
+        BitConverter.GetBytes(4u).CopyTo(header, 0);
+        BitConverter.GetBytes(PspImgFile.Project8FinalBuildWord).CopyTo(header, 4);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".img.psp", header);
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Equal("PSP IMG (Project 8)", result.FormatName);
+            Assert.Contains("pixel region", result.UnsupportedReason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Theory]
+    [InlineData("skater.tex.xen", true)]
+    [InlineData("level.STEX.XEN", true)]
+    [InlineData("skater.tex.ps3", true)]
+    [InlineData("level.stex.ps3", true)]
+    [InlineData("01234567.tex.dat", true)]
+    [InlineData("single.img.xen", false)]
+    [InlineData("single.img.ps3", false)]
+    public void IsNextGenTextureFileName_ExcludesTheDistinctImgFormat(
+        string fileName,
+        bool expected)
+    {
+        Assert.Equal(expected, FormatProbeTexture.IsNextGenTextureFileName(fileName));
     }
 
     /// <summary>
@@ -581,16 +655,60 @@ public sealed class FormatProbeTextureTests
     [Fact]
     public void ProbeTexture_XenTexDictionary_Supported()
     {
-        var header = new byte[0x1C];
+        var header = new byte[0x20];
         header[0] = 0xFA; header[1] = 0xCE; header[2] = 0xCA; header[3] = 0xA7;
         header[4] = 1;      // Xenon
         header[5] = 0x1C;   // header size, echoed at +0x18
+        header[0x0B] = 0x20; // empty table/data start
+        header[0x0F] = 0x20;
+        header[0x10] = 0xFF; header[0x11] = 0xFF; header[0x12] = 0xFF; header[0x13] = 0xFF;
         header[0x1B] = 0x1C;
+        header.AsSpan(0x1C).Fill(0xEF);
         var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.xen", header);
         try
         {
             var result = FormatProbe.ProbeTexture(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_XenTexWithOnlyMagic_Unsupported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(
+            ".tex.xen", [0xFA, 0xCE, 0xCA, 0xA7, 1, 0x1C, 0, 0]);
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("truncated", result.UnsupportedReason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_PspImgWithOverflowingLogicalDimensions_UnsupportedWithoutThrowing()
+    {
+        var header = new byte[32];
+        BitConverter.GetBytes(4u).CopyTo(header, 0);
+        BitConverter.GetBytes(PspImgFile.Project8FinalBuildWord).CopyTo(header, 4);
+        BitConverter.GetBytes(12u).CopyTo(header, 8);
+        BitConverter.GetBytes(12u).CopyTo(header, 12);
+        BitConverter.GetBytes((ushort)32768).CopyTo(header, 28);
+        BitConverter.GetBytes((ushort)32768).CopyTo(header, 30);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".img.psp", header);
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("dimensions", result.UnsupportedReason, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -607,6 +725,51 @@ public sealed class FormatProbeTextureTests
             var result = FormatProbe.ProbeTexture(tempFile);
             Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
             Assert.Contains("Unsupported NGC texture format", result.UnsupportedReason!);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_NgcTexHeaderWithUndecodablePayload_Unsupported()
+    {
+        var data = NgcTexTestBuilder.CreateDictionary();
+        BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(8 + 16), 1);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".tex.ngc", data);
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Equal("NGC TEX", result.FormatName);
+            Assert.Contains("decode", result.UnsupportedReason, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeTexture_NgcImgBareRecord_RequiresADecodablePayload()
+    {
+        var data = NgcTexTestBuilder.CreateBareRecord(
+            formatA: 0,
+            widthLog2: 2,
+            heightLog2: 2,
+            widthPadding: 0,
+            heightPadding: 0,
+            dataSize: 32);
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".img.ngc", data);
+        try
+        {
+            var result = FormatProbe.ProbeTexture(tempFile);
+
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Equal("NGC IMG", result.FormatName);
+            Assert.Contains("Unsupported NGC texture format", result.UnsupportedReason);
         }
         finally
         {

@@ -21,7 +21,7 @@ public sealed class SfdCommandTests
     }
 
     [Fact]
-    public void FindDuplicateOutputStems_UsesExactStemIdentity()
+    public void FindDuplicateOutputStems_UsesWindowsCaseInsensitiveIdentity()
     {
         var lowerCasePath = Path.Combine("input", "clip.sfd");
         var sameStemPath = Path.Combine("input", "clip.PSS");
@@ -30,7 +30,18 @@ public sealed class SfdCommandTests
         Assert.Equal(
             ["clip"],
             SfdCommand.FindDuplicateOutputStems([lowerCasePath, sameStemPath]));
-        Assert.Empty(SfdCommand.FindDuplicateOutputStems([lowerCasePath, upperCasePath]));
+        Assert.Equal(
+            ["clip"],
+            SfdCommand.FindDuplicateOutputStems([lowerCasePath, upperCasePath]));
+    }
+
+    [Fact]
+    public void FindDuplicateOutputStems_CatchesCaseOnlyTgrAndBikCollision()
+    {
+        var tgr = Path.Combine("input", "foo.tgr");
+        var bik = Path.Combine("input", "FOO.bik");
+
+        Assert.Equal(["foo"], SfdCommand.FindDuplicateOutputStems([tgr, bik]));
     }
 
     [Fact]

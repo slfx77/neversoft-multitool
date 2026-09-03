@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using NeversoftMultitool.CLI;
+using NeversoftMultitool.Core.BinaryIO;
 using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Tests.Core.Formats.Audio;
 
@@ -26,6 +27,18 @@ public sealed class N64AudioDecodeCommandTests(TestPaths paths)
         ];
         foreach (var arguments in missingRequiredCases)
             Assert.NotEqual(0, N64AudioDecodeCommand.Create().Parse(arguments).Invoke());
+
+        Assert.NotEqual(0, N64AudioDecodeCommand.Create().Parse([
+            pointerPath, "--wave", wavePath,
+            "--index", "0", "--effect", "0", "--sample-rate", "32000",
+            "-o", Path.Combine(temp.Path, "two-selections.wav")
+        ]).Invoke());
+        Assert.NotEqual(0, N64AudioDecodeCommand.Create().Parse([
+            pointerPath, "-o", Path.Combine(temp.Path, "no-selection.wav")
+        ]).Invoke());
+        Assert.NotEqual(0, N64AudioDecodeCommand.Create().Parse([
+            pointerPath, "--effect", "0", "-o", Path.Combine(temp.Path, "standalone-effect.wav")
+        ]).Invoke());
         Assert.Empty(Directory.GetFiles(temp.Path, "*.wav", SearchOption.AllDirectories));
 
         foreach (var sampleRate in new[] { int.MinValue, -1, 0, 192_001, int.MaxValue })
@@ -169,6 +182,20 @@ public sealed class N64AudioDecodeCommandTests(TestPaths paths)
             wave.Book);
         Assert.Equal(N64AdpcmDecoderTests.HashPcmLittleEndian(expected),
             Convert.ToHexString(SHA256.HashData(wav.AsSpan(44))));
+    }
+
+    [Fact]
+    public void ResolveWavLoop_ConvertsOnlyProvenInfiniteAlEndExclusiveForm()
+    {
+        var (pointerData, _) = N64SoundToolsBankTests.BuildPair(pointerTail: 0, waveTail: 0);
+        var pointer = N64SoundToolsBank.ParsePointer(pointerData);
+
+        Assert.Null(N64AudioDecodeCommand.ResolveWavLoop(pointer.Waves[0]));
+        Assert.Equal(
+            new Pcm16WavLoop(0, 15, PlayCount: 0),
+            N64AudioDecodeCommand.ResolveWavLoop(pointer.Waves[1]));
+        Assert.Throws<InvalidDataException>(() =>
+            N64AudioDecodeCommand.ResolveWavLoop(pointer.Waves[2]));
     }
 
     [CorpusFact]

@@ -4,15 +4,10 @@ using NeversoftMultitool.Core.Formats.Animation;
 namespace NeversoftMultitool.Tests.CLI;
 
 /// <summary>
-///     Xbox 360 / PS3 animation routing (2026-08-27). THAW's Xbox 360 build
-///     ships 6,630 <c>.ska.xen</c> that are the SAME version-0x28 THAW format
-///     the GameCube path already reads big-endian — passing one explicitly
-///     always worked, so the only faults were that directory scans and the GUI
-///     never discovered the suffix, and that the shared compression table these
-///     clips reference sits at <c>data/anims/</c> on Xbox 360 and
-///     <c>DATA/ANIMS/…​.bin.ps3</c> on PS3, neither of which the lookup knew.
-///     Project 8 and Proving Ground use a different, still-unimplemented variant
-///     (version word 0) on both platforms — 44,649 files.
+///     Xbox 360 / PS3 animation routing. THAW uses its ordinary big-endian
+///     v0x28 format; Project 8 and Proving Ground use the later 0x20-wrapped,
+///     section-addressed revision. All share the compound suffix discovery and
+///     compression-table lookup routes pinned here.
 /// </summary>
 public class SkaNextGenRoutingTests(TestPaths paths)
 {

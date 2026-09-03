@@ -3,11 +3,13 @@ using System.Numerics;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh.Ddm;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.Psp;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene;
@@ -24,7 +26,7 @@ public sealed class MeshModelParser : IModelParser
 
     public ModelDocument Parse(MeshImportRequest request)
     {
-        return request.SourceKind switch
+        var document = request.SourceKind switch
         {
             ModelSourceKind.Collision => ParseCollision(request),
             ModelSourceKind.Ddm => request.HasPlacedPsxCompanion
@@ -45,11 +47,60 @@ public sealed class MeshModelParser : IModelParser
             ModelSourceKind.NdsCollision => ParseNdsCollision(request),
             _ => throw new NotSupportedException($"Unsupported mesh source kind: {request.SourceKind}")
         };
+
+        if (request.IncludeCollisionOverlay && request.SourceKind != ModelSourceKind.Collision)
+        {
+            CollisionOverlayResolver.TryPopulate(
+                document,
+                request.Source,
+                request.FileName,
+                request.SourceKind);
+        }
+
+        return document;
     }
 
     private static ModelDocument ParseCollision(MeshImportRequest request)
     {
-        var scene = ColFile.Parse(request.Source.ReadBytes());
+        var data = request.Source.ReadBytes();
+        if (NgcCollisionBindingResolver.IsCollisionName(request.FileName))
+        {
+            var collision = NgcColFile.Parse(data);
+            if (!NgcCollisionBindingResolver.TryResolveForCollision(
+                    request.Source,
+                    request.FileName,
+                    collision,
+                    out var renderScene,
+                    out var binding,
+                    out var companionName)
+                || renderScene == null || binding == null || companionName == null)
+            {
+                throw new InvalidDataException(
+                    "GameCube collision has no exact, structurally compatible render-scene position pool");
+            }
+
+            var ngcDocument = ModelDocument.CreateNative(
+                request.OutputStem,
+                ModelSourceKind.Collision,
+                new NgcCollisionNativeSource(
+                    collision,
+                    renderScene,
+                    companionName,
+                    binding.PoolKind.ToString()),
+                binding.RenderableTriangleCount);
+            var added = NgcCollisionGeometryWriter.Populate(ngcDocument, collision, binding);
+            if (added <= 0)
+                throw new InvalidDataException("GameCube collision contains no renderable triangles");
+            ngcDocument.NativeMetadata.Add(new CollisionRenderMetadata(collision.Objects.Length));
+            ngcDocument.NativeMetadata.Add(new NgcCollisionRenderMetadata(
+                companionName,
+                binding.PoolKind.ToString(),
+                collision.Objects.Length,
+                added));
+            return ngcDocument;
+        }
+
+        var scene = ColFile.Parse(data);
         var document = ModelDocument.CreateNative(
             request.OutputStem,
             ModelSourceKind.Collision,
@@ -123,6 +174,11 @@ public sealed class MeshModelParser : IModelParser
         var objectPsx = objectsPsx != null ? PsxLayoutFile.Parse(objectsPsx) : null;
         var ddxTextures = MeshCompanionResolver.LoadDdxCompanion(request.Source, request.OutputStem, request.DdxPath);
         var textureDirs = MeshTextureHelper.BuildTextureSearchPaths(request.DdmTexturePath, request.OutputStem);
+        var trigger = PsxLevelObjectPlacementResolver.TryLoadTriggerCompanion(
+            request.Source, request.OutputStem);
+        var objectSky = DdmSkyClassifier.Classify(objectDdm, trigger);
+        if (PsxSkyDomeClassifier.FindSkyColor(trigger) is { } skyColor)
+            document.NativeMetadata.Add(new PsxSkyBackdropMetadata(skyColor));
         DdmGeometryWriter.PopulateDdmPlacedLevel(
             document,
             levelDdm,
@@ -130,7 +186,8 @@ public sealed class MeshModelParser : IModelParser
             objectDdm,
             objectPsx,
             ddxTextures,
-            textureDirs);
+            textureDirs,
+            objectSky);
         return document;
     }
 
@@ -1370,31 +1427,318 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParseXbxScene(MeshImportRequest request)
     {
         var data = request.Source.ReadBytes();
+        var isThps4PcDat = Thps4PcDatSceneFile.IsCandidateFileName(request.FileName);
         var isNgc = NgcSceneFile.IsNgcScene(data);
+        PspLevelFile? pspLevel = null;
+        PspGeMeshFile? pspMesh = null;
+        if (request.FileName.EndsWith(PspLevelFile.Suffix, StringComparison.OrdinalIgnoreCase))
+            pspLevel = PspLevelFile.Parse(data);
+        else if (!isThps4PcDat)
+            _ = PspGeMeshFile.TryParse(data, out pspMesh);
         var scene = true switch
         {
+            _ when isThps4PcDat => Thps4PcDatSceneFile.Parse(data),
+            _ when pspLevel != null => pspLevel.Scene,
+            _ when pspMesh != null => pspMesh.Scene,
             _ when NextGenSceneFile.IsNextGenScene(data) =>
                 NextGenSceneFile.Parse(data, ReadNextGenVramCompanion(request)),
             _ when isNgc => NgcSceneFile.Parse(data),
             _ when ThawSceneFile.IsThawScene(data) => ThawSceneFile.Parse(data),
             _ => XbxSceneFile.Parse(data)
         };
-        var textureProvider = isNgc
-            ? MeshCompanionResolver.BuildNgcSceneTextureProvider(request.Source, request.OutputStem,
-                request.TexturePath)
-            : MeshCompanionResolver.BuildXbxSceneTextureProvider(request.Source, request.OutputStem,
-                request.TexturePath);
+        MeshChecksumTextureResolver? textureProvider = pspLevel == null
+            ? null
+            : new MeshChecksumTextureResolver(pspLevel.ResolveTexture);
+        if (pspLevel == null && pspMesh == null)
+        {
+            var textureStem = isThps4PcDat
+                ? MeshTypeDetector.GetStem(request.FileName)
+                : request.OutputStem;
+            textureProvider = isNgc
+                ? MeshCompanionResolver.BuildNgcSceneTextureProvider(request.Source, request.OutputStem,
+                    request.TexturePath)
+                : MeshCompanionResolver.BuildXbxSceneTextureProvider(request.Source, textureStem,
+                    request.TexturePath);
+        }
+
+        if (isThps4PcDat
+            && request.Source.FileSystemPath is { } scenePath
+            && Thps4PcLevelManifest.TryResolve(scenePath, out var composition)
+            && composition != null
+            && TryComposeThps4PcLevel(
+                request,
+                scene,
+                textureProvider,
+                composition,
+                out var composed))
+        {
+            return composed;
+        }
+
+        if (pspLevel != null
+            && request.Source.FileSystemPath is { } pspLevelPath
+            && PspLevelCompositionManifest.TryResolve(pspLevelPath, out var pspComposition)
+            && pspComposition != null
+            && TryComposePspLevel(request, pspLevel, pspComposition, out var pspComposed))
+        {
+            return pspComposed;
+        }
+
         var document = ModelDocument.CreateNative(
             request.OutputStem,
             ModelSourceKind.XbxScene,
             new XbxSceneNativeSource(scene, textureProvider));
 
+        AppendXbxMaterials(document, scene);
+
+        var explicitSkeleton = request.PreparedSkeleton ?? TryLoadExplicitXbxSkeleton(
+            request.SkeletonPath, request.OutputStem);
+        var isStandalonePspSky = pspLevel != null
+                                 && PspLevelFile.IsStandaloneSkyFileName(request.FileName);
+        XbxGeometryWriter.PopulateXbxScene(
+            document,
+            scene,
+            textureProvider,
+            request.WorldzoneScale,
+            explicitSkeleton,
+            namePrefix: isStandalonePspSky ? "sky__" : null,
+            primitiveMetadata: isStandalonePspSky
+                ? new PsxSkyRenderMetadata(LayerIndex: 0)
+                : null);
+
+        // GE ALPHABLENDENABLE is authoritative even when the base texture is
+        // opaque: PSP levels also modulate alpha per vertex. The generic Xbox
+        // material path quite reasonably uses the texture alpha histogram, so
+        // restore the explicit PSP state after it has registered textures.
+        if (pspLevel != null)
+        {
+            for (var i = 0; i < scene.Materials.Length && i < document.Materials.Count; i++)
+            {
+                if (scene.Materials[i].Sorted)
+                    document.Materials[i].AlphaMode = ModelAlphaMode.Blend;
+            }
+        }
+        return document;
+    }
+
+    private static bool TryComposeThps4PcLevel(
+        MeshImportRequest request,
+        XbxScene.XbxScene levelScene,
+        MeshChecksumTextureResolver? levelTextureProvider,
+        Thps4PcLevelManifest.Resolved composition,
+        out ModelDocument document)
+    {
+        document = null!;
+        if (composition.SkyScenePath == null)
+            return false;
+
+        XbxScene.XbxScene skyScene;
+        XbxScene.XbxScene? shellScene = null;
+        MeshChecksumTextureResolver? skyTextureProvider;
+        MeshChecksumTextureResolver? shellTextureProvider = null;
+        try
+        {
+            skyScene = Thps4PcDatSceneFile.Parse(composition.SkyScenePath);
+            var skySource = new FileSystemAssetSource(composition.SkyScenePath);
+            skyTextureProvider = MeshCompanionResolver.BuildXbxSceneTextureProvider(
+                skySource,
+                composition.ManifestEntry.SkyName!);
+
+            if (composition.OuterShellScenePath != null)
+            {
+                shellScene = Thps4PcDatSceneFile.Parse(composition.OuterShellScenePath);
+                var shellSource = new FileSystemAssetSource(composition.OuterShellScenePath);
+                shellTextureProvider = MeshCompanionResolver.BuildXbxSceneTextureProvider(
+                    shellSource,
+                    composition.ManifestEntry.OuterShellName!);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidDataException
+                                   or IOException
+                                   or UnauthorizedAccessException
+                                   or OverflowException
+                                   or ArgumentException
+                                   or IndexOutOfRangeException
+                                   or NotSupportedException)
+        {
+            // Authored composition is an enhancement to a valid standalone
+            // level. A damaged/missing optional scene or texture must not make
+            // the selected main scene unreadable.
+            return false;
+        }
+
+        document = ModelDocument.CreateNative(
+            request.OutputStem,
+            ModelSourceKind.XbxScene,
+            new XbxSceneNativeSource(levelScene, levelTextureProvider));
+
+        // Shipping load_level order is sky, level, then optional outer shell.
+        // Prefixing/tagging the sky feeds the shared camera-locked backdrop
+        // renderer while retaining the scene's own material draw ordering.
+        var skyMaterialStart = AppendXbxMaterials(document, skyScene);
+        XbxGeometryWriter.PopulateXbxScene(
+            document,
+            skyScene,
+            skyTextureProvider,
+            request.WorldzoneScale,
+            materialStartIndex: skyMaterialStart,
+            namePrefix: "sky__",
+            primitiveMetadata: new PsxSkyRenderMetadata(LayerIndex: 0));
+
+        var levelMaterialStart = AppendXbxMaterials(document, levelScene);
+        var explicitSkeleton = request.PreparedSkeleton ?? TryLoadExplicitXbxSkeleton(
+            request.SkeletonPath, request.OutputStem);
+        XbxGeometryWriter.PopulateXbxScene(
+            document,
+            levelScene,
+            levelTextureProvider,
+            request.WorldzoneScale,
+            explicitSkeleton,
+            levelMaterialStart);
+
+        if (shellScene != null)
+        {
+            var shellMaterialStart = AppendXbxMaterials(document, shellScene);
+            XbxGeometryWriter.PopulateXbxScene(
+                document,
+                shellScene,
+                shellTextureProvider,
+                request.WorldzoneScale,
+                materialStartIndex: shellMaterialStart,
+                namePrefix: "shell__");
+        }
+
+        document.NativeMetadata.Add(new Thps4PcLevelCompositionMetadata(
+            composition.ManifestEntry.StructureName,
+            Path.GetFileName(composition.LevelScenePath),
+            Path.GetFileName(composition.SkyScenePath),
+            composition.OuterShellScenePath == null
+                ? null
+                : Path.GetFileName(composition.OuterShellScenePath)));
+        return true;
+    }
+
+    private static bool TryComposePspLevel(
+        MeshImportRequest request,
+        PspLevelFile level,
+        PspLevelCompositionManifest.Resolved composition,
+        out ModelDocument document)
+    {
+        document = null!;
+        PspLevelFile? sky = null;
+        PspLevelFile? shell = null;
+        try
+        {
+            if (composition.SkyScenePath != null)
+                sky = PspLevelFile.Parse(File.ReadAllBytes(composition.SkyScenePath));
+            if (composition.OuterShellScenePath != null)
+                shell = PspLevelFile.Parse(File.ReadAllBytes(composition.OuterShellScenePath));
+
+            var levelProvider = new MeshChecksumTextureResolver(level.ResolveTexture);
+            document = ModelDocument.CreateNative(
+                request.OutputStem,
+                ModelSourceKind.XbxScene,
+                new XbxSceneNativeSource(level.Scene, levelProvider));
+
+            if (sky != null)
+            {
+                var skyProvider = new MeshChecksumTextureResolver(sky.ResolveTexture);
+                var skyMaterialStart = AppendXbxMaterials(document, sky.Scene, "sky__");
+                XbxGeometryWriter.PopulateXbxScene(
+                    document,
+                    sky.Scene,
+                    skyProvider,
+                    request.WorldzoneScale,
+                    materialStartIndex: skyMaterialStart,
+                    namePrefix: "sky__",
+                    primitiveMetadata: new PsxSkyRenderMetadata(LayerIndex: 0),
+                    textureNamePrefix: "sky__");
+                RestorePspSortedAlpha(document, sky.Scene, skyMaterialStart);
+            }
+
+            var levelMaterialStart = AppendXbxMaterials(document, level.Scene, "level__");
+            var explicitSkeleton = request.PreparedSkeleton ?? TryLoadExplicitXbxSkeleton(
+                request.SkeletonPath, request.OutputStem);
+            XbxGeometryWriter.PopulateXbxScene(
+                document,
+                level.Scene,
+                levelProvider,
+                request.WorldzoneScale,
+                explicitSkeleton,
+                levelMaterialStart,
+                namePrefix: "level__",
+                textureNamePrefix: "level__");
+            RestorePspSortedAlpha(document, level.Scene, levelMaterialStart);
+
+            if (shell != null)
+            {
+                var shellProvider = new MeshChecksumTextureResolver(shell.ResolveTexture);
+                var shellMaterialStart = AppendXbxMaterials(document, shell.Scene, "shell__");
+                XbxGeometryWriter.PopulateXbxScene(
+                    document,
+                    shell.Scene,
+                    shellProvider,
+                    request.WorldzoneScale,
+                    materialStartIndex: shellMaterialStart,
+                    namePrefix: "shell__",
+                    textureNamePrefix: "shell__");
+                RestorePspSortedAlpha(document, shell.Scene, shellMaterialStart);
+            }
+
+            document.NativeMetadata.Add(new PspLevelCompositionMetadata(
+                composition.Game == PspLevelCompositionManifest.Game.Thug2Remix
+                    ? "thug2_remix"
+                    : "project_8",
+                composition.ManifestEntry.StructureName,
+                Path.GetFileName(composition.LevelScenePath),
+                composition.SkyScenePath == null ? null : Path.GetFileName(composition.SkyScenePath),
+                composition.OuterShellScenePath == null
+                    ? null
+                    : Path.GetFileName(composition.OuterShellScenePath),
+                composition.IsNetworkVariant));
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException
+                                   or UnauthorizedAccessException or OverflowException
+                                   or ArgumentException or IndexOutOfRangeException
+                                   or NotSupportedException)
+        {
+            // Composition is optional enrichment. A missing or damaged sky or
+            // shell must leave the already parsed selected scene standalone.
+            document = null!;
+            return false;
+        }
+    }
+
+    private static void RestorePspSortedAlpha(
+        ModelDocument document,
+        XbxScene.XbxScene scene,
+        int materialStartIndex)
+    {
+        for (var index = 0;
+             index < scene.Materials.Length && materialStartIndex + index < document.Materials.Count;
+             index++)
+        {
+            if (scene.Materials[index].Sorted)
+                document.Materials[materialStartIndex + index].AlphaMode = ModelAlphaMode.Blend;
+        }
+    }
+
+    private static int AppendXbxMaterials(
+        ModelDocument document,
+        XbxScene.XbxScene scene,
+        string? namePrefix = null)
+    {
+        var firstIndex = document.Materials.Count;
         foreach (var material in scene.Materials)
         {
-            var firstTexture = material.Passes.Length > 0 ? material.Passes[0].TextureChecksum : (uint?)null;
+            var firstTexture = material.Passes.Length > 0
+                ? material.Passes[0].TextureChecksum
+                : (uint?)null;
             var renderMaterial = new RenderMaterial
             {
-                Name = QbKey.QbKey.TryResolve(material.Checksum) ?? $"mat_{material.Checksum:X8}"
+                Name = (namePrefix ?? string.Empty) +
+                       (QbKey.QbKey.TryResolve(material.Checksum) ?? $"mat_{material.Checksum:X8}")
             };
             renderMaterial.NativeMetadata.Add(new XbxMaterialRenderMetadata(
                 material.Checksum,
@@ -1410,15 +1754,7 @@ public sealed class MeshModelParser : IModelParser
             document.Materials.Add(renderMaterial);
         }
 
-        var explicitSkeleton = request.PreparedSkeleton ?? TryLoadExplicitXbxSkeleton(
-            request.SkeletonPath, request.OutputStem);
-        XbxGeometryWriter.PopulateXbxScene(
-            document,
-            scene,
-            textureProvider,
-            request.WorldzoneScale,
-            explicitSkeleton);
-        return document;
+        return firstIndex;
     }
 
     private static Ps2Skeleton? TryLoadExplicitXbxSkeleton(
@@ -1477,14 +1813,96 @@ public sealed class MeshModelParser : IModelParser
     private static ModelDocument ParseRwBsp(MeshImportRequest request)
     {
         var world = RwBspFile.Parse(request.Source.ReadBytes());
+        var textureProvider = MeshCompanionResolver.BuildRwTxdTextureProvider(
+            request.Source, request.FileName, request.TexturePath);
+
+        if (request.Source.FileSystemPath is not { } bspPath
+            || !Thps3Ps2LevelManifest.TryResolve(bspPath, out var composition)
+            || composition == null)
+        {
+            return BuildRwBspDocument(request, world, textureProvider);
+        }
+
+        RwBspWorld? skyWorld = null;
+        MeshNamedTextureResolver? skyTextureProvider = null;
+        if (composition.SkyBspPath != null)
+        {
+            try
+            {
+                var skySource = new FileSystemAssetSource(composition.SkyBspPath);
+                skyWorld = RwBspFile.Parse(skySource.ReadBytes());
+                skyTextureProvider = MeshCompanionResolver.BuildRwTxdTextureProvider(
+                    skySource, skySource.EntryName);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or InvalidDataException or ArgumentException or OverflowException)
+            {
+                // The main BSP remains independently useful. A missing or malformed
+                // optional sky must never make that existing standalone route fail.
+                return BuildRwBspDocument(request, world, textureProvider);
+            }
+        }
+
         var document = ModelDocument.CreateNative(
             request.OutputStem,
             ModelSourceKind.RenderWareBsp,
-            new RenderWareBspNativeSource(
-                world,
-                MeshCompanionResolver.BuildRwTxdTextureProvider(request.Source, request.FileName,
-                    request.TexturePath)));
+            new RenderWareBspNativeSource(world, textureProvider));
 
+        if (skyWorld != null)
+        {
+            var skyMaterialStart = document.Materials.Count;
+            AppendRwBspMaterials(document, skyWorld);
+            RwBspGeometryWriter.PopulateRwBsp(
+                document,
+                skyWorld,
+                skyTextureProvider,
+                skyMaterialStart,
+                namePrefix: "sky__",
+                primitiveMetadata: new PsxSkyRenderMetadata(LayerIndex: 0),
+                textureNamePrefix: "sky__",
+                includeUntexturedMaterials: true);
+        }
+
+        var levelMaterialStart = document.Materials.Count;
+        AppendRwBspMaterials(document, world);
+        RwBspGeometryWriter.PopulateRwBsp(
+            document,
+            world,
+            textureProvider,
+            levelMaterialStart,
+            textureNamePrefix: skyWorld == null ? null : "level__");
+
+        var manifestEntry = composition.ManifestEntry;
+        document.NativeMetadata.Add(new Thps3Ps2LevelCompositionMetadata(
+            manifestEntry.DisplayName,
+            manifestEntry.LoadScriptName,
+            manifestEntry.LevelAssetPath,
+            manifestEntry.SkyAssetPath,
+            manifestEntry.BackgroundColor));
+        if (manifestEntry.BackgroundColor is { } backgroundColor)
+            document.NativeMetadata.Add(new PsxSkyBackdropMetadata(backgroundColor));
+
+        return document;
+    }
+
+    private static ModelDocument BuildRwBspDocument(
+        MeshImportRequest request,
+        RwBspWorld world,
+        MeshNamedTextureResolver? textureProvider)
+    {
+        var document = ModelDocument.CreateNative(
+            request.OutputStem,
+            ModelSourceKind.RenderWareBsp,
+            new RenderWareBspNativeSource(world, textureProvider));
+
+        AppendRwBspMaterials(document, world);
+
+        RwBspGeometryWriter.PopulateRwBsp(document, world, textureProvider);
+        return document;
+    }
+
+    private static void AppendRwBspMaterials(ModelDocument document, RwBspWorld world)
+    {
         foreach (var material in world.Materials)
         {
             var renderMaterial = new RenderMaterial
@@ -1500,11 +1918,5 @@ public sealed class MeshModelParser : IModelParser
                 material.TextureName));
             document.Materials.Add(renderMaterial);
         }
-
-        RwBspGeometryWriter.PopulateRwBsp(
-            document,
-            world,
-            ((RenderWareBspNativeSource)document.NativeSource!).TextureProvider);
-        return document;
     }
 }

@@ -2,6 +2,9 @@ using NeversoftMultitool.Core.BinaryIO;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Bmp;
+using SixLabors.ImageSharp.Formats.Gif;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Tga;
 using SixLabors.ImageSharp.Formats.Tiff;
 using SixLabors.ImageSharp.PixelFormats;
@@ -13,8 +16,8 @@ namespace NeversoftMultitool.Core.Formats.Rle;
 ///     Unified entry point for the bitmap converter. Neversoft formats
 ///     (.rle/.bmr/.zlb) route through <see cref="RleImage" />; N64 fullscreen
 ///     image records route through <see cref="N64TexFile" />; standard bitmaps
-///     (.bmp/.tga, as shipped on THPS/Spider-Man discs) decode via ImageSharp
-///     with alpha preserved.
+///     (.bmp/.tga/.tif/.png/.jpg/.gif, as shipped on THPS/Spider-Man discs)
+///     decode via an extension-specific ImageSharp decoder with alpha preserved.
 /// </summary>
 public static class BitmapFile
 {
@@ -34,6 +37,10 @@ public static class BitmapFile
     {
         return path.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase)
                || path.EndsWith(".tga", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+               || path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)
                || IsTiffExtension(path);
     }
 
@@ -243,19 +250,27 @@ public static class BitmapFile
 
     private static Image<Rgba32> DecodeStandard(byte[] data, string name)
     {
-        // TGA has no magic bytes, so pick the decoder from the extension
-        // instead of relying on ImageSharp's format sniffing.
+        // TGA has no magic bytes. Pick every decoder from the extension so a
+        // mislabeled file fails closed instead of being accepted by sniffing.
         using var stream = new MemoryStream(data, false);
         // A mip-chain TIFF has differently sized pages, which an Image cannot
         // hold, so every level is loaded on its own (MaxFrames = 1 keeps the
         // decoder from walking into page 2 and throwing).
-        var options = IsTiffExtension(name) ? new DecoderOptions { MaxFrames = 1 } : new DecoderOptions();
+        var options = IsTiffExtension(name) || name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)
+            ? new DecoderOptions { MaxFrames = 1 }
+            : new DecoderOptions();
         if (IsTiffExtension(name))
             return TiffDecoder.Instance.Decode<Rgba32>(options, stream);
-
-        return name.EndsWith(".tga", StringComparison.OrdinalIgnoreCase)
-            ? TgaDecoder.Instance.Decode<Rgba32>(options, stream)
-            : BmpDecoder.Instance.Decode<Rgba32>(options, stream);
+        if (name.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
+            return TgaDecoder.Instance.Decode<Rgba32>(options, stream);
+        if (name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            return PngDecoder.Instance.Decode<Rgba32>(options, stream);
+        if (name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+            return JpegDecoder.Instance.Decode<Rgba32>(options, stream);
+        if (name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+            return GifDecoder.Instance.Decode<Rgba32>(options, stream);
+        return BmpDecoder.Instance.Decode<Rgba32>(options, stream);
     }
 
     /// <summary>
@@ -294,11 +309,16 @@ public static class BitmapFile
             var options = new DecoderOptions();
             if (IsTiffExtension(name))
                 return TiffDecoder.Instance.Identify(options, stream).Width;
-
-            var info = name.EndsWith(".tga", StringComparison.OrdinalIgnoreCase)
-                ? TgaDecoder.Instance.Identify(options, stream)
-                : BmpDecoder.Instance.Identify(options, stream);
-            return info.Width;
+            if (name.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
+                return TgaDecoder.Instance.Identify(options, stream).Width;
+            if (name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                return PngDecoder.Instance.Identify(options, stream).Width;
+            if (name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+                || name.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                return JpegDecoder.Instance.Identify(options, stream).Width;
+            if (name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+                return GifDecoder.Instance.Identify(options, stream).Width;
+            return BmpDecoder.Instance.Identify(options, stream).Width;
         }
         catch
         {

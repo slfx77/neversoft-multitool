@@ -45,6 +45,7 @@ public sealed class BitmapOutputPathPlannerTests
     [Theory]
     [InlineData("named.rle", "named.png")]
     [InlineData("named.with.dots.tga", "named.with.dots.png")]
+    [InlineData("named.PNG", "named.png")]
     [InlineData(".hidden.bmp", ".hidden.png")]
     [InlineData(".img.n64", ".img.png")]
     public void Plan_NamedLeafKeepsExistingStem(string fileName, string expectedPath)
@@ -75,6 +76,38 @@ public sealed class BitmapOutputPathPlannerTests
                 "unique.png"
             ],
             plans.Select(static plan => plan.RelativePngPath));
+    }
+
+    [Fact]
+    public void Plan_SourcePngReservesItsNaturalOutputName()
+    {
+        var plans = BitmapOutputPathPlanner.Plan(
+            ["same.jpg", "same.png", "same_converted.png"], inputRoot: null);
+
+        Assert.Equal("same_converted_converted.png", plans[0].RelativePngPath);
+        Assert.Equal("same.png", plans[1].RelativePngPath);
+        Assert.Equal("same_converted.png", plans[2].RelativePngPath);
+    }
+
+    [Fact]
+    public void Plan_SourcePngAlsoReservesItsNameAgainstTiffMipOutputs()
+    {
+        var plans = BitmapOutputPathPlanner.Plan(
+            ["foo.tif", "foo_mip1.png", "foo_converted_mip1.png"], inputRoot: null);
+
+        Assert.Equal("foo_converted_converted.png", plans[0].RelativePngPath);
+        Assert.Equal("foo_mip1.png", plans[1].RelativePngPath);
+        Assert.Equal("foo_converted_mip1.png", plans[2].RelativePngPath);
+    }
+
+    [Fact]
+    public void Plan_TiffMipAliasesCannotCollideWithAnotherPrimaryOutput()
+    {
+        var plans = BitmapOutputPathPlanner.Plan(
+            ["foo.tif", "foo_mip1.bmp"], inputRoot: null);
+
+        Assert.Equal("foo.png", plans[0].RelativePngPath);
+        Assert.Equal("foo_mip1_2.png", plans[1].RelativePngPath);
     }
 
     [Fact]

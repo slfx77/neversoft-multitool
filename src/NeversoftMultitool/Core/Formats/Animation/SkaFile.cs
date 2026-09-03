@@ -21,10 +21,9 @@ namespace NeversoftMultitool.Core.Formats.Animation;
 ///     <code>
 ///     [File header]       12 bytes
 ///     [Platform header]   16 bytes
-///     [Per-bone frames]   numBones × 2 bytes (standard) or × 4 bytes (hi-res)
-///     [4-byte alignment pad]
-///     [Q keyframe data]   numQKeys × 8 bytes (standard) or × 14 bytes (hi-res)
-///     [T keyframe data]   numTKeys × 8 bytes (standard) or × 14 bytes (hi-res)
+///     [Per-bone frames]   numBones × 2 bytes, or × 4 bytes when bit 22 is set
+///     [Q keyframe data]   numQKeys × 8 bytes (standard) or × 16 bytes (camera/object)
+///     [T keyframe data]   numTKeys × 8 bytes (standard) or × 16 bytes (camera/object)
 ///     </code>
 ///     INTERMEDIATE authoring streams (flags bit 30), found inside THUG bare
 ///     <c>.cut</c> libraries, are dispatched to <see cref="SkaIntermediateParser" />.
@@ -34,6 +33,7 @@ internal static class SkaFile
     internal const uint FlagIntermediate = 1u << 30;
     internal const uint FlagUncompressed = 1u << 29;
     internal const uint FlagPlatform = 1u << 28;
+    internal const uint FlagCameraData = 1u << 27;
     internal const uint FlagCompressedTime = 1u << 26;
 
     // bit 26 = compressed-time keys (the decoders infer per-key timing from the
@@ -52,6 +52,7 @@ internal static class SkaFile
     internal static bool IsSkaFile(ReadOnlySpan<byte> data)
     {
         if (data.Length < 28) return false;
+        if (SkaNextGenParser.IsNextGenSka(data)) return true;
         if (SkaThawParser.IsThawSka(data, out _)) return true;
         var flags = BitConverter.ToUInt32(data[4..]);
         if ((flags & FlagIntermediate) != 0)
@@ -70,6 +71,9 @@ internal static class SkaFile
     internal static SkaProbeResult? TryProbe(ReadOnlySpan<byte> data)
     {
         if (!IsSkaFile(data)) return null;
+
+        if (SkaNextGenParser.TryProbe(data, out var nextGenProbe))
+            return nextGenProbe;
 
         if (SkaThawParser.IsThawSka(data, out var thawBigEndian))
         {
@@ -119,6 +123,32 @@ internal static class SkaFile
 
     internal static SkaAnimation Parse(ReadOnlySpan<byte> data, SkaCompressTable? compressTable = null)
     {
+        return ParseCore(data, compressTable, requireExactLegacyContainer: false);
+    }
+
+    /// <summary>
+    ///     Parses a legacy THPS4/THUG-family payload while requiring its
+    ///     declared streams and custom-key tail to account for the entire file.
+    ///     This is used by filename-scoped container gates such as THPS4 PC DAT.
+    /// </summary>
+    internal static SkaAnimation ParseLegacyExact(
+        ReadOnlySpan<byte> data, SkaCompressTable? compressTable = null)
+    {
+        return ParseCore(data, compressTable, requireExactLegacyContainer: true);
+    }
+
+    private static SkaAnimation ParseCore(
+        ReadOnlySpan<byte> data,
+        SkaCompressTable? compressTable,
+        bool requireExactLegacyContainer)
+    {
+        // Project 8 / Proving Ground wrap a big-endian THAW-family payload in
+        // a 0x20-byte file descriptor and address its four streams by absolute
+        // file offsets. Dispatch before ordinary SKA headers: word 0 belongs to
+        // the wrapper and is deliberately zero.
+        if (SkaNextGenParser.IsNextGenSka(data))
+            return SkaNextGenParser.Parse(data, compressTable);
+
         // THAW-era v0x28 container (LE PS2/PC, BE GC) — version-gated BEFORE
         // the flag dispatch because its flags also carry bit23/bit28 and the
         // THUG-era paths would silently mis-parse the reshaped header.
@@ -134,9 +164,11 @@ internal static class SkaFile
             return SkaIntermediateParser.Parse(data);
 
         if ((flags & FlagUseCompressTable) != 0)
-            return SkaCompressedParser.ParseCompressed(data, version, flags, duration, compressTable);
+            return SkaCompressedParser.ParseCompressed(
+                data, version, flags, duration, compressTable, requireExactLegacyContainer);
         if ((flags & FlagPlatform) != 0)
-            return SkaPlatformParser.ParsePlatform(data, version, flags, duration);
+            return SkaPlatformParser.ParsePlatform(
+                data, version, flags, duration, requireExactLegacyContainer);
         if ((flags & FlagThps3RpHAnim) != 0)
             return SkaThps3Parser.ParseThps3(data, version, flags, duration);
 

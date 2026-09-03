@@ -8,16 +8,57 @@ internal static class AudioConverterTabOperations
 {
     private static readonly string[] SupportedExtensions =
     [
-        ".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".seq", ".pcm", ".snd", ".pss", ".vid",
-        ".swav", ".strm", ".hwas",
+        ".adx", ".xa", ".vab", ".vag", ".kat", ".sfx", ".seq", ".pcm", ".snd", ".dee", ".smo", ".pss", ".pmf", ".vid",
+        ..HandheldAudioFormatSupport.Extensions,
+        ..StandardAudioFormatSupport.Extensions,
         // PSP ATRAC3/ATRAC3plus and the Wii builds' audio-only VID1 movies,
         // which ship named .ogg (content-gated on the VID1 magic downstream).
-        ".at3", ".ogg"
+        ".ogg"
     ];
 
-    public static bool IsAudioFile(string path)
+    public static bool IsAudioFile(string path) => IsAudioFile(path, null);
+
+    public static bool IsAudioFile(string path, byte[]? data)
     {
+        if (LatePlatformAudio.HasSupportedFileName(path))
+        {
+            return data != null
+                ? LatePlatformAudio.Probe(path, data) != null
+                : File.Exists(path) && LatePlatformAudio.Probe(path) != null;
+        }
+
+        if (ThawXmaBank.HasSupportedFileName(path)
+            || Fsb3AudioBank.HasSupportedFileName(path))
+            return true;
+
         var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is ".dee" or ".smo" or ".pmf")
+        {
+            if (data != null)
+            {
+                return ext switch
+                {
+                    ".dee" => Thps4PcDeeAudio.Probe(data) != null,
+                    ".smo" => Thps4PcSmoAudio.Probe(data) != null,
+                    _ => PsmfAudioExtractor.Probe(data)?.HasAudio == true
+                };
+            }
+
+            // Loose-file scans can reject foreign/malformed DEE content before
+            // materializing a row. Archive scans pass bytes through the overload.
+            if (File.Exists(path))
+            {
+                return ext switch
+                {
+                    ".dee" => Thps4PcDeeAudio.Probe(path) != null,
+                    ".smo" => Thps4PcSmoAudio.Probe(path) != null,
+                    _ => PsmfAudioExtractor.Probe(path)?.HasAudio == true
+                };
+            }
+
+            return false;
+        }
+
         return SupportedExtensions.Contains(ext);
     }
 
@@ -30,18 +71,49 @@ internal static class AudioConverterTabOperations
     {
         var allFiles = Directory.GetFiles(inputDir, "*", SearchOption.AllDirectories);
         var audioFiles = allFiles
-            .Where(static file => SupportedExtensions.Contains(Path.GetExtension(file).ToLowerInvariant()))
+            .Where(IsAudioFile)
             .ToList();
 
         audioFiles.AddRange(allFiles
             .Where(static file => string.IsNullOrEmpty(Path.GetExtension(file)))
-            .Where(static file => VagDecoder.Probe(file) != null));
+            .Where(IsSupportedHeaderlessAudioFile));
 
         return audioFiles;
     }
 
-    public static string DetectFormat(string extension)
+    public static string DetectFormat(string extensionOrPath, byte[]? data = null)
     {
+        if (LatePlatformAudio.HasSupportedFileName(extensionOrPath))
+        {
+            var probe = data != null
+                ? LatePlatformAudio.Probe(extensionOrPath, data)
+                : File.Exists(extensionOrPath)
+                    ? LatePlatformAudio.Probe(extensionOrPath)
+                    : null;
+            return probe?.Kind switch
+            {
+                LatePlatformAudioKind.Ps3MpegLayer3 => "PS3 MP3",
+                LatePlatformAudioKind.Ps3Fsb3 => "PS3 FSB3",
+                LatePlatformAudioKind.Xbox360Xma1 => "XMA1",
+                _ => "Unknown"
+            };
+        }
+
+        if (ThawXmaBank.HasSupportedFileName(extensionOrPath))
+            return "THAW XMA";
+
+        if (Fsb3AudioBank.HasSupportedFileName(extensionOrPath)
+            || data != null && Fsb3AudioBank.IsFsb3(data))
+        {
+            return "FSB3";
+        }
+
+        var extension = Path.GetExtension(extensionOrPath).ToLowerInvariant();
+        if (extension.Length == 0
+            && extensionOrPath.Length > 0
+            && extensionOrPath[0] == '.')
+            extension = extensionOrPath.ToLowerInvariant();
+
         return extension switch
         {
             ".adx" => "ADX",
@@ -49,23 +121,62 @@ internal static class AudioConverterTabOperations
             ".vab" => "VAB",
             ".vag" => "VAG",
             ".pcm" => "PCM",
-            ".swav" => "SWAV",
-            ".strm" => "STRM",
             ".snd" => "SND",
+            ".dee" => "DEE",
+            ".smo" => "SMO",
             ".pss" => "PSS",
+            ".pmf" => "PMF",
             ".vid" => "VID",
             ".ogg" => "VID",
-            ".at3" => "AT3",
             ".kat" => "KAT",
             ".sfx" => "SFX",
             ".seq" => "SEQ",
+            "" when data != null && WiiDspAudio.IsWiiDsp(data) => "DSP",
             "" => "VAG",
-            _ => "Unknown"
+            _ => HandheldAudioFormatSupport.DetectFormat(extension)
+                 ?? StandardAudioFormatSupport.DetectFormat(extension)
+                 ?? "Unknown"
         };
+    }
+
+    public static bool IsSupportedHeaderlessAudioData(byte[] data)
+    {
+        return WiiDspAudio.IsWiiDsp(data)
+               || (data.Length > 0 && data.Length % 16 == 0 && VagDecoder.Probe(data) != null);
+    }
+
+    public static bool IsWiiDspAudioData(byte[] data) => WiiDspAudio.IsWiiDsp(data);
+
+    private static bool IsSupportedHeaderlessAudioFile(string filePath)
+    {
+        try
+        {
+            return IsSupportedHeaderlessAudioData(File.ReadAllBytes(filePath));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     public static List<AudioSampleEntry> EnumerateChildren(AudioFileEntry parent)
     {
+        if (parent.AudioFormat == "THAW XMA")
+        {
+            if (parent.Source.FileSystemPath is { } xmaPath)
+                return EnumerateThawXmaChildren(parent, ThawXmaBank.Probe(xmaPath));
+
+            var wadData = parent.Source.ReadBytes();
+            var indexData = parent.Source.TryReadCompanion(
+                ThawXmaBank.GetCompanionIndexName(parent.FileName));
+            return indexData == null
+                ? []
+                : EnumerateThawXmaChildren(parent, ThawXmaBank.Probe(wadData, indexData));
+        }
+
+        if (parent.AudioFormat == "FSB3" && parent.Source.FileSystemPath is { } path)
+            return EnumerateFsbChildren(parent, Fsb3AudioBank.Probe(path));
+
         return EnumerateChildren(parent, parent.Source.ReadBytes());
     }
 
@@ -80,8 +191,48 @@ internal static class AudioConverterTabOperations
             "VAB" => EnumerateVabChildren(parent, data),
             "KAT" => EnumerateKatChildren(parent, data),
             "XA" => EnumerateXaChannels(data, parent),
+            "FSB3" => EnumerateFsbChildren(parent, Fsb3AudioBank.Probe(data)),
             _ => []
         };
+    }
+
+    private static List<AudioSampleEntry> EnumerateFsbChildren(
+        AudioFileEntry parent,
+        Fsb3BankInfo? bank)
+    {
+        if (bank == null)
+            return [];
+
+        return bank.Samples.Select(sample => new AudioSampleEntry
+        {
+            Parent = parent,
+            SampleIndex = sample.Index,
+            SampleName = sample.Name,
+            Encoding = sample.Codec == Fsb3AudioCodec.MpegLayer3 ? "MP3" : "XMA1",
+            SampleRate = sample.SampleRate,
+            Channels = sample.Channels,
+            DataSize = sample.CompressedSize,
+            DurationSeconds = sample.DurationSeconds
+        }).ToList();
+    }
+
+    private static List<AudioSampleEntry> EnumerateThawXmaChildren(
+        AudioFileEntry parent,
+        ThawXmaBankInfo? bank)
+    {
+        if (bank == null)
+            return [];
+
+        return bank.Samples.Select(sample => new AudioSampleEntry
+        {
+            Parent = parent,
+            SampleIndex = sample.Index,
+            SampleName = sample.Name,
+            Encoding = "XMA1",
+            SampleRate = sample.SampleRate,
+            Channels = sample.Channels,
+            DataSize = sample.CompressedSize
+        }).ToList();
     }
 
     private static List<AudioSampleEntry> EnumerateVabChildren(AudioFileEntry parent, byte[] data)
@@ -213,7 +364,52 @@ internal static class AudioConverterTabOperations
         string outputStem)
     {
         var source = entry.Source;
+        if (entry.AudioFormat == "THAW XMA")
+        {
+            if (source.FileSystemPath is { } xmaPath)
+                return ThawXmaBank.ConvertToWav(xmaPath, outputStem, outputDir);
+
+            var wadData = source.ReadBytes();
+            var indexData = source.TryReadCompanion(
+                ThawXmaBank.GetCompanionIndexName(entry.FileName));
+            return indexData == null
+                ? new AudioConvertResult
+                {
+                    Skipped = true,
+                    ErrorMessage = "Matching XMA .dat index not found"
+                }
+                : ThawXmaBank.ConvertToWav(wadData, indexData, outputStem, outputDir);
+        }
+
+        if (entry.AudioFormat == "FSB3" && source.FileSystemPath is { } fsbPath)
+            return Fsb3AudioBank.ConvertToWav(fsbPath, outputStem, outputDir);
+
+        if (entry.AudioFormat == "DEE" && source.FileSystemPath is { } deePath)
+            return Thps4PcDeeAudio.ConvertToWav(deePath, outputStem, outputDir);
+
+        if (entry.AudioFormat == "SMO" && source.FileSystemPath is { } smoPath)
+            return Thps4PcSmoAudio.ConvertToWav(smoPath, outputStem, outputDir);
+
+        if (entry.AudioFormat == "PMF" && source.FileSystemPath is { } pmfPath)
+            return PsmfAudioExtractor.ConvertToWav(pmfPath, outputStem, outputDir);
+
+        if (entry.AudioFormat is "PS3 MP3" or "PS3 FSB3" or "XMA1"
+            && source.FileSystemPath is { } latePath)
+        {
+            return LatePlatformAudio.ConvertToWav(latePath, outputStem, outputDir);
+        }
+
         var data = source.ReadBytes();
+
+        var handheldResult = HandheldAudioFormatSupport.ConvertToWav(
+            entry.AudioFormat, data, outputStem, outputDir);
+        if (handheldResult != null)
+            return handheldResult;
+
+        var standardResult = StandardAudioFormatSupport.ConvertToWav(
+            entry.AudioFormat, data, outputStem, outputDir);
+        if (standardResult != null)
+            return standardResult;
 
         return entry.AudioFormat switch
         {
@@ -223,8 +419,14 @@ internal static class AudioConverterTabOperations
             "VAG" => VagDecoder.ConvertToWav(data, outputStem, outputDir),
             "PCM" => XboxPcmDecoder.ConvertToWav(data, outputStem, outputDir),
             "SND" => Thug2PcSndDecoder.ConvertToWav(data, outputStem, outputDir),
+            "DEE" => Thps4PcDeeAudio.ConvertToWav(data, outputStem, outputDir),
+            "SMO" => Thps4PcSmoAudio.ConvertToWav(data, outputStem, outputDir),
+            "PS3 MP3" or "PS3 FSB3" or "XMA1" => LatePlatformAudio.ConvertToWav(
+                data, entry.FileName, outputStem, outputDir),
             "PSS" => PssAudioExtractor.ConvertToWav(data, outputStem, outputDir),
+            "PMF" => PsmfAudioExtractor.ConvertToWav(data, outputStem, outputDir),
             "VID" => Vid1AudioExtractor.ConvertToWav(data, outputStem, outputDir),
+            "FSB3" => Fsb3AudioBank.ConvertToWav(data, outputStem, outputDir),
             "KAT" => ConvertKatBank(entry, data, outputStem, outputDir),
             "SEQ" => ConvertSeqSong(entry, data, outputStem, outputDir),
             _ => new AudioConvertResult { ErrorMessage = "Unknown format" }
@@ -345,16 +547,27 @@ internal static class AudioConverterTabOperations
     private static string? ConvertFilePreview(AudioFileEntry parent, string tempDir)
     {
         var data = parent.Source.ReadBytes();
-        var stem = Path.GetFileNameWithoutExtension(parent.FileName);
+        var stem = LatePlatformAudio.HasSupportedFileName(parent.FileName)
+            ? LatePlatformAudio.GetSourceStem(parent.FileName)
+            : Path.GetFileNameWithoutExtension(parent.FileName);
 
-        var result = parent.AudioFormat switch
+        var result = HandheldAudioFormatSupport.ConvertToWav(
+                         parent.AudioFormat, data, stem, tempDir)
+                     ?? StandardAudioFormatSupport.ConvertToWav(
+                         parent.AudioFormat, data, stem, tempDir)
+                     ?? parent.AudioFormat switch
         {
             "ADX" => AdxDecoder.ConvertToWav(data, stem, tempDir),
             "XA" => XaDecoder.ConvertToWav(data, stem, tempDir),
             "VAG" => VagDecoder.ConvertToWav(data, stem, tempDir),
             "PCM" => XboxPcmDecoder.ConvertToWav(data, stem, tempDir),
             "SND" => Thug2PcSndDecoder.ConvertToWav(data, stem, tempDir),
+            "DEE" => Thps4PcDeeAudio.ConvertToWav(data, stem, tempDir),
+            "SMO" => Thps4PcSmoAudio.ConvertToWav(data, stem, tempDir),
+            "PS3 MP3" or "PS3 FSB3" or "XMA1" => LatePlatformAudio.ConvertToWav(
+                data, parent.FileName, stem, tempDir),
             "PSS" => PssAudioExtractor.ConvertToWav(data, stem, tempDir),
+            "PMF" => PsmfAudioExtractor.ConvertToWav(data, stem, tempDir),
             "VID" => Vid1AudioExtractor.ConvertToWav(data, stem, tempDir),
             "SEQ" => ConvertSeqSong(parent, data, stem, tempDir),
             _ => null
@@ -378,8 +591,40 @@ internal static class AudioConverterTabOperations
     {
         var parentEntry = sample.Parent;
 
+        if (parentEntry.AudioFormat == "THAW XMA")
+        {
+            if (parentEntry.Source.FileSystemPath is { } xmaPath)
+            {
+                return ThawXmaBank.ConvertSingleToWav(
+                    xmaPath, sample.SampleIndex, tempDir);
+            }
+
+            var wadData = parentEntry.Source.ReadBytes();
+            var indexData = parentEntry.Source.TryReadCompanion(
+                ThawXmaBank.GetCompanionIndexName(parentEntry.FileName));
+            return indexData == null
+                ? null
+                : ThawXmaBank.ConvertSingleToWav(
+                    wadData,
+                    indexData,
+                    LatePlatformAudio.HasSupportedFileName(parentEntry.FileName)
+                        ? LatePlatformAudio.GetSourceStem(parentEntry.FileName)
+                        : Path.GetFileNameWithoutExtension(parentEntry.FileName),
+                    sample.SampleIndex,
+                    tempDir);
+        }
+
+        if (parentEntry.AudioFormat == "FSB3"
+            && parentEntry.Source.FileSystemPath is { } fsbPath)
+        {
+            return Fsb3AudioBank.ConvertSingleToWav(
+                fsbPath, sample.SampleIndex, tempDir);
+        }
+
         var data = parentEntry.Source.ReadBytes();
-        var stem = Path.GetFileNameWithoutExtension(parentEntry.FileName);
+        var stem = LatePlatformAudio.HasSupportedFileName(parentEntry.FileName)
+            ? LatePlatformAudio.GetSourceStem(parentEntry.FileName)
+            : Path.GetFileNameWithoutExtension(parentEntry.FileName);
 
         if (sample.CueSheet is { } sheet && sample.CueIndex is { } cueIndex)
             return ConvertCueSamplePreview(parentEntry, sheet, data, stem, cueIndex, tempDir);
@@ -389,6 +634,8 @@ internal static class AudioConverterTabOperations
             "VAB" => VabExtractor.ExtractSingleToWav(data, stem, sample.SampleIndex, tempDir, vabSampleRate),
             "KAT" => KatExtractor.ExtractSingleToWav(data, stem, sample.SampleIndex, tempDir),
             "XA" => XaExtractor.ExtractChannelToWav(data, stem, sample.SampleIndex, tempDir),
+            "FSB3" => Fsb3AudioBank.ConvertSingleToWav(
+                data, stem, sample.SampleIndex, tempDir),
             _ => null
         };
     }

@@ -16,6 +16,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.Psp;
 using NeversoftMultitool.Core.Formats.Mesh.RenderWare;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
@@ -891,8 +892,38 @@ internal static class MeshConverterTabFileScanner
         try
         {
             var data = source.ReadBytes();
-            if (!ColFile.IsColFile(data))
+            var route = MeshTypeDetector.DetectFromBytes(source.EntryName, data, data.Length);
+            if (!route.IsSupported || route.Kind != MeshFileKind.Collision)
                 return null;
+
+            if (NgcCollisionBindingResolver.IsCollisionName(source.EntryName))
+            {
+                var ngcScene = NgcColFile.Parse(data);
+                if (!NgcCollisionBindingResolver.TryResolveForCollision(
+                        source,
+                        source.EntryName,
+                        ngcScene,
+                        out _,
+                        out _,
+                        out _))
+                {
+                    // NGC COL has topology but no serialized positions. Keep
+                    // the GUI route fail-closed unless the exact render owner
+                    // proves a compatible source-order position pool.
+                    return null;
+                }
+
+                return new MeshFileEntry
+                {
+                    FileName = source.EntryName,
+                    FilePath = displayPath,
+                    RelativePath = MakeRelativePath(displayPath, rootDir),
+                    Format = "COL",
+                    ObjectCount = ngcScene.Objects.Length,
+                    MeshCount = ngcScene.Objects.Length,
+                    Source = source
+                };
+            }
 
             var scene = ColFile.Parse(data);
             return new MeshFileEntry
@@ -1027,7 +1058,26 @@ internal static class MeshConverterTabFileScanner
 
             XbxScene scene;
             string format;
-            if (NgcSceneFile.IsNgcScene(data))
+            PspLevelFile? pspLevel = null;
+            PspGeMeshFile? pspMesh = null;
+            var isThps4PcDat = Thps4PcDatSceneFile.IsCandidateFileName(fileName);
+            if (fileName.EndsWith(PspLevelFile.Suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                pspLevel = PspLevelFile.Parse(data);
+                scene = pspLevel.Scene;
+                format = "PSP Level (static world; objects omitted)";
+            }
+            else if (isThps4PcDat)
+            {
+                scene = Thps4PcDatSceneFile.Parse(data);
+                format = "PC (THPS4)";
+            }
+            else if (PspGeMeshFile.TryParse(data, out pspMesh))
+            {
+                scene = pspMesh!.Scene;
+                format = "PSP (rigid bind pose)";
+            }
+            else if (NgcSceneFile.IsNgcScene(data))
             {
                 scene = NgcSceneFile.Parse(data);
                 format = "GameCube (THAW)";
@@ -1058,7 +1108,11 @@ internal static class MeshConverterTabFileScanner
                 RelativePath = MakeRelativePath(displayPath, rootDir),
                 Format = format,
                 ObjectCount = scene.Sectors.Length,
-                MeshCount = scene.Materials.Length,
+                MeshCount = pspLevel?.Summary.PrimitiveCount
+                            ?? pspMesh?.Summary.PrimitiveCount
+                            ?? (isThps4PcDat
+                                ? scene.Sectors.Sum(static sector => sector.Meshes.Length)
+                                : scene.Materials.Length),
                 Source = source,
                 XbxHasSkinnedSectors = scene.Sectors.Any(static sector => sector.IsSkinned)
             };

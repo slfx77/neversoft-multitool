@@ -2,6 +2,7 @@ using NeversoftMultitool.Core.Formats.Mesh;
 using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
+using System.Buffers.Binary;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Mesh.Detection;
 
@@ -64,6 +65,7 @@ public class MeshTypeDetectorContentRoutingTests
     }
 
     [Theory]
+    [InlineData(8)]
     [InlineData(9)]
     [InlineData(10)]
     public void BareCol_SupportedVersion_RoutesToCollision(int version)
@@ -88,6 +90,31 @@ public class MeshTypeDetectorContentRoutingTests
 
         Assert.False(route.IsSupported);
         Assert.Contains("99", route.UnsupportedReason);
+    }
+
+    [Fact]
+    public void XenCol_BigEndianV10_RoutesToCollision()
+    {
+        var data = new byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(data, 10);
+
+        var route = MeshTypeDetector.DetectFromBytes("4214D375.col.xen", data, data.Length);
+
+        Assert.Equal(MeshFileKind.Collision, route.Kind);
+        Assert.True(route.IsSupported);
+        Assert.Equal("X360 COL Collision (v10)", route.DisplayFormat);
+    }
+
+    [Fact]
+    public void XenCol_LittleEndianV10_IsRejectedFailClosed()
+    {
+        var data = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(data, 10);
+
+        var route = MeshTypeDetector.DetectFromBytes("4214D375.col.xen", data, data.Length);
+
+        Assert.False(route.IsSupported);
+        Assert.Contains("big-endian 10", route.UnsupportedReason);
     }
 
     [Fact]
@@ -188,6 +215,37 @@ public class MeshTypeDetectorContentRoutingTests
             var route = MeshTypeDetector.DetectFromBytes("skater.skin", new byte[length], length);
             Assert.False(route.IsSupported);
         }
+    }
+
+    [Fact]
+    public void NgcSentinel_WithAnIncompatiblePostHeaderLayout_IsRejected()
+    {
+        var data = new byte[64];
+        // Big-endian one-position pool declaration, but no bytes for that pool.
+        data[3] = 1;
+        data[0x0F] = 12;
+        data[0x2C] = 0xAA;
+        data[0x2D] = 0xFF;
+        data[0x2E] = 0xEE;
+        data[0x2F] = 0xFF;
+
+        Assert.True(NgcSceneFile.IsNgcScene(data));
+
+        var route = MeshTypeDetector.DetectFromBytes("wii_model.skin.ngc", data, data.Length);
+
+        Assert.False(route.IsSupported);
+        Assert.Contains("layout", route.UnsupportedReason);
+    }
+
+    [Fact]
+    public void NgcScene_IsReportedAsPartialUntilItsSceneCompositionIsComplete()
+    {
+        var route = new MeshFileRoute(
+            MeshFileKind.XbxScene,
+            ".skin.ngc",
+            DisplayFormat: "GameCube Scene (THAW layout)");
+
+        Assert.True(MeshTypeDetector.ReportsPartialSupport(route));
     }
 
     [Fact]

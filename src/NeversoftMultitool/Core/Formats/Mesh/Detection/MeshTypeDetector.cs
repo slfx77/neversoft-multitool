@@ -1,4 +1,5 @@
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Detection;
 
@@ -56,6 +57,20 @@ public static class MeshTypeDetector
     /// </summary>
     public const string NdsCollisionSuffix = ".lwc";
 
+    /// <summary>
+    ///     Aspyr's THPS4 PC spelling for a WPC/v8 collision file: the asset
+    ///     kind is joined directly to the stem, for example <c>alccol.dat</c>.
+    ///     Its generic extension is admitted only after a complete v8 parse.
+    /// </summary>
+    public const string Thps4PcDatCollisionSuffix = "col.dat";
+
+    private static readonly string[] Thps4PcDatSceneSuffixes =
+    [
+        Thps4PcDatSceneFile.SkinSuffix,
+        Thps4PcDatSceneFile.ModelSuffix,
+        Thps4PcDatSceneFile.SceneSuffix
+    ];
+
     private static readonly string[] XboxSceneSuffixes =
     [
         ".skin.xbx", ".mdl.xbx", ".scn.xbx",
@@ -67,7 +82,11 @@ public static class MeshTypeDetector
 
     private static readonly string[] Ps2SceneSuffixes = [".iskin.ps2", ".skin.ps2", ".mdl.ps2"];
 
-    private static readonly string[] CollisionSuffixes = [".col.xbx", ".col.wpc", ".col.ps2", ".col.psp", ".col"];
+    private static readonly string[] PspSceneSuffixes =
+        [Psp.PspLevelFile.Suffix, ".skin.psp", ".mdl.psp", ".geom.psp"];
+
+    private static readonly string[] CollisionSuffixes =
+        [".col.xbx", ".col.wpc", ".col.ps2", ".col.psp", ".col.ngc", ".col.xen", Thps4PcDatCollisionSuffix, ".col"];
 
     private static readonly string[] RenderWareDffSuffixes = [".skn", ".dff"];
 
@@ -80,8 +99,10 @@ public static class MeshTypeDetector
     /// </summary>
     public static readonly string[] KnownSuffixes =
     [
+        .. Thps4PcDatSceneSuffixes,
         .. XboxSceneSuffixes,
         .. Ps2SceneSuffixes,
+        .. PspSceneSuffixes,
         ".geom.ps2",
         WorldzoneSuffix,
         .. CollisionSuffixes,
@@ -108,11 +129,35 @@ public static class MeshTypeDetector
         {
             if (!fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                 continue;
+            if ((string.Equals(suffix, Thps4PcDatCollisionSuffix, StringComparison.Ordinal)
+                 && !IsThps4PcDatCollisionFileName(fileName))
+                || (Thps4PcDatSceneSuffixes.Contains(suffix)
+                    && !Thps4PcDatSceneFile.IsCandidateFileName(fileName)))
+            {
+                continue;
+            }
             if (best == null || suffix.Length > best.Length)
                 best = suffix;
         }
 
         return best;
+    }
+
+    /// <summary>
+    ///     True only for Aspyr's delimiter-free <c>*col.dat</c> spelling. A bare
+    ///     <c>col.dat</c> has no asset stem, while <c>name.col.dat</c> belongs to
+    ///     a different compound-extension namespace and must not be captured.
+    /// </summary>
+    public static bool IsThps4PcDatCollisionFileName(string fileName)
+    {
+        var name = Path.GetFileName(fileName);
+        if (name.Length <= Thps4PcDatCollisionSuffix.Length
+            || !name.EndsWith(Thps4PcDatCollisionSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return name[name.Length - Thps4PcDatCollisionSuffix.Length - 1] != '.';
     }
 
     /// <summary>
@@ -158,6 +203,15 @@ public static class MeshTypeDetector
         if (XboxSceneSuffixes.Contains(suffix))
             return new MeshFileRoute(MeshFileKind.XbxScene, suffix, RequiresContentProbe: true);
 
+        if (Thps4PcDatSceneSuffixes.Contains(suffix))
+            return new MeshFileRoute(MeshFileKind.XbxScene, suffix, RequiresContentProbe: true);
+
+        // PSP GE meshes and native PSP levels share the portable scene
+        // IR/exporter, but remain fully content-gated. In particular,
+        // .geom.psp/bare wrappers also ship authored-empty placeholders.
+        if (PspSceneSuffixes.Contains(suffix))
+            return new MeshFileRoute(MeshFileKind.XbxScene, suffix, RequiresContentProbe: true);
+
         if (Ps2SceneSuffixes.Contains(suffix))
             return new MeshFileRoute(MeshFileKind.Ps2Scene, suffix, RequiresContentProbe: true);
 
@@ -194,8 +248,9 @@ public static class MeshTypeDetector
     ///     route to <see cref="MeshFileKind.None" />, never yield a wrong kind.
     ///     <para>
     ///         The Xbox-scene family needs far more than a fixed header: its ladder
-    ///         asks <c>NgcSceneFile.IsNgcScene</c> (which refuses anything shorter
-    ///         than its own 64-byte header) and then
+    ///         asks <c>NgcSceneFile.TryParse</c>. Wii games retain the same NGC
+    ///         sentinel with an incompatible later record layout, so an NGC
+    ///         support verdict requires the complete payload. The ladder then
     ///         <c>ThawSceneFile.IsThawScene</c>, which must reach the 0xBABEFACE
     ///         sentinel PAST the whole material list. This budget was 48 bytes, so
     ///         both predicates were unreachable and every GameCube and THAW PC scene
@@ -218,6 +273,14 @@ public static class MeshTypeDetector
             return 64 * 1024;
         if (Ps2SceneSuffixes.Contains(suffix))
             return 32;
+        if (string.Equals(suffix, Thps4PcDatCollisionSuffix, StringComparison.Ordinal))
+            return int.MaxValue;
+        if (Thps4PcDatSceneSuffixes.Contains(suffix))
+            return int.MaxValue;
+        if (PspSceneSuffixes.Contains(suffix))
+            return int.MaxValue;
+        if (suffix.EndsWith(".ngc", StringComparison.OrdinalIgnoreCase))
+            return int.MaxValue;
         if (XboxSceneSuffixes.Contains(suffix))
             return 256 * 1024;
         if (RenderWareDffSuffixes.Contains(suffix) || string.Equals(suffix, ".bsp", StringComparison.Ordinal))
@@ -265,6 +328,21 @@ public static class MeshTypeDetector
             using (var stream = File.OpenRead(filePath))
             {
                 stream.ReadExactly(buffer, 0, toRead);
+            }
+
+            // Bare .skin/.mdl names use a bounded probe because most of them are
+            // PC/Xbox/PS2 files. GameCube/Wii scenes are the exception: the
+            // 0xAAFFEEFF family sentinel is in the fixed header, but deciding
+            // whether the later records are the supported THAW layout requires
+            // the complete payload. Re-read only that positively identified
+            // family so large bare NGC scenes are not rejected merely because
+            // TryParse saw the 64/256 KiB prefix.
+            if (info.Length > buffer.Length
+                && route.Suffix is ".skin" or ".mdl"
+                && (XbxScene.NgcSceneFile.IsNgcScene(buffer)
+                    || Psp.PspGeMeshFile.ContainsMagic(buffer)))
+            {
+                buffer = File.ReadAllBytes(filePath);
             }
 
             return MeshContentProbe.Resolve(route, buffer, info.Length);
@@ -347,7 +425,12 @@ public static class MeshTypeDetector
     public static bool ReportsPartialSupport(in MeshFileRoute route)
     {
         return route.Kind is MeshFileKind.Collision or MeshFileKind.RenderWareBsp
-               || (route.Kind == MeshFileKind.XbxScene
-                   && !route.Suffix.EndsWith(".ngc", StringComparison.OrdinalIgnoreCase));
+               || route.Kind == MeshFileKind.XbxScene;
+    }
+
+    /// <summary>True for explicit PSP GE mesh and native level suffixes.</summary>
+    internal static bool IsPspSceneSuffix(string suffix)
+    {
+        return PspSceneSuffixes.Contains(suffix);
     }
 }

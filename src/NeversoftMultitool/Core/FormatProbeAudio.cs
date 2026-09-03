@@ -10,12 +10,23 @@ internal static class FormatProbeAudio
 
     public static FormatProbe.FormatProbeResult Probe(string filePath)
     {
+        if (LatePlatformAudio.HasSupportedFileName(filePath))
+            return ProbeLatePlatformFile(filePath);
+
+        if (ThawXmaBank.HasSupportedFileName(filePath))
+            return ProbeThawXmaFile(filePath);
+
+        if (Fsb3AudioBank.HasSupportedFileName(filePath))
+            return ProbeFsb3File(filePath);
+
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
         return ext switch
         {
             ".adx" => ProbeAdxFile(filePath),
             ".pcm" => ProbePcmFile(filePath),
-            ".swav" or ".strm" or ".hwas" => ProbeNitroWave(filePath),
+            ".swav" or ".strm" or ".hwas" => ProbeNintendoDsAudio(filePath),
+            ".dee" => ProbeThps4PcDeeFile(filePath),
+            ".smo" => ProbeThps4PcSmoFile(filePath),
             ".snd" => ProbeSndFile(filePath),
             ".xa" => ProbeExtensionOnlyFile(filePath, "XA Audio"),
             ".vab" => ProbeExtensionOnlyFile(filePath, "VAB Sound Bank"),
@@ -23,13 +34,112 @@ internal static class FormatProbeAudio
             ".kat" => ProbeExtensionOnlyFile(filePath, "KAT Sound Bank"),
             ".sfx" => ProbeSfxFile(filePath),
             ".pss" => ProbePssFile(filePath),
+            ".pmf" => ProbePsmfFile(filePath),
             // The Wii builds' audio-only VID1 movies ship named .ogg, so the
             // extension routes to the VID1 probe — which content-gates, so a
             // genuine Ogg Vorbis file reports unsupported rather than decoding.
             ".vid" or ".ogg" => ProbeVidFile(filePath),
             ".at3" => ProbeAt3File(filePath),
+            ".wav" => ProbeStandardWaveFile(filePath),
+            ".wma" => ProbeWindowsMediaAudioFile(filePath),
             _ => ProbeHeaderlessAudio(filePath)
         };
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeThps4PcDeeFile(string filePath)
+    {
+        var probe = Thps4PcDeeAudio.Probe(filePath);
+        return probe != null
+            ? new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                "THPS4 PC Bink-DCT Sound",
+                $"{probe.Channels} ch, {probe.SampleRate} Hz, {probe.DurationSeconds:F2} s")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "THPS4 PC DEE Sound",
+                "Not an exact THPS4 PC BIKi DEE audio carrier");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeThps4PcSmoFile(string filePath)
+    {
+        var probe = Thps4PcSmoAudio.Probe(filePath);
+        return probe != null
+            ? new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                "THPS4 PC Bink-DCT Soundtrack",
+                $"{probe.Channels} ch, {probe.SampleRate} Hz, {probe.DurationSeconds:F2} s")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "THPS4 PC SMO Soundtrack",
+                "Not an exact THPS4 PC BIKi SMO audio carrier");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeLatePlatformFile(string filePath)
+    {
+        var probe = LatePlatformAudio.Probe(filePath);
+        if (probe == null)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Late-generation compound audio",
+                "Not an exact supported .wav.ps3/.wav.xen audio payload");
+        }
+
+        return probe.Kind switch
+        {
+            LatePlatformAudioKind.Ps3MpegLayer3 => new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                "PS3 MPEG Layer III Audio",
+                $"{probe.Channels} ch, {probe.SampleRate} Hz, {probe.DurationSeconds:F2} s"),
+            LatePlatformAudioKind.Ps3Fsb3 => new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                $"PS3 FSB3 {probe.CodecName} Audio",
+                $"{probe.Channels} ch, {probe.SampleRate} Hz, {probe.DurationSeconds:F2} s"),
+            LatePlatformAudioKind.Xbox360Xma1 => new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                "Xbox 360 XMA1 Audio",
+                $"{probe.Channels} ch, {probe.SampleRate} Hz, {probe.FrameOrPacketCount} packet(s)"),
+            _ => new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "Late-generation compound audio")
+        };
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeThawXmaFile(string filePath)
+    {
+        var bank = ThawXmaBank.Probe(filePath);
+        return bank != null
+            ? new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                "THAW Xbox 360 XMA Sound Bank")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "THAW Xbox 360 XMA Sound Bank",
+                "Not an exact, supported THAW XMA DAT/WAD pair");
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeFsb3File(string filePath)
+    {
+        var bank = Fsb3AudioBank.Probe(filePath);
+        if (bank == null)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "FSB3 Sound Bank",
+                "Not an exact, supported FSB3.1 MP3/XMA bank");
+        }
+
+        var mp3Count = bank.Samples.Count(static sample =>
+            sample.Codec == Fsb3AudioCodec.MpegLayer3);
+        var xmaCount = bank.Samples.Count - mp3Count;
+        var codecName = xmaCount == 0
+            ? "MP3"
+            : mp3Count == 0
+                ? "XMA1"
+                : "MP3/XMA1";
+        return new FormatProbe.FormatProbeResult(
+            FormatProbe.FormatSupport.Supported,
+            $"FSB3 {codecName} Sound Bank");
     }
 
     private static FormatProbe.FormatProbeResult ProbeExtensionOnlyFile(
@@ -69,23 +179,28 @@ internal static class FormatProbeAudio
             "Not a valid ADX file (missing 0x8000 magic)");
     }
 
-    private static FormatProbe.FormatProbeResult ProbeNitroWave(string filePath)
+    private static FormatProbe.FormatProbeResult ProbeNintendoDsAudio(string filePath)
     {
         try
         {
             var probe = NdsAudioDecoder.Probe(File.ReadAllBytes(filePath));
-            return probe != null
-                ? new FormatProbe.FormatProbeResult(
-                    FormatProbe.FormatSupport.Supported, $"Nitro {probe.Format}")
-                : new FormatProbe.FormatProbeResult(
+            if (probe == null)
+            {
+                return new FormatProbe.FormatProbeResult(
                     FormatProbe.FormatSupport.Unsupported,
-                    "Nitro wave",
-                    "Not a Nitro SWAV or STRM wave");
+                    "Nintendo DS audio",
+                    "Not a Nitro SWAV/STRM wave or Neversoft HWAS stream");
+            }
+
+            var formatName = probe.Format == "HWAS"
+                ? "Neversoft DS HWAS"
+                : $"Nitro {probe.Format}";
+            return new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, formatName);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new FormatProbe.FormatProbeResult(
-                FormatProbe.FormatSupport.Unsupported, "Nitro wave", ex.Message);
+                FormatProbe.FormatSupport.Unsupported, "Nintendo DS audio", ex.Message);
         }
     }
 
@@ -131,6 +246,28 @@ internal static class FormatProbeAudio
                 "PSS private-stream audio was not found");
     }
 
+    private static FormatProbe.FormatProbeResult ProbePsmfFile(string filePath)
+    {
+        var probe = PsmfAudioExtractor.Probe(filePath);
+        if (probe == null)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "PSMF ATRAC3+ Audio",
+                "Not a complete supported PSMF private audio stream");
+        }
+
+        return probe.HasAudio
+            ? new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Supported,
+                "PSMF ATRAC3+ Audio",
+                $"{probe.Channels} ch, {probe.SampleRate} Hz, {probe.DurationSeconds:F2} s")
+            : new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported,
+                "PSMF ATRAC3+ Audio",
+                "PSMF contains no ATRAC3+ audio stream");
+    }
+
     private static FormatProbe.FormatProbeResult ProbeAt3File(string filePath)
     {
         if (!BinaryProbeReader.TryReadHeader(filePath, 12, out var header, out var bytesRead) || bytesRead < 12)
@@ -150,6 +287,42 @@ internal static class FormatProbeAudio
         return Vid1AudioExtractor.TryProbe(filePath, out _, out var error)
             ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "VID1 Audio")
             : new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Unsupported, "VID1 Audio", error);
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeStandardWaveFile(string filePath)
+    {
+        try
+        {
+            return StandardAudioFormatSupport.ProbeWave(File.ReadAllBytes(filePath)) != null
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "WAV Audio")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "WAV Audio",
+                    "Not a complete, playable RIFF/WAVE file");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported, "WAV Audio", ex.Message);
+        }
+    }
+
+    private static FormatProbe.FormatProbeResult ProbeWindowsMediaAudioFile(string filePath)
+    {
+        try
+        {
+            return StandardAudioFormatSupport.ProbeWindowsMediaAudio(File.ReadAllBytes(filePath)) != null
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Windows Media Audio")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "Windows Media Audio",
+                    "Not an ASF container with a valid audio stream");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new FormatProbe.FormatProbeResult(
+                FormatProbe.FormatSupport.Unsupported, "Windows Media Audio", ex.Message);
+        }
     }
 
     /// <summary>
@@ -183,8 +356,17 @@ internal static class FormatProbeAudio
                     $"Unrecognized audio format: {extension}");
             }
 
+            var data = File.ReadAllBytes(filePath);
+            if (WiiDspAudio.Probe(data) is { } dsp)
+            {
+                return new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Supported,
+                    "Nintendo DSP-ADPCM",
+                    $"Mono, {dsp.SampleRate} Hz, {dsp.DurationSeconds:F2} s");
+            }
+
             var info = new FileInfo(filePath);
-            return info.Length > 0 && info.Length % 16 == 0 && VagDecoder.Probe(filePath) != null
+            return info.Length > 0 && info.Length % 16 == 0 && VagDecoder.Probe(data) != null
                 ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "Headerless SPU-ADPCM")
                 : new FormatProbe.FormatProbeResult(
                     FormatProbe.FormatSupport.Unsupported,

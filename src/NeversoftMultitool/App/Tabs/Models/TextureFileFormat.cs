@@ -9,6 +9,15 @@ internal enum TextureFileFormat
     XbxTex,
     XbxImg,
 
+    /// <summary>Delimiter-free THPS4 Aspyr <c>*img.dat</c> loose image.</summary>
+    Thps4PcDatImg,
+
+    /// <summary>FACECAA7 Xbox 360 / PS3 texture dictionary.</summary>
+    NextGenTex,
+
+    /// <summary>128-byte PS3 IMG descriptor paired with an IMV/VRAM payload.</summary>
+    Ps3Img,
+
     /// <summary>Carved N64 .tex.n64 dictionary records (one texture per file).</summary>
     N64Tex,
 

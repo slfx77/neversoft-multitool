@@ -11,7 +11,8 @@ public sealed class FileSystemAssetSource : AssetSource
     public FileSystemAssetSource(string filePath)
     {
         DisplayName = filePath;
-        _directory = Path.GetDirectoryName(filePath) ?? "";
+        _directory = Path.GetDirectoryName(Path.GetFullPath(filePath))
+                     ?? Directory.GetCurrentDirectory();
     }
 
     public override string DisplayName { get; }
@@ -68,16 +69,14 @@ public sealed class FileSystemAssetSource : AssetSource
         if (validExtensions.Length == 0)
             return null;
 
-        if (subdirs == null || subdirs.Count == 0)
+        foreach (var ext in validExtensions)
         {
-            foreach (var ext in validExtensions)
-            {
-                var path = Path.Combine(_directory, stem + ext);
-                if (File.Exists(path)) return path;
-            }
-
-            return null;
+            var path = ResolveCompanionPath(stem + ext);
+            if (path != null) return path;
         }
+
+        if (subdirs == null || subdirs.Count == 0)
+            return null;
 
         var validSubdirs = subdirs
             .Where(IsCompanionBasename)
@@ -96,7 +95,45 @@ public sealed class FileSystemAssetSource : AssetSource
             return null;
 
         var path = Path.Combine(_directory, nameWithExtension);
-        return File.Exists(path) ? path : null;
+        if (File.Exists(path))
+            return path;
+        if (OperatingSystem.IsWindows())
+            return null;
+
+        // Disc/archive extraction commonly preserves all-uppercase console
+        // names. Companion identity is basename-based and archive lookup is
+        // already case-insensitive, so provide the same behavior on
+        // case-sensitive filesystems. Multiple case-folded matches are
+        // ambiguous and deliberately fail closed.
+        if (!Directory.Exists(_directory))
+            return null;
+
+        string? match = null;
+        try
+        {
+            foreach (var candidate in Directory.EnumerateFiles(_directory))
+            {
+                if (!Path.GetFileName(candidate).Equals(
+                        nameWithExtension, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (match != null)
+                    return null;
+                match = candidate;
+            }
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        return match;
     }
 
     private static bool IsCompanionBasename(string name)

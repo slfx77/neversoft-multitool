@@ -271,9 +271,9 @@ public static class Ps2TexCommand
 
     /// <summary>
     ///     Detects PS2-family texture files by extension (.tex, .img) or compound
-    ///     extension (.tex.ps2, .img.ps2, and the Remix PSP .tex.psp/.img.psp —
-    ///     PSP TEX dictionaries are the PS2 v5 format verbatim and PSP IMG routes
-    ///     through the content-discriminated PspImgFile).
+    ///     extension (.tex.ps2, .img.ps2, and PSP .tex.psp/.img.psp — PSP TEX
+    ///     dictionaries are the PS2 v5 format verbatim and Remix/P8 PSP IMG
+    ///     routes through the content-discriminated PspImgFile).
     /// </summary>
     private static bool IsPs2TextureFile(string path)
     {

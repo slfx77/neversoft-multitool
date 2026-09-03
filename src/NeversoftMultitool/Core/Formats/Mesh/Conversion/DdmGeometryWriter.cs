@@ -77,12 +77,14 @@ internal static class DdmGeometryWriter
         DdmFile? objectsDdm,
         PsxLayoutFile? objectsPsx,
         Dictionary<string, byte[]>? ddxTextures,
-        List<string>? textureDirs = null)
+        List<string>? textureDirs = null,
+        DdmSkyClassifier.Result? objectSky = null)
     {
         textureDirs ??= [];
         PopulateDdmWithLayout(document, levelDdm, levelPsx, ddxTextures, textureDirs, "level");
         if (objectsDdm != null)
-            PopulateDdmWithLayout(document, objectsDdm, objectsPsx, ddxTextures, textureDirs, "objects");
+            PopulateDdmWithLayout(
+                document, objectsDdm, objectsPsx, ddxTextures, textureDirs, "objects", objectSky);
 
         ModelDocumentGeometryAdapter.FinalizeTriangleCount(document);
     }
@@ -153,7 +155,8 @@ internal static class DdmGeometryWriter
         PsxLayoutFile? psx,
         Dictionary<string, byte[]>? ddxTextures,
         List<string> textureDirs,
-        string nodePrefix)
+        string nodePrefix,
+        DdmSkyClassifier.Result? sky = null)
     {
         if (psx == null)
         {
@@ -162,9 +165,11 @@ internal static class DdmGeometryWriter
                 var obj = ddm.Objects[objectIndex];
                 AddDdmObjectMeshNodes(
                     document,
-                    BuildDdmObjectMeshes(document, obj, objectIndex, ddxTextures, textureDirs),
-                    $"{nodePrefix}_{obj.Name}",
-                    Matrix4x4.Identity);
+                    BuildDdmObjectMeshes(document, obj, objectIndex, ddxTextures, textureDirs, sky),
+                    BuildNodeName(nodePrefix, obj.Name, null, sky?.ObjectIndices.Contains(objectIndex) == true),
+                    sky?.ObjectIndices.Contains(objectIndex) == true
+                        ? sky.AnchorTransform
+                        : Matrix4x4.Identity);
             }
 
             return;
@@ -173,6 +178,7 @@ internal static class DdmGeometryWriter
         var ddmByHash = DdmHashLookup.Build(ddm);
         var meshSlotToDdm = DdmHashLookup.ResolveMeshIndices(psx, ddmByHash);
         var placedIndices = new HashSet<int>();
+        var emittedSkyIndices = new HashSet<int>();
         var meshCache = new Dictionary<int, List<int>>();
 
         foreach (var psxObj in psx.Objects)
@@ -184,11 +190,15 @@ internal static class DdmGeometryWriter
             }
 
             placedIndices.Add(ddmIndex);
+            var isSky = sky?.ObjectIndices.Contains(ddmIndex) == true;
+            if (isSky && !emittedSkyIndices.Add(ddmIndex))
+                continue;
+
             if (!meshCache.TryGetValue(ddmIndex, out var meshIndices))
             {
                 meshIndices = [];
                 foreach (var mesh in BuildDdmObjectMeshes(
-                             document, ddm.Objects[ddmIndex], ddmIndex, ddxTextures, textureDirs))
+                             document, ddm.Objects[ddmIndex], ddmIndex, ddxTextures, textureDirs, sky))
                 {
                     var addedIndex = ModelDocumentGeometryAdapter.AddMesh(document, mesh);
                     if (addedIndex.HasValue)
@@ -198,13 +208,15 @@ internal static class DdmGeometryWriter
                 meshCache[ddmIndex] = meshIndices;
             }
 
-            var transform = Matrix4x4.CreateTranslation(new Vector3(-psxObj.X, -psxObj.Y, psxObj.Z));
+            var transform = isSky
+                ? sky!.AnchorTransform
+                : Matrix4x4.CreateTranslation(new Vector3(-psxObj.X, -psxObj.Y, psxObj.Z));
             foreach (var meshIndex in meshIndices)
             {
                 var meshName = document.Meshes[meshIndex].Name;
                 ModelDocumentGeometryAdapter.AddMeshNode(
                     document,
-                    $"{nodePrefix}_{meshName}_{psxObj.MeshIndex:D4}",
+                    BuildNodeName(nodePrefix, meshName, psxObj.MeshIndex, isSky),
                     meshIndex,
                     transform);
             }
@@ -216,12 +228,28 @@ internal static class DdmGeometryWriter
                 continue;
 
             var obj = ddm.Objects[objectIndex];
+            var isSky = sky?.ObjectIndices.Contains(objectIndex) == true;
             AddDdmObjectMeshNodes(
                 document,
-                BuildDdmObjectMeshes(document, obj, objectIndex, ddxTextures, textureDirs),
-                $"{nodePrefix}_{obj.Name}",
-                Matrix4x4.Identity);
+                BuildDdmObjectMeshes(document, obj, objectIndex, ddxTextures, textureDirs, sky),
+                BuildNodeName(nodePrefix, obj.Name, null, isSky),
+                isSky ? sky!.AnchorTransform : Matrix4x4.Identity);
         }
+    }
+
+    private static string BuildNodeName(
+        string nodePrefix,
+        string meshName,
+        ushort? meshIndex,
+        bool isSky)
+    {
+        var normalizedMeshName = meshName.StartsWith("sky__", StringComparison.Ordinal)
+            ? meshName[5..]
+            : meshName;
+        var name = meshIndex.HasValue
+            ? $"{nodePrefix}_{normalizedMeshName}_{meshIndex.Value:D4}"
+            : $"{nodePrefix}_{normalizedMeshName}";
+        return isSky ? "sky__" + name : name;
     }
 
     private static void AddDdmObjectMeshNodes(
@@ -254,9 +282,13 @@ internal static class DdmGeometryWriter
         DdmObject obj,
         int objectIndex,
         Dictionary<string, byte[]>? ddxTextures,
-        List<string> textureDirs)
+        List<string> textureDirs,
+        DdmSkyClassifier.Result? sky = null)
     {
-        var baseMesh = new ModelMesh { Name = obj.Name };
+        var isSky = sky?.ObjectIndices.Contains(objectIndex) == true;
+        var skyLayer = isSky ? sky!.LayerOrder.GetValueOrDefault(objectIndex) : 0;
+        var meshName = isSky ? "sky__" + obj.Name : obj.Name;
+        var baseMesh = new ModelMesh { Name = meshName };
         if (obj.Vertices.Count == 0 || obj.Indices.Length == 0)
             return [baseMesh];
 
@@ -281,7 +313,7 @@ internal static class DdmGeometryWriter
 
             if (!meshesByRank.TryGetValue(effectiveRank, out var mesh))
             {
-                mesh = new ModelMesh { Name = $"{obj.Name}__pass{effectiveRank}" };
+                mesh = new ModelMesh { Name = $"{meshName}__pass{effectiveRank}" };
                 meshesByRank[effectiveRank] = mesh;
             }
 
@@ -303,6 +335,9 @@ internal static class DdmGeometryWriter
                     offset.Y,
                     offset.Z));
             }
+
+            if (primitive != null && isSky)
+                primitive.NativeMetadata.Add(new PsxSkyRenderMetadata(sky!.SkyColor, skyLayer));
         }
 
         return [.. meshesByRank.Values];

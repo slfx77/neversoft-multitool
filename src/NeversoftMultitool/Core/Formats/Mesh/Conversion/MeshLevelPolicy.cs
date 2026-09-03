@@ -2,6 +2,7 @@ using NeversoftMultitool.Core.Formats.Mesh.Detection;
 using NeversoftMultitool.Core.Formats.Mesh.N64;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Psx;
+using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
@@ -127,6 +128,9 @@ public static class MeshLevelPolicy
             // and PS3, so their level scenes are levels for the same reason.
             name.EndsWith(".scn.xen", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(".scn.ps3", StringComparison.OrdinalIgnoreCase) ||
+            // Aspyr's delimiter-free THPS4 PC level/sky/shell scene spelling.
+            (Thps4PcDatSceneFile.IsCandidateFileName(name)
+             && name.EndsWith(Thps4PcDatSceneFile.SceneSuffix, StringComparison.OrdinalIgnoreCase)) ||
             // Carved GBA level records are levels by definition.
             name.EndsWith(MeshTypeDetector.GbaLevelSuffix, StringComparison.OrdinalIgnoreCase))
         {

@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+
 namespace NeversoftMultitool.Core.Formats.Video;
 
 /// <summary>
@@ -17,8 +19,18 @@ namespace NeversoftMultitool.Core.Formats.Video;
 ///         </item>
 ///         <item>
 ///             <c>.pmf</c> — 334 files / 1.2 GiB of PSP PSMF (MPEG-PS with
-///             H.264 video), the same container family as the supported
-///             <c>.pss</c>.
+///             H.264 video and, where present, private-stream ATRAC3+), the
+///             same container family as the supported <c>.pss</c>.
+///         </item>
+///         <item>
+///             <c>.tgr</c> — THPS4 PC's 27 CD2 movies. The extension is also
+///             used by unrelated Neversoft data, so only Bink payloads are
+///             admitted.
+///         </item>
+///         <item>
+///             <c>.smo</c> — THPS4 PC's 47 soundtrack carriers: BIKi with a
+///             4x4 placeholder video stream and one stereo Bink-audio stream.
+///             The route is restricted to that exact structural profile.
 ///         </item>
 ///     </list>
 ///     The newly routed classes are CONTENT-GATED: a suffix alone would turn a
@@ -29,10 +41,10 @@ namespace NeversoftMultitool.Core.Formats.Video;
 public static class FfmpegVideoFormats
 {
     /// <summary>Every suffix the ffmpeg passthrough path accepts.</summary>
-    public static readonly string[] Suffixes = [".sfd", ".pss", ".bik", ".bik.xen", ".pmf"];
+    public static readonly string[] Suffixes = [".sfd", ".pss", ".bik", ".bik.xen", ".pmf", ".tgr", ".smo"];
 
     /// <summary>The suffixes whose routing is new, and so must prove itself on content.</summary>
-    private static readonly string[] ContentGatedSuffixes = [".bik.xen", ".pmf"];
+    private static readonly string[] ContentGatedSuffixes = [".bik.xen", ".pmf", ".tgr", ".smo"];
 
     /// <summary>Matches the suffix only — used where a cheap name test is wanted.</summary>
     public static bool HasVideoSuffix(string path)
@@ -53,7 +65,12 @@ public static class FfmpegVideoFormats
         if (!OrdinalFileName.HasAnySuffix(name, ContentGatedSuffixes))
             return true;
 
-        return IsBink(path) || IsPsmf(path);
+        if (OrdinalFileName.HasSuffix(name, ".pmf"))
+            return IsPsmf(path);
+
+        return OrdinalFileName.HasSuffix(name, ".smo")
+            ? IsThps4PcSmo(path)
+            : IsBink(path);
     }
 
     /// <summary>
@@ -68,14 +85,63 @@ public static class FfmpegVideoFormats
         return OrdinalFileName.StripCompoundSuffix(Path.GetFileName(path), Suffixes);
     }
 
-    /// <summary>Bink 1 ("BIK" + version letter) or Bink 2 ("KB2" + letter).</summary>
+    /// <summary>
+    ///     Bink 1 or Bink 2 FourCC recognized by FFmpeg's demuxer. Checking the
+    ///     revision byte matters for overloaded extensions such as TGR: a bare
+    ///     three-byte <c>BIK</c>/<c>KB2</c> prefix is not a Bink signature.
+    /// </summary>
     public static bool IsBink(string path)
     {
         if (!BinaryProbeReader.TryReadHeader(path, 4, out var header, out var bytesRead) || bytesRead < 4)
             return false;
 
-        return (header[0] == 'B' && header[1] == 'I' && header[2] == 'K')
-               || (header[0] == 'K' && header[1] == 'B' && header[2] == '2');
+        return IsBink(header);
+    }
+
+    /// <summary>Byte-backed Bink check for archive entries that have no filesystem path.</summary>
+    public static bool IsBink(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 4)
+            return false;
+
+        var revision = data[3];
+        return data[0] == 'B' && data[1] == 'I' && data[2] == 'K'
+            ? revision is (byte)'b' or (byte)'f' or (byte)'g' or (byte)'h' or (byte)'i' or (byte)'k'
+            : data[0] == 'K' && data[1] == 'B' && data[2] == '2'
+              && revision is (byte)'a' or (byte)'d' or (byte)'f' or (byte)'g' or (byte)'h'
+                  or (byte)'i' or (byte)'j' or (byte)'k';
+    }
+
+    /// <summary>
+    ///     Strict THPS4-PC SMO gate. All 47 corpus files have this exact BIKi
+    ///     soundtrack-carrier profile: the Bink length identity consumes the
+    ///     file, the repeated frame count agrees, the frame-index table starts
+    ///     at its computed end, video is a 4x4 15-fps placeholder, and there is
+    ///     one stereo DCT-audio track at 44.1 or 48 kHz. This deliberately does
+    ///     not turn arbitrary files with an overloaded <c>.smo</c> suffix into
+    ///     ffmpeg inputs.
+    /// </summary>
+    public static bool IsThps4PcSmo(string path)
+    {
+        const int requiredHeaderSize = 60;
+        if (!BinaryProbeReader.TryReadHeader(path, requiredHeaderSize, out var header, out var bytesRead)
+            || bytesRead < requiredHeaderSize)
+            return false;
+
+        try
+        {
+            return IsThps4PcSmoHeader(header, new FileInfo(path).Length);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Byte-backed SMO gate for archive entries.</summary>
+    public static bool IsThps4PcSmo(ReadOnlySpan<byte> data)
+    {
+        return IsThps4PcSmoHeader(data, data.Length);
     }
 
     /// <summary>
@@ -90,15 +156,9 @@ public static class FfmpegVideoFormats
         if (!BinaryProbeReader.TryReadHeader(path, 16, out var header, out var bytesRead) || bytesRead < 16)
             return false;
 
-        if (header[0] != 'P' || header[1] != 'S' || header[2] != 'M' || header[3] != 'F')
-            return false;
-
-        var headerSize = ReadBigEndianUInt32(header, 0x08);
-        var streamSize = ReadBigEndianUInt32(header, 0x0C);
-
         try
         {
-            return headerSize + (long)streamSize == new FileInfo(path).Length;
+            return IsPsmfHeader(header, new FileInfo(path).Length);
         }
         catch (IOException)
         {
@@ -106,18 +166,72 @@ public static class FfmpegVideoFormats
         }
     }
 
-    /// <summary>
-    ///     True for PSP PSMF, whose ATRAC3+ audio ffmpeg cannot decode — those
-    ///     convert video-only rather than failing the whole file.
-    /// </summary>
-    public static bool IsAudioUndecodable(string path)
+    /// <summary>Byte-backed PSMF gate for archive entries.</summary>
+    public static bool IsPsmf(ReadOnlySpan<byte> data)
     {
-        return OrdinalFileName.HasSuffix(Path.GetFileName(path), ".pmf");
+        return IsPsmfHeader(data, data.Length);
     }
 
-    private static uint ReadBigEndianUInt32(byte[] data, int offset)
+    private static bool IsPsmfHeader(ReadOnlySpan<byte> data, long fileLength)
     {
-        return (uint)((data[offset] << 24) | (data[offset + 1] << 16)
-                                           | (data[offset + 2] << 8) | data[offset + 3]);
+        if (data.Length < 16 || !data[..4].SequenceEqual("PSMF"u8))
+            return false;
+
+        var headerSize = BinaryPrimitives.ReadUInt32BigEndian(data[8..]);
+        var streamSize = BinaryPrimitives.ReadUInt32BigEndian(data[12..]);
+        return headerSize >= 16
+               && streamSize > 0
+               && headerSize + (long)streamSize == fileLength;
+    }
+
+    private static bool IsThps4PcSmoHeader(ReadOnlySpan<byte> data, long fileLength)
+    {
+        const int fixedHeaderSize = 44;
+        const int oneTrackMetadataSize = 12;
+        const int firstFrameOffsetPosition = fixedHeaderSize + oneTrackMetadataSize;
+        if (data.Length < firstFrameOffsetPosition + sizeof(uint) || fileLength < 0)
+            return false;
+
+        if (!data[..4].SequenceEqual("BIKi"u8))
+            return false;
+
+        var declaredPayloadSize = BinaryPrimitives.ReadUInt32LittleEndian(data[4..]);
+        if ((long)declaredPayloadSize + 8 != fileLength)
+            return false;
+
+        var frameCount = BinaryPrimitives.ReadUInt32LittleEndian(data[8..]);
+        var largestFrameSize = BinaryPrimitives.ReadUInt32LittleEndian(data[12..]);
+        if (frameCount == 0
+            || BinaryPrimitives.ReadUInt32LittleEndian(data[16..]) != frameCount
+            || largestFrameSize == 0
+            || largestFrameSize > fileLength)
+            return false;
+
+        if (BinaryPrimitives.ReadUInt32LittleEndian(data[20..]) != 4
+            || BinaryPrimitives.ReadUInt32LittleEndian(data[24..]) != 4
+            || BinaryPrimitives.ReadUInt32LittleEndian(data[28..]) != 15
+            || BinaryPrimitives.ReadUInt32LittleEndian(data[32..]) != 1
+            || BinaryPrimitives.ReadUInt32LittleEndian(data[36..]) != 0
+            || BinaryPrimitives.ReadUInt32LittleEndian(data[40..]) != 1)
+            return false;
+
+        var maximumDecodedAudioSize = BinaryPrimitives.ReadUInt32LittleEndian(data[44..]);
+        var sampleRate = BinaryPrimitives.ReadUInt16LittleEndian(data[48..]);
+        var audioFlags = BinaryPrimitives.ReadUInt16LittleEndian(data[50..]);
+        var trackId = BinaryPrimitives.ReadUInt32LittleEndian(data[52..]);
+        if (maximumDecodedAudioSize == 0
+            || sampleRate is not 44_100 and not 48_000
+            || audioFlags != 0x7000
+            || trackId != 0)
+            return false;
+
+        var frameIndexEnd = fixedHeaderSize
+                            + oneTrackMetadataSize
+                            + ((long)frameCount + 1) * sizeof(uint);
+        if (frameIndexEnd >= fileLength)
+            return false;
+
+        var firstFrameOffset = BinaryPrimitives.ReadUInt32LittleEndian(data[firstFrameOffsetPosition..]);
+        return (firstFrameOffset & ~1U) == frameIndexEnd;
     }
 }

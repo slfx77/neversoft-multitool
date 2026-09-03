@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using NeversoftMultitool.Core.Formats.Video;
 
 namespace NeversoftMultitool;
 
@@ -59,6 +60,9 @@ internal sealed class VideoConverterTabConversionController : IDisposable
         var totalConverted = 0;
         var totalFiles = items.Count;
         var token = cts.Token;
+        var outputStems = VideoOutputStemPlanner.Plan(items
+            .Select(static entry => new VideoOutputStemInput(entry.FileName, entry.RelativePath))
+            .ToList());
 
         try
         {
@@ -83,7 +87,8 @@ internal sealed class VideoConverterTabConversionController : IDisposable
                             scope.Report((fileIndex + progress) / totalFiles);
                             dispatcher.TryEnqueue(() => entry.ConvertProgress = progress * 100);
                         }),
-                        token);
+                        outputStem: outputStems[fileIndex],
+                        cancellationToken: token);
 
                     var processed = Interlocked.Increment(ref filesProcessed);
                     if (result.Success)

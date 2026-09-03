@@ -61,6 +61,24 @@ public sealed class XbxTexCommandTests
     }
 
     [Fact]
+    public void Execute_TexDat_DoesNotFallThroughToPermissiveLegacyDecoder()
+    {
+        using var temp = new TempDirectory();
+        var input = Path.Combine(temp.Path, "legacy.tex.dat");
+        var output = Path.Combine(temp.Path, "output");
+        var data = BuildOnePixelRawBgraTex();
+        Assert.True(XbxTexFile.Parse(data).Success);
+        File.WriteAllBytes(input, data);
+
+        var result = XbxTexCommand.Execute(
+            input, output, verbose: true, CancellationToken.None);
+
+        Assert.Equal(1, result);
+        Assert.Empty(Directory.EnumerateFiles(
+            output, "*.png", SearchOption.AllDirectories));
+    }
+
+    [Fact]
     public void Execute_ValidEmptyNgcDictionary_RemainsSuccessfulWithoutPng()
     {
         using var temp = new TempDirectory();
@@ -180,6 +198,25 @@ public sealed class XbxTexCommandTests
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), 32); // texel depth
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), 99); // unsupported DXT version
         BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(40), 0); // mip data size
+        return data;
+    }
+
+    private static byte[] BuildOnePixelRawBgraTex()
+    {
+        var data = new byte[48];
+        BinaryPrimitives.WriteUInt32LittleEndian(data, 1); // version
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), 1); // texture count
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), 0x12345678); // checksum
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12), 1); // width
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), 1); // height
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(20), 1); // mip levels
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), 32); // texel depth
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), 0); // raw BGRA
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(40), 4); // mip bytes
+        data[44] = 0x33;
+        data[45] = 0x22;
+        data[46] = 0x11;
+        data[47] = 0xFF;
         return data;
     }
 

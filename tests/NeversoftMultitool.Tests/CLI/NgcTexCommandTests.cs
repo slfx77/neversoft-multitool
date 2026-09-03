@@ -10,7 +10,7 @@ public sealed class NgcTexCommandTests
         [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     [Fact]
-    public void Execute_MixedBracketedBatch_PreservesValidPngAndReturnsFailure()
+    public void Execute_MixedBracketedBatch_SkipsProbeRejectedInputAndPreservesValidPng()
     {
         using var temp = new TempDirectory();
         var input = Path.Combine(temp.Path, "input");
@@ -20,12 +20,12 @@ public sealed class NgcTexCommandTests
         var validPath = Path.Combine(input, "[good].tex.ngc");
         var invalidPath = Path.Combine(input, "[bad].tex.ngc");
         File.WriteAllBytes(validPath, NgcTexTestBuilder.CreateDictionary());
-        File.WriteAllBytes(invalidPath, BuildProbeAcceptedTruncatedCmprDictionary());
+        File.WriteAllBytes(invalidPath, BuildProbeRejectedTruncatedCmprDictionary());
 
         var result = NgcTexCommand.Execute(
             input, output, verbose: true, CancellationToken.None);
 
-        Assert.Equal(1, result);
+        Assert.Equal(0, result);
         var pngPath = Path.Combine(output, "[good]", "12345678.png");
         Assert.Equal(pngPath, Assert.Single(Directory.EnumerateFiles(
             output, "*.png", SearchOption.AllDirectories)));
@@ -38,10 +38,9 @@ public sealed class NgcTexCommandTests
         Assert.True(File.Exists(Path.Combine(validOnlyOutput, "[good]", "12345678.png")));
 
         var invalidOnlyOutput = Path.Combine(temp.Path, "invalid-only-output");
-        Assert.Equal(1, NgcTexCommand.Execute(
+        Assert.Equal(0, NgcTexCommand.Execute(
             invalidPath, invalidOnlyOutput, verbose: true, CancellationToken.None));
-        Assert.Empty(Directory.EnumerateFiles(
-            invalidOnlyOutput, "*.png", SearchOption.AllDirectories));
+        Assert.False(Directory.Exists(invalidOnlyOutput));
     }
 
     [Fact]
@@ -98,7 +97,7 @@ public sealed class NgcTexCommandTests
             Path.Combine(left, "[shared].tex.ngc"),
             NgcTexTestBuilder.CreateDictionary());
         File.WriteAllBytes(
-            Path.Combine(right, "[shared].tex.ngc"),
+            Path.Combine(right, "[shared].tex.stex.ngc"),
             NgcTexTestBuilder.CreateDictionary());
 
         var relativeInput = Path.GetRelativePath(Directory.GetCurrentDirectory(), input);
@@ -149,7 +148,7 @@ public sealed class NgcTexCommandTests
         Assert.False(Directory.Exists(Path.Combine(directOutput, "[image].img")));
     }
 
-    private static byte[] BuildProbeAcceptedTruncatedCmprDictionary()
+    private static byte[] BuildProbeRejectedTruncatedCmprDictionary()
     {
         var data = NgcTexTestBuilder.CreateDictionary();
         BinaryPrimitives.WriteUInt32BigEndian(data.AsSpan(24), 1);

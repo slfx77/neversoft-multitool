@@ -69,19 +69,76 @@ internal static class XenosTiling
     public static byte[] UntileUnits(
         ReadOnlySpan<byte> tiled, int unitsX, int unitsY, int unitBytes, int swapWidth)
     {
+        return UntileUnits(tiled, unitsX, unitsY, unitBytes, swapWidth, 0, false);
+    }
+
+    /// <summary>
+    ///     Rearranges a surface whose GPU base begins inside its allocation.
+    ///     Small Xenos surfaces use a 32-unit base bias; addressing is circular
+    ///     at the allocation boundary rather than spilling into the next record.
+    /// </summary>
+    public static byte[] UntileUnits(
+        ReadOnlySpan<byte> tiled,
+        int unitsX,
+        int unitsY,
+        int unitBytes,
+        int swapWidth,
+        int sourceBaseOffset,
+        bool wrapAtEnd)
+    {
+        if (unitsX <= 0 || unitsY <= 0 || unitBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(unitsX), "Tiled dimensions and unit size must be positive");
+        if (swapWidth < 0 || swapWidth > 1 && unitBytes % swapWidth != 0)
+            throw new ArgumentOutOfRangeException(nameof(swapWidth), "Endian swap width must divide a storage unit");
+        if (sourceBaseOffset < 0 || sourceBaseOffset >= tiled.Length
+            || sourceBaseOffset % unitBytes != 0)
+            throw new InvalidDataException("Tiled texture base offset is outside its payload allocation");
+        if (tiled.Length % unitBytes != 0)
+            throw new InvalidDataException(
+                "Tiled texture payload is truncated or is not a whole number of storage units");
+
         var blocksX = unitsX;
         var blocksY = unitsY;
         var blockBytes = unitBytes;
         var log2BlockBytes = System.Numerics.BitOperations.Log2((uint)blockBytes);
-        var linear = new byte[blocksX * blocksY * blockBytes];
+        var linearLength = checked(blocksX * blocksY * blockBytes);
+        if (tiled.Length < linearLength)
+        {
+            throw new InvalidDataException(
+                $"Tiled texture allocation is truncated (needs at least " +
+                $"{linearLength} unique bytes, has {tiled.Length})");
+        }
+
+        var linear = new byte[linearLength];
+        var usedSourceUnits = new System.Collections.BitArray(tiled.Length / blockBytes);
 
         for (var by = 0; by < blocksY; by++)
+        {
         for (var bx = 0; bx < blocksX; bx++)
         {
-            var source = GetTiledBlockIndex(bx, by, blocksX, log2BlockBytes) * blockBytes;
-            var destination = (by * blocksX + bx) * blockBytes;
+            var unbiasedSource = checked(
+                GetTiledBlockIndex(bx, by, blocksX, log2BlockBytes) * blockBytes);
+            var source = checked(sourceBaseOffset + unbiasedSource);
+            if (wrapAtEnd && source >= tiled.Length)
+                source %= tiled.Length;
+            var destination = checked((by * blocksX + bx) * blockBytes);
             if (source < 0 || source + blockBytes > tiled.Length)
-                continue; // Truncated region: leave the block zeroed.
+            {
+                throw new InvalidDataException(
+                    $"Tiled texture payload is truncated at source byte {source} " +
+                    $"(needs {source + blockBytes}, has {tiled.Length}; " +
+                    $"surface {unitsX}x{unitsY} units of {unitBytes} bytes)");
+            }
+
+            var sourceUnit = source / blockBytes;
+            if (usedSourceUnits[sourceUnit])
+            {
+                throw new InvalidDataException(
+                    $"Tiled texture allocation aliases storage unit {sourceUnit}; " +
+                    "the payload is incomplete for this surface layout");
+            }
+
+            usedSourceUnits[sourceUnit] = true;
 
             var block = tiled.Slice(source, blockBytes);
             if (swapWidth > 1)
@@ -95,8 +152,76 @@ internal static class XenosTiling
                 block.CopyTo(linear.AsSpan(destination, blockBytes));
             }
         }
+        }
 
         return linear;
+    }
+
+    /// <summary>
+    ///     Validates that a tiled allocation can address every logical storage
+    ///     unit exactly once. This is the allocation-only counterpart to
+    ///     <see cref="UntileUnits(ReadOnlySpan{byte},int,int,int,int,int,bool)" />
+    ///     used by public format probes before pixel decoding.
+    /// </summary>
+    public static void ValidateUnitMapping(
+        int tiledByteLength,
+        int unitsX,
+        int unitsY,
+        int unitBytes,
+        int sourceBaseOffset,
+        bool wrapAtEnd)
+    {
+        if (unitsX <= 0 || unitsY <= 0 || unitBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(unitsX), "Tiled dimensions and unit size must be positive");
+        if (tiledByteLength <= 0 || tiledByteLength % unitBytes != 0)
+        {
+            throw new InvalidDataException(
+                "Tiled texture payload is truncated or is not a whole number of storage units");
+        }
+
+        if (sourceBaseOffset < 0 || sourceBaseOffset >= tiledByteLength
+            || sourceBaseOffset % unitBytes != 0)
+        {
+            throw new InvalidDataException("Tiled texture base offset is outside its payload allocation");
+        }
+
+        var logicalLength = checked(unitsX * unitsY * unitBytes);
+        if (tiledByteLength < logicalLength)
+        {
+            throw new InvalidDataException(
+                $"Tiled texture allocation is truncated (needs at least " +
+                $"{logicalLength} unique bytes, has {tiledByteLength})");
+        }
+
+        var log2UnitBytes = System.Numerics.BitOperations.Log2((uint)unitBytes);
+        var usedSourceUnits = new System.Collections.BitArray(tiledByteLength / unitBytes);
+        for (var y = 0; y < unitsY; y++)
+        {
+        for (var x = 0; x < unitsX; x++)
+        {
+            var source = checked(sourceBaseOffset
+                                 + GetTiledBlockIndex(x, y, unitsX, log2UnitBytes) * unitBytes);
+            if (wrapAtEnd && source >= tiledByteLength)
+                source %= tiledByteLength;
+            if (source < 0 || source + unitBytes > tiledByteLength)
+            {
+                throw new InvalidDataException(
+                    $"Tiled texture payload is truncated at source byte {source} " +
+                    $"(needs {source + unitBytes}, has {tiledByteLength}; " +
+                    $"surface {unitsX}x{unitsY} units of {unitBytes} bytes)");
+            }
+
+            var sourceUnit = source / unitBytes;
+            if (usedSourceUnits[sourceUnit])
+            {
+                throw new InvalidDataException(
+                    $"Tiled texture allocation aliases storage unit {sourceUnit}; " +
+                    "the payload is incomplete for this surface layout");
+            }
+
+            usedSourceUnits[sourceUnit] = true;
+        }
+        }
     }
 
     /// <summary>

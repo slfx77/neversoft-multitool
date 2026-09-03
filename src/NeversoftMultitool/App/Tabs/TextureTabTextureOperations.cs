@@ -7,6 +7,7 @@ using NeversoftMultitool.Core.Formats.Texture.N64;
 using NeversoftMultitool.Core.Formats.Texture.Nds;
 using NeversoftMultitool.Core.Formats.Texture.Ngc;
 using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.Formats.Texture.NextGen;
 using NeversoftMultitool.Core.Formats.Texture.Ps2;
 using NeversoftMultitool.Core.Formats.Texture.Ps2Scene.ZoneTex;
 using NeversoftMultitool.Core.Formats.Texture.Psx;
@@ -21,19 +22,22 @@ internal static class TextureTabTextureOperations
     private static readonly string[] CompoundTextureExtensions =
     [
         ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
-        ".tex.ps2", ".img.ps2", ".tex.ngc", ".img.ngc", ".stex",
+        ".tex.xen", ".stex.xen", ".img.xen", ".tex.ps3", ".stex.ps3", ".img.ps3", ".tex.dat",
+        Thps4PcDatTextureFile.Suffix,
+        ".tex.ps2", ".img.ps2", ".tex.stex.ngc", ".stex.ngc", ".tex.ngc", ".img.ngc", ".stex",
         ".tex.n64", ".tex.psp", ".img.psp"
     ];
 
-    private static readonly string[] NgcTexExtensions = [".tex.ngc", ".img.ngc"];
     private static readonly string[] N64TexExtensions = [".tex.n64"];
 
     // .stex = THAW level/zone textures: DXT containers on PC, zone TEX on PS2 —
     // ParseXbxTextures dispatches by content, mirroring the CLI xbxtex/ps2tex routing.
-    private static readonly string[] XboxTexExtensions = [".tex.xbx", ".tex.wpc", ".stex"];
-    private static readonly string[] XboxImgExtensions = [".img.xbx", ".img.wpc"];
-    // .tex.psp/.img.psp (THUG2 Remix PSP) ride the PS2 route: PSP TEX is the
-    // PS2 v5 format verbatim; PSP IMG is content-discriminated to PspImgFile.
+    private static readonly string[] XboxTexExtensions =
+        [".tex.xbx", ".tex.wpc", ".stex", Thps4PcDatTextureFile.Suffix];
+    private static readonly string[] XboxImgExtensions = [".img.xbx", ".img.wpc", ".img.xen"];
+    private static readonly string[] Ps3ImgExtensions = [".img.ps3"];
+    // .tex.psp/.img.psp ride the PS2 route: PSP TEX is the PS2 v5 format
+    // verbatim; Remix/P8 PSP IMG is content-discriminated to PspImgFile.
     private static readonly string[] Ps2TexExtensions =
         [".tex.ps2", ".img.ps2", ".tex.psp", ".img.psp", ".tex", ".img"];
 
@@ -46,6 +50,10 @@ internal static class TextureTabTextureOperations
     public static bool IsTextureFile(string path)
     {
         var name = Path.GetFileName(path);
+        if (Thps4PcDatImageFile.IsCandidateFileName(name))
+            return true;
+        if (FormatProbeTexture.IsNgcTextureFileName(name))
+            return true;
         if (OrdinalFileName.HasAnySuffix(name, CompoundTextureExtensions))
             return true;
         if (OrdinalFileName.HasSuffix(name, NdsTextureBankSuffix))
@@ -62,6 +70,8 @@ internal static class TextureTabTextureOperations
 
     public static TextureFileFormat ClassifyFormat(string fileName)
     {
+        if (Thps4PcDatImageFile.IsCandidateFileName(fileName))
+            return TextureFileFormat.Thps4PcDatImg;
         if (OrdinalFileName.HasAnySuffix(fileName, N64TexExtensions))
             return TextureFileFormat.N64Tex;
         // Must precede the PSX fallthrough below, which would otherwise claim .fnt.
@@ -71,7 +81,11 @@ internal static class TextureTabTextureOperations
             return TextureFileFormat.NdsTextureBank;
         if (OrdinalFileName.HasSuffix(fileName, ".gba"))
             return TextureFileFormat.GbaImage;
-        if (OrdinalFileName.HasAnySuffix(fileName, NgcTexExtensions))
+        if (OrdinalFileName.HasAnySuffix(fileName, Ps3ImgExtensions))
+            return TextureFileFormat.Ps3Img;
+        if (FormatProbeTexture.IsNextGenTextureFileName(fileName))
+            return TextureFileFormat.NextGenTex;
+        if (FormatProbeTexture.IsNgcTextureFileName(fileName))
             return TextureFileFormat.NgcTex;
         if (OrdinalFileName.HasAnySuffix(fileName, XboxTexExtensions))
             return TextureFileFormat.XbxTex;
@@ -93,8 +107,11 @@ internal static class TextureTabTextureOperations
         {
             TextureFileFormat.Ps2Tex => CountParsedTextures(Ps2TextureParser.Parse(data)),
             TextureFileFormat.NgcTex => CountParsedTextures(NgcTexFile.Parse(data)),
+            TextureFileFormat.NextGenTex => CountParsedTextures(ParseNextGenTextures(source, data)),
+            TextureFileFormat.Ps3Img => CountParsedTextures(Ps3ImgFile.Parse(source, data)),
             TextureFileFormat.XbxTex => CountParsedTextures(ParseXbxTextures(data, format)),
             TextureFileFormat.XbxImg => CountParsedTextures(ParseXbxTextures(data, format)),
+            TextureFileFormat.Thps4PcDatImg => CountParsedTextures(ParseXbxTextures(data, format)),
             TextureFileFormat.Pvr => PvrFileDecoder.DecodeToRgba(data) != null ? 1 : 0,
             TextureFileFormat.N64Tex => N64TexFile.IsN64Texture(data) ? 1 : 0,
             TextureFileFormat.Fnt => TryParseFnt(data)?.Glyphs.Length ?? 0,
@@ -113,7 +130,10 @@ internal static class TextureTabTextureOperations
         {
             TextureFileFormat.Ps2Tex => BuildPs2Entries(Ps2TextureParser.Parse(data), parent),
             TextureFileFormat.NgcTex => BuildNgcEntries(NgcTexFile.Parse(data), parent),
-            TextureFileFormat.XbxTex or TextureFileFormat.XbxImg => BuildXboxEntries(data, parent),
+            TextureFileFormat.NextGenTex => BuildNextGenEntries(source, data, parent),
+            TextureFileFormat.Ps3Img => BuildPs3ImgEntries(source, data, parent),
+            TextureFileFormat.XbxTex or TextureFileFormat.XbxImg or TextureFileFormat.Thps4PcDatImg =>
+                BuildXboxEntries(data, parent),
             TextureFileFormat.Pvr => BuildPvrEntries(data, parent),
             TextureFileFormat.N64Tex => BuildN64Entries(data, parent),
             TextureFileFormat.Fnt => BuildFntEntries(data, parent),
@@ -137,8 +157,14 @@ internal static class TextureTabTextureOperations
         {
             TextureFileFormat.Ps2Tex => ExtractPs2Textures(data, outputDir, stem),
             TextureFileFormat.NgcTex => ExtractNgcTextures(data, outputDir, stem),
+            TextureFileFormat.NextGenTex =>
+                ExtractNextGenTextures(entry.Source, data, outputDir, stem),
+            TextureFileFormat.Ps3Img =>
+                ExtractPs3Img(entry.Source, data, outputDir, stem, createSubDirs),
             TextureFileFormat.XbxTex => ExtractXbxTextures(data, outputDir, stem, entry.Format),
-            TextureFileFormat.XbxImg => ExtractXbxImage(data, outputDir, stem, createSubDirs),
+            TextureFileFormat.XbxImg => ExtractXbxImage(data, outputDir, stem, createSubDirs, entry.Format),
+            TextureFileFormat.Thps4PcDatImg =>
+                ExtractXbxImage(data, outputDir, stem, createSubDirs, entry.Format),
             TextureFileFormat.Pvr => ExtractPvr(data, outputDir, stem, createSubDirs),
             TextureFileFormat.N64Tex => ExtractN64Texture(data, outputDir, stem, createSubDirs),
             TextureFileFormat.GbaImage => ExtractGbaImages(data, outputDir, stem),
@@ -168,9 +194,15 @@ internal static class TextureTabTextureOperations
                 return GetPreviewTexture(Ps2TextureParser.Parse(data), textureIndex);
             case TextureFileFormat.NgcTex:
                 return GetPreviewTexture(NgcTexFile.Parse(data), textureIndex);
+            case TextureFileFormat.NextGenTex:
+                return GetPreviewTexture(ParseNextGenTextures(source, data), textureIndex);
+            case TextureFileFormat.Ps3Img:
+                return GetPreviewTexture(Ps3ImgFile.Parse(source, data), textureIndex);
             case TextureFileFormat.XbxTex:
                 return GetPreviewTexture(ParseXbxTextures(data, format), textureIndex);
             case TextureFileFormat.XbxImg:
+                return GetPreviewTexture(ParseXbxTextures(data, format), textureIndex);
+            case TextureFileFormat.Thps4PcDatImg:
                 return GetPreviewTexture(ParseXbxTextures(data, format), textureIndex);
             case TextureFileFormat.Pvr:
                 return textureIndex == 0 ? PvrFileDecoder.DecodeToRgba(data) : null;
@@ -279,6 +311,52 @@ internal static class TextureTabTextureOperations
                     PaletteType = formatLabel,
                     Index = item.Index,
                     ResolvedName = item.Texture.Name ?? QbKey.TryResolve(item.Texture.Checksum)
+                })
+                .ToList()
+            : [];
+    }
+
+    private static List<PsxTextureEntry> BuildNextGenEntries(
+        AssetSource source,
+        byte[] data,
+        PsxFileEntry parent)
+    {
+        var result = ParseNextGenTextures(source, data);
+        return result.Success
+            ? result.Textures.Select((texture, index) => (Texture: texture, Index: index))
+                .Where(item => item.Texture.Pixels != null)
+                .Select(item => new PsxTextureEntry
+                {
+                    Parent = parent,
+                    NameHash = item.Texture.Checksum,
+                    Width = item.Texture.Width,
+                    Height = item.Texture.Height,
+                    PaletteType = DescribeNextGenFormat(item.Texture.Psm),
+                    Index = item.Index,
+                    ResolvedName = item.Texture.Name ?? QbKey.TryResolve(item.Texture.Checksum)
+                })
+                .ToList()
+            : [];
+    }
+
+    private static List<PsxTextureEntry> BuildPs3ImgEntries(
+        AssetSource source,
+        byte[] data,
+        PsxFileEntry parent)
+    {
+        var result = Ps3ImgFile.Parse(source, data);
+        return result.Success
+            ? result.Textures.Select((texture, index) => (Texture: texture, Index: index))
+                .Where(item => item.Texture.Pixels != null)
+                .Select(item => new PsxTextureEntry
+                {
+                    Parent = parent,
+                    NameHash = item.Texture.Checksum,
+                    Width = item.Texture.Width,
+                    Height = item.Texture.Height,
+                    PaletteType = DescribeNextGenFormat(item.Texture.Psm),
+                    Index = item.Index,
+                    ResolvedName = StripCompoundExtension(parent.FileName)
                 })
                 .ToList()
             : [];
@@ -513,13 +591,44 @@ internal static class TextureTabTextureOperations
         return (result.Textures.Count, written, false, true);
     }
 
-    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractXbxImage(
+    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractNextGenTextures(
+        AssetSource source,
+        byte[] data,
+        string outputDir,
+        string stem)
+    {
+        var result = ParseNextGenTextures(source, data);
+        if (!result.Success)
+            return (0, 0, false, false);
+
+        var written = XbxTexFile.SaveAllAsPng(result, outputDir, stem);
+        return (result.Textures.Count, written, false, true);
+    }
+
+    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractPs3Img(
+        AssetSource source,
         byte[] data,
         string outputDir,
         string stem,
         bool createSubDirs)
     {
-        var result = ParseXbxTextures(data, TextureFileFormat.XbxImg);
+        var result = Ps3ImgFile.Parse(source, data);
+        if (!result.Success)
+            return (0, 0, false, false);
+
+        var outPath = BuildSingleTextureOutputPath(outputDir, stem, createSubDirs);
+        var written = XbxImgFile.SaveAsPng(result, outPath);
+        return (1, written, false, written == 1);
+    }
+
+    private static (int totalTex, int writtenTex, bool skipped, bool success) ExtractXbxImage(
+        byte[] data,
+        string outputDir,
+        string stem,
+        bool createSubDirs,
+        TextureFileFormat format)
+    {
+        var result = ParseXbxTextures(data, format);
         if (!result.Success)
             return (0, 0, false, false);
 
@@ -617,13 +726,46 @@ internal static class TextureTabTextureOperations
         return ParseXbxTextures(data, format, out _);
     }
 
+    private static Ps2TexResult ParseNextGenTextures(AssetSource source, byte[] data)
+    {
+        return NextGenTexFile.Parse(source, data);
+    }
+
+    private static string DescribeNextGenFormat(uint format)
+    {
+        return format switch
+        {
+            0x06 => "Xbox 360 ARGB8888",
+            0x12 => "Xbox 360 DXT1",
+            0x14 => "Xbox 360 DXT5",
+            0x31 => "Xbox 360 DXN / BC5",
+            0x85 => "PS3 ARGB8888",
+            0x86 => "PS3 DXT1",
+            0x88 => "PS3 DXT5",
+            0xA6 => "PS3 DXT1 (linear)",
+            0xA8 => "PS3 DXT5 (linear)",
+            _ => $"Next-Gen TEX (0x{format:X2})"
+        };
+    }
+
     private static Ps2TexResult ParseXbxTextures(
         byte[] data,
         TextureFileFormat format,
         out string formatLabel)
     {
+        if (format == TextureFileFormat.Thps4PcDatImg)
+        {
+            formatLabel = "THPS4 PC IMG";
+            return Thps4PcDatImageFile.Parse(data);
+        }
+
         if (format == TextureFileFormat.XbxImg)
         {
+            formatLabel = "Xbox 360 IMG";
+            var xenResult = XenImgFile.Parse(data);
+            if (xenResult.Success || XenImgFile.IsXenImg(data))
+                return xenResult;
+
             formatLabel = "Xbox IMG";
             var result = XbxImgFile.Parse(data);
             if (result.Success)
@@ -662,6 +804,9 @@ internal static class TextureTabTextureOperations
 
     private static string StripCompoundExtension(string filename)
     {
+        if (Thps4PcDatImageFile.IsCandidateFileName(filename))
+            return filename[..^Thps4PcDatImageFile.Suffix.Length];
+
         return OrdinalFileName.StripCompoundSuffix(filename, CompoundTextureExtensions);
     }
 }

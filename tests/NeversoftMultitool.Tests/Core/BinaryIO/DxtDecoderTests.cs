@@ -91,6 +91,41 @@ public sealed class DxtDecoderTests
         Assert.Equal("Truncated DXT5 block data.", error.Message);
     }
 
+    [Fact]
+    public void DecodeBc5_FlatNormal_ReconstructsPositiveZAndOpaqueAlpha()
+    {
+        var block = new byte[16];
+        WriteBc4Block(block, 128, 128, selector: 0);
+        WriteBc4Block(block.AsSpan(8), 128, 128, selector: 0);
+
+        var pixels = DxtDecoder.DecodeBc5(block, 4, 4);
+
+        AssertSolidColor(pixels, 128, 128, 255, 255);
+    }
+
+    [Fact]
+    public void DecodeBc5_DecodesBothBc4PalettesBeforeReconstructingZ()
+    {
+        var block = new byte[16];
+        // Descending endpoints use the six interpolated-value BC4 palette.
+        WriteBc4Block(block, 255, 0, selector: 2);
+        // Ascending endpoints use four interpolated values plus 0 and 255.
+        WriteBc4Block(block.AsSpan(8), 64, 192, selector: 2);
+
+        var pixels = DxtDecoder.DecodeBc5(block, 4, 4);
+
+        AssertSolidColor(pixels, 219, 90, 208, 255);
+    }
+
+    [Fact]
+    public void DecodeBc5_TruncatedBlock_Throws()
+    {
+        var error = Assert.Throws<InvalidDataException>(() =>
+            DxtDecoder.DecodeBc5(new byte[15], 4, 4));
+
+        Assert.Equal("Truncated BC5 block data.", error.Message);
+    }
+
     [Theory]
     [InlineData(1, 0, 4, "width")]
     [InlineData(1, -1, 4, "width")]
@@ -156,6 +191,22 @@ public sealed class DxtDecoderTests
         for (var pixel = 0; pixel < 16; pixel++)
             selectors |= (uint)selector << (pixel * 2);
         BinaryPrimitives.WriteUInt32LittleEndian(block[4..], selectors);
+    }
+
+    private static void WriteBc4Block(
+        Span<byte> block,
+        byte endpoint0,
+        byte endpoint1,
+        int selector)
+    {
+        block[0] = endpoint0;
+        block[1] = endpoint1;
+
+        ulong selectors = 0;
+        for (var pixel = 0; pixel < 16; pixel++)
+            selectors |= (ulong)selector << (pixel * 3);
+        for (var i = 0; i < 6; i++)
+            block[2 + i] = (byte)(selectors >> (i * 8));
     }
 
     private static void AssertSolidColor(

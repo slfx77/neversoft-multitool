@@ -152,10 +152,11 @@ internal static class AnimationDiscovery
                || path.EndsWith(".ska.xbx", StringComparison.OrdinalIgnoreCase)
                || path.EndsWith(".ska.wpc", StringComparison.OrdinalIgnoreCase)
                || path.EndsWith(".ska.ngc", StringComparison.OrdinalIgnoreCase)
-               // Xbox 360 / PS3 (THAW, Project 8, Proving Ground) — the same
-               // version-0x28 THAW format the GameCube path reads big-endian.
+               // Xbox 360 / PS3: THAW v0x28 plus Project 8 / Proving Ground's
+               // later wrapped, section-addressed revision.
                || path.EndsWith(".ska.xen", StringComparison.OrdinalIgnoreCase)
-               || path.EndsWith(".ska.ps3", StringComparison.OrdinalIgnoreCase);
+               || path.EndsWith(".ska.ps3", StringComparison.OrdinalIgnoreCase)
+               || Thps4PcDatAnimationFile.IsCandidateFileName(path);
     }
 
     public static bool IsPsxAnimationBankFileName(string path)
@@ -383,7 +384,9 @@ internal static class AnimationDiscovery
         try
         {
             var data = source.ReadBytes();
-            var probe = SkaFile.TryProbe(data);
+            var probe = Thps4PcDatAnimationFile.IsCandidateFileName(displayName)
+                ? Thps4PcDatAnimationFile.TryProbeExact(data)
+                : SkaFile.TryProbe(data);
             if (probe == null) return null;
 
             // THPS3 RpHAnim files do not store a bone count in their header, but

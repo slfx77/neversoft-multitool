@@ -114,6 +114,71 @@ public sealed class WavWriterTests
         }
     }
 
+    [Fact]
+    public void WritePcm16_InfiniteForwardLoop_WritesExactSamplerChunk()
+    {
+        var outputPath = Path.Combine(Path.GetTempPath(), $"nmt-wav-loop-{Guid.NewGuid():N}.wav");
+        try
+        {
+            WavWriter.WritePcm16(
+                outputPath,
+                sampleRate: 1_000,
+                channels: 1,
+                samples: [1, 2, 3, 4],
+                loop: new Pcm16WavLoop(1, 3, PlayCount: 0));
+
+            var bytes = File.ReadAllBytes(outputPath);
+            Assert.Equal(120, bytes.Length);
+            Assert.Equal(112u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(4)));
+            Assert.Equal("data"u8.ToArray(), bytes[36..40]);
+            Assert.Equal(8u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(40)));
+            Assert.Equal("smpl"u8.ToArray(), bytes[52..56]);
+            Assert.Equal(60u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(56)));
+            Assert.Equal(1_000_000u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(68)));
+            Assert.Equal(60u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(72)));
+            Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(88)));
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(96))); // cue ID
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(100))); // forward
+            Assert.Equal(1u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(104)));
+            Assert.Equal(3u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(108)));
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(112)));
+            Assert.Equal(0u, BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(116))); // infinite
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void WritePcm16_InvalidLoop_RejectsBeforeCreatingOutput()
+    {
+        var (outputDirectory, outputPath) = CreateAbsentOutputPath();
+        try
+        {
+            Assert.Throws<ArgumentException>(() => WavWriter.WritePcm16(
+                outputPath,
+                44_100,
+                1,
+                [1, 2, 3, 4],
+                new Pcm16WavLoop(3, 2, PlayCount: 0)));
+            Assert.False(Directory.Exists(outputDirectory));
+
+            Assert.Throws<ArgumentException>(() => WavWriter.WritePcm16(
+                outputPath,
+                44_100,
+                1,
+                [1, 2, 3, 4],
+                new Pcm16WavLoop(0, 4, PlayCount: 0)));
+            Assert.False(Directory.Exists(outputDirectory));
+        }
+        finally
+        {
+            if (Directory.Exists(outputDirectory))
+                Directory.Delete(outputDirectory, true);
+        }
+    }
+
     private static (string OutputDirectory, string OutputPath) CreateAbsentOutputPath()
     {
         var outputDirectory = Path.Combine(

@@ -1,8 +1,11 @@
 
+using System.Buffers.Binary;
+using NeversoftMultitool.Core.Formats.Collision;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Geom;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Scene;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skin;
+using NeversoftMultitool.Core.Formats.Mesh.Psp;
 using NeversoftMultitool.Core.Formats.Mesh.XbxScene;
 
 namespace NeversoftMultitool.Core.Formats.Mesh.Detection;
@@ -19,9 +22,9 @@ internal static class MeshContentProbe
     {
         return route.Kind switch
         {
-            MeshFileKind.XbxScene => ResolveXbxScene(route, data),
+            MeshFileKind.XbxScene => ResolveXbxScene(route, data, fileSize),
             MeshFileKind.Ps2Scene => ResolveSuffixedPs2Scene(route, data, fileSize),
-            MeshFileKind.Collision => ResolveCollision(route, data),
+            MeshFileKind.Collision => ResolveCollision(route, data, fileSize),
             MeshFileKind.Psx => ResolvePsx(route, data),
             MeshFileKind.RenderWareDff => ResolveChunk(route, data, fileSize, 0x0010, "RW DFF Mesh", "DFF"),
             MeshFileKind.RenderWareBsp => ResolveChunk(route, data, fileSize, 0x000B, "RW BSP Level", "BSP"),
@@ -31,8 +34,69 @@ internal static class MeshContentProbe
         };
     }
 
-    private static MeshFileRoute ResolveXbxScene(MeshFileRoute route, byte[] data)
+    private static MeshFileRoute ResolveXbxScene(MeshFileRoute route, byte[] data, long fileSize)
     {
+        if (Thps4PcDatSceneFile.IsCandidateFileName("asset" + route.Suffix))
+        {
+            var label = route.Suffix switch
+            {
+                Thps4PcDatSceneFile.SkinSuffix => "THPS4 PC Skin",
+                Thps4PcDatSceneFile.ModelSuffix => "THPS4 PC Model",
+                Thps4PcDatSceneFile.SceneSuffix => "THPS4 PC Level Scene",
+                _ => "THPS4 PC Scene"
+            };
+            if (data.LongLength != fileSize)
+            {
+                return MeshFileRoute.Rejected(
+                    route.Suffix,
+                    label,
+                    "Generic THPS4 PC *skin.dat/*mdl.dat/*scn.dat routing requires the complete payload");
+            }
+
+            return Thps4PcDatSceneFile.TryParse(data, out _, out var error)
+                ? route with { RequiresContentProbe = false, DisplayFormat = label }
+                : MeshFileRoute.Rejected(
+                    route.Suffix,
+                    label,
+                    $"Not a complete THPS4 PC scene: {error}");
+        }
+
+        if (MeshTypeDetector.IsPspSceneSuffix(route.Suffix))
+        {
+            if (string.Equals(route.Suffix, PspLevelFile.Suffix, StringComparison.Ordinal))
+            {
+                if (data.LongLength != fileSize)
+                {
+                    return MeshFileRoute.Rejected(
+                        route.Suffix,
+                        "PSP Level",
+                        "PSP level routing requires the complete payload");
+                }
+
+                return PspLevelFile.TryInspect(data, out _, out var levelError)
+                    ? route with
+                    {
+                        RequiresContentProbe = false,
+                        DisplayFormat = "PSP Level (static world; objects omitted)"
+                    }
+                    : MeshFileRoute.Rejected(
+                        route.Suffix,
+                        "PSP Level",
+                        levelError ?? "Not a structurally valid PSP level");
+            }
+
+            return PspGeMeshFile.TryInspect(data, out _, out var pspError)
+                ? route with
+                {
+                    RequiresContentProbe = false,
+                    DisplayFormat = "PSP GE Mesh (rigid bind pose)"
+                }
+                : MeshFileRoute.Rejected(
+                    route.Suffix,
+                    "PSP GE Mesh",
+                    pspError ?? "Not a structurally valid PSP GE mesh");
+        }
+
         if (data.Length < 12)
             return TooSmall(route);
 
@@ -40,7 +104,14 @@ internal static class MeshContentProbe
             return route with { RequiresContentProbe = false, DisplayFormat = "Next-Gen Scene" };
 
         if (NgcSceneFile.IsNgcScene(data))
-            return route with { RequiresContentProbe = false, DisplayFormat = "GameCube Scene" };
+        {
+            return NgcSceneFile.TryParse(data, out _)
+                ? route with { RequiresContentProbe = false, DisplayFormat = "GameCube Scene (THAW layout)" }
+                : MeshFileRoute.Rejected(
+                    route.Suffix,
+                    "GameCube/Wii Scene",
+                    "0xAAFFEEFF scene uses a layout this THAW GameCube parser does not support");
+        }
 
         if (ThawSceneFile.IsThawScene(data))
             return route with { RequiresContentProbe = false, DisplayFormat = "THAW Scene" };
@@ -108,8 +179,25 @@ internal static class MeshContentProbe
         if (data.Length < 12)
             return TooSmall(route);
 
+        if (PspGeMeshFile.ContainsMagic(data))
+        {
+            return PspGeMeshFile.TryInspect(data, out _, out var pspError)
+                ? Scene(route, "PSP GE Mesh (rigid bind pose)")
+                : MeshFileRoute.Rejected(
+                    route.Suffix,
+                    "PSP GE Mesh",
+                    pspError ?? "Not a structurally valid PSP GE mesh");
+        }
+
         if (NgcSceneFile.IsNgcScene(data))
-            return Scene(route, "GameCube Scene");
+        {
+            return NgcSceneFile.TryParse(data, out _)
+                ? Scene(route, "GameCube Scene (THAW layout)")
+                : MeshFileRoute.Rejected(
+                    route.Suffix,
+                    "GameCube/Wii Scene",
+                    "0xAAFFEEFF scene uses a layout this THAW GameCube parser does not support");
+        }
 
         if (ThawSceneFile.IsThawScene(data))
             return Scene(route, "THAW Scene");
@@ -144,7 +232,7 @@ internal static class MeshContentProbe
         return MeshFileRoute.Rejected(
             route.Suffix,
             $"Unknown {route.Suffix}",
-            $"Bare {route.Suffix} is not a recognized GC/PC/Xbox scene or PS2 scene/skin");
+            $"Bare {route.Suffix} is not a recognized PSP/GC/PC/Xbox scene or PS2 scene/skin");
 
         static MeshFileRoute Scene(MeshFileRoute route, string label)
         {
@@ -163,21 +251,105 @@ internal static class MeshContentProbe
         }
     }
 
-    private static MeshFileRoute ResolveCollision(MeshFileRoute route, byte[] data)
+    private static MeshFileRoute ResolveCollision(MeshFileRoute route, byte[] data, long fileSize)
     {
         if (data.Length < 4)
             return TooSmall(route);
 
+        if (string.Equals(route.Suffix, ".col.ngc", StringComparison.Ordinal))
+        {
+            if (data.LongLength != fileSize)
+            {
+                return MeshFileRoute.Rejected(
+                    route.Suffix,
+                    "GameCube COL",
+                    "GameCube collision routing requires the complete payload");
+            }
+
+            try
+            {
+                _ = NgcColFile.Parse(data);
+                return route with
+                {
+                    RequiresContentProbe = false,
+                    DisplayFormat = "GameCube COL Collision (v10; render-scene pool required)"
+                };
+            }
+            catch (Exception ex) when (ex is InvalidDataException or ArgumentException or
+                                       IndexOutOfRangeException or OverflowException)
+            {
+                return MeshFileRoute.Rejected(
+                    route.Suffix,
+                    "GameCube COL",
+                    $"Not a complete GameCube collision file: {ex.Message}");
+            }
+        }
+
+        if (string.Equals(
+                route.Suffix,
+                MeshTypeDetector.Thps4PcDatCollisionSuffix,
+                StringComparison.Ordinal))
+        {
+            if (data.LongLength != fileSize)
+            {
+                return MeshFileRoute.Rejected(
+                    route.Suffix,
+                    "THPS4 PC COL",
+                    "Generic *col.dat routing requires the complete collision payload");
+            }
+
+            try
+            {
+                var scene = ColFile.Parse(data);
+                if (scene.Objects.Length == 0)
+                {
+                    return MeshFileRoute.Rejected(
+                        route.Suffix,
+                        "THPS4 PC COL",
+                        "Generic *col.dat routing requires at least one collision object");
+                }
+
+                return scene.Version == 8
+                    ? route with
+                    {
+                        RequiresContentProbe = false,
+                        DisplayFormat = "THPS4 PC COL Collision (v8)"
+                    }
+                    : MeshFileRoute.Rejected(
+                        route.Suffix,
+                        $"THPS4 PC COL (v{scene.Version})",
+                        $"Generic *col.dat routing requires THPS4 PC collision version 8, got {scene.Version}");
+            }
+            catch (Exception ex) when (ex is InvalidDataException or ArgumentException or
+                                       IndexOutOfRangeException or OverflowException)
+            {
+                return MeshFileRoute.Rejected(
+                    route.Suffix,
+                    "THPS4 PC COL",
+                    $"Not a complete THPS4 PC collision file: {ex.Message}");
+            }
+        }
+
         // Read the version directly rather than calling ColFile.IsColFile, which
         // requires a whole 32-byte header — the probe budget here is 4 bytes and
         // the version is the only field the verdict depends on.
-        var version = BitConverter.ToInt32(data, 0);
-        return version is 9 or 10
-            ? route with { RequiresContentProbe = false, DisplayFormat = $"COL Collision (v{version})" }
+        var isXen = string.Equals(route.Suffix, ".col.xen", StringComparison.Ordinal);
+        var version = isXen
+            ? BinaryPrimitives.ReadInt32BigEndian(data)
+            : BinaryPrimitives.ReadInt32LittleEndian(data);
+        var supported = isXen ? version == 10 : version is 8 or 9 or 10;
+        return supported
+            ? route with
+            {
+                RequiresContentProbe = false,
+                DisplayFormat = isXen ? "X360 COL Collision (v10)" : $"COL Collision (v{version})"
+            }
             : MeshFileRoute.Rejected(
                 route.Suffix,
-                $"COL (v{version})",
-                $"Unsupported COL version {version} (supported: 9, 10)");
+                isXen ? $"X360 COL (v{version})" : $"COL (v{version})",
+                isXen
+                    ? $"Unsupported X360 COL version {version} (supported: big-endian 10)"
+                    : $"Unsupported COL version {version} (supported: 8, 9, 10)");
     }
 
     private static MeshFileRoute ResolvePsx(MeshFileRoute route, byte[] data)

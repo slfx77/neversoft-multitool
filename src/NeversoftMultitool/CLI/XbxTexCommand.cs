@@ -12,13 +12,17 @@ namespace NeversoftMultitool.CLI;
 
 public static class XbxTexCommand
 {
-    private static readonly string[] ImageSuffixes = [".img.xbx", ".img.wpc", ".img.ngc", ".img"];
+    private static readonly string[] ImageSuffixes =
+        [".img.xbx", ".img.wpc", ".img.xen", ".img.ps3", ".img.ngc", ".img"];
 
     private static readonly string[] SupportedSuffixes =
     [
-        ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc", ".tex.ngc", ".img.ngc", ".stex", ".tex", ".img",
+        ".tex.xbx", ".img.xbx", ".tex.wpc", ".img.wpc",
+        ".tex.stex.ngc", ".stex.ngc", ".tex.ngc", ".img.ngc", ".img.xen", ".img.ps3", ".stex", ".tex", ".img",
         // Next-gen FACECAA7 dictionaries (THAW/P8/PG on Xbox 360 and PS3).
-        ".tex.xen", ".stex.xen", ".tex.ps3", ".stex.ps3"
+        ".tex.xen", ".stex.xen", ".tex.ps3", ".stex.ps3", ".tex.dat",
+        // Aspyr THPS4 PC drops the separator: alctex.dat.
+        Thps4PcDatTextureFile.Suffix
     ];
 
     public static Command Create()
@@ -26,7 +30,7 @@ public static class XbxTexCommand
         var inputArgument = new Argument<string>("input")
         {
             Description =
-                "Path to an Xbox/PC/next-gen TEX/IMG file (.tex.xbx, .img.xbx, .tex.wpc, .img.wpc, .stex, .tex.xen, .tex.ps3, extracted .tex) or directory"
+                "Path to an Xbox/PC/next-gen TEX/IMG file (.tex.xbx, .img.xbx, .tex.wpc, .img.wpc, *tex.dat, *img.dat, .stex, .tex.xen, .img.xen, .tex.ps3, .img.ps3, extracted .tex) or directory"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -108,15 +112,35 @@ public static class XbxTexCommand
                 ? output
                 : Path.Combine(output, planned.Subdirectory);
 
-            var isImg = OrdinalFileName.HasAnySuffix(filename, ImageSuffixes);
+            var isThps4PcDatImg = Thps4PcDatImageFile.IsCandidateFileName(filename);
+            var isImg = isThps4PcDatImg || OrdinalFileName.HasAnySuffix(filename, ImageSuffixes);
 
             if (isImg)
             {
-                var result = XbxImgFile.Parse(file);
-                if (!result.Success)
-                    result = ThawImgFile.Parse(file);
-                if (!result.Success)
-                    result = NgcTexFile.Parse(file); // THAW GameCube .img.ngc
+                Ps2TexResult result;
+                if (isThps4PcDatImg)
+                {
+                    result = Thps4PcDatImageFile.Parse(file);
+                }
+                else if (OrdinalFileName.HasSuffix(filename, ".img.xen"))
+                {
+                    // This compound suffix belongs to the distinct Xenon loose-image
+                    // descriptor; keep its structural diagnostics instead of falling through.
+                    result = XenImgFile.Parse(file);
+                }
+                else if (OrdinalFileName.HasSuffix(filename, ".img.ps3"))
+                {
+                    // Preserve the exact-companion diagnostics from the PS3 decoder.
+                    result = Ps3ImgFile.Parse(file);
+                }
+                else
+                {
+                    result = XbxImgFile.Parse(file);
+                    if (!result.Success)
+                        result = ThawImgFile.Parse(file);
+                    if (!result.Success)
+                        result = NgcTexFile.Parse(file); // THAW GameCube .img.ngc
+                }
                 if (!result.Success)
                 {
                     failed++;
@@ -154,12 +178,18 @@ public static class XbxTexCommand
             }
             else
             {
-                var result = XbxTexFile.Parse(file);
-                if (!result.Success)
+                var isThps4PcDat = Thps4PcDatTextureFile.IsCandidateFileName(filename);
+                var isNextGenDat = OrdinalFileName.HasSuffix(filename, ".tex.dat");
+                var result = isThps4PcDat
+                    ? Thps4PcDatTextureFile.Parse(file)
+                    : isNextGenDat
+                        ? ParseNextGenTex(file)
+                        : XbxTexFile.Parse(file);
+                if (!isThps4PcDat && !isNextGenDat && !result.Success)
                     result = ThawTexFile.Parse(file); // Try THAW 0xABADD00D format
-                if (!result.Success)
+                if (!isThps4PcDat && !isNextGenDat && !result.Success)
                     result = NgcTexFile.Parse(file); // THAW GameCube .tex.ngc
-                if (!result.Success)
+                if (!isThps4PcDat && !isNextGenDat && !result.Success)
                     result = ParseNextGenTex(file); // FACECAA7 (Xbox 360 / PS3)
                 if (!result.Success)
                 {
@@ -210,7 +240,13 @@ public static class XbxTexCommand
     private static string GetOutputStem(string file)
     {
         // Preserve the established compound-extension rule for every supported suffix.
-        var stem = Path.GetFileNameWithoutExtension(Path.GetFileName(file));
+        var name = Path.GetFileName(file);
+        if (Thps4PcDatImageFile.IsCandidateFileName(name))
+            return name[..^Thps4PcDatImageFile.Suffix.Length];
+        if (Thps4PcDatTextureFile.IsCandidateFileName(name))
+            return name[..^Thps4PcDatTextureFile.Suffix.Length];
+
+        var stem = Path.GetFileNameWithoutExtension(name);
         if (stem.EndsWith(".tex", StringComparison.OrdinalIgnoreCase) ||
             stem.EndsWith(".img", StringComparison.OrdinalIgnoreCase))
         {
@@ -223,7 +259,8 @@ public static class XbxTexCommand
     private static bool IsXbxTextureFile(string path)
     {
         var name = Path.GetFileName(path);
-        return OrdinalFileName.HasAnySuffix(name, SupportedSuffixes);
+        return Thps4PcDatImageFile.IsCandidateFileName(name)
+               || OrdinalFileName.HasAnySuffix(name, SupportedSuffixes);
     }
 
     /// <summary>
@@ -233,9 +270,6 @@ public static class XbxTexCommand
     private static Ps2TexResult ParseNextGenTex(string file)
     {
         var data = File.ReadAllBytes(file);
-        if (!NextGenTexFile.IsNextGenTex(data))
-            return Ps2TexResult.Fail("Not a FACECAA7 texture dictionary");
-
         return NextGenTexFile.Parse(data, NextGenVramTwinLocator.TryLoad(file, data));
     }
 }

@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Security.Cryptography;
 using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.N64;
 using Spectre.Console;
@@ -8,7 +9,10 @@ namespace NeversoftMultitool.CLI;
 /// <summary>
 ///     Writes an inspection-only aggregate manifest for a standalone raw N64
 ///     SFX cue table or every structurally valid cue table carved from a
-///     supported N64 ROM. This route does not join cues to BFX/PTR data.
+///     supported N64 ROM. Exact build-pinned THPS2/THPS3/Spider-Man compiled
+///     alias tables are joined to exactly identified BFX banks. This inspector
+///     does not accept live THPS2 selector state, so runtime branches are
+///     emitted as alternatives; all other cue fields and builds stay raw.
 /// </summary>
 public static class N64SfxInspectCommand
 {
@@ -26,7 +30,7 @@ public static class N64SfxInspectCommand
 
         var command = new Command(
             "n64-sfx-inspect",
-            "Inspect strict raw N64 SFX cue tables as JSON (no cue mapping or playback)");
+            "Inspect strict raw N64 SFX cue tables as JSON (exact compiled THPS2/THPS3/Spider-Man alias targets and state choices where proven; no playback)");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.SetAction((parseResult, cancellationToken) =>
@@ -57,12 +61,34 @@ public static class N64SfxInspectCommand
                 outputPath,
                 sources.InputSource,
                 sources.SelectionBasis,
-                sources.Banks);
-            AnsiConsole.MarkupLine(
-                $"Wrote [green]{sources.Banks.Count}[/] raw N64 SFX cue banks " +
-                $"([green]{sources.Banks.Sum(static source => source.Bank.Records.Count)}[/] records) " +
-                $"to [green]{Markup.Escape(outputPath)}[/] " +
-                "(cue mapping, sample rate, pitch application, and playback remain unresolved/not applied)");
+                sources.Banks,
+                sources.CompiledAliasMap,
+                sources.EffectBankBinding);
+
+            var recordCount = sources.Banks.Sum(static source => source.Bank.Records.Count);
+            if (sources.CompiledAliasMap is { } aliasMap)
+            {
+                var mappingSummary = N64SfxCueMappingSummary.Create(sources.Banks, aliasMap);
+                AnsiConsole.MarkupLine(
+                    $"Wrote [green]{sources.Banks.Count}[/] raw N64 SFX cue banks " +
+                    $"([green]{recordCount}[/] records) to [green]{Markup.Escape(outputPath)}[/]; " +
+                    $"the exact build-pinned compiled alias table resolved " +
+                    $"[green]{mappingSummary.ResolvedTargetCount}[/] BFX targets, with " +
+                    $"{mappingSummary.ExplicitlyUnmappedCount} explicit no-target, " +
+                    $"{mappingSummary.ExhaustiveStateDependentCount} state-dependent with exhaustive " +
+                    $"outcome sets, {mappingSummary.StateDependentUnknownCount} state-dependent " +
+                    $"retaining an unestablished outcome, and " +
+                    $"{mappingSummary.OutsidePinnedTableCount} outside-table records " +
+                    "(non-alias cue fields remain raw; sample rate, pitch, and playback were not applied)");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine(
+                    $"Wrote [green]{sources.Banks.Count}[/] raw N64 SFX cue banks " +
+                    $"([green]{recordCount}[/] records) to [green]{Markup.Escape(outputPath)}[/] " +
+                    "(no independently proven compiled cue alias map for this build; " +
+                    "sample rate, pitch, and playback were not applied)");
+            }
             return 0;
         }
         catch (Exception ex) when (ex is InvalidDataException
@@ -103,10 +129,37 @@ public static class N64SfxInspectCommand
             if (!N64AssetCarver.TryCarve(rom, out var assets))
                 throw new InvalidDataException("the ROM has no supported Edge of Reality master asset directory");
 
+            if (!N64RomArchive.TryReadMasterDirectory(rom, out _, out _, out var bootTable))
+                throw new InvalidDataException("the ROM master directory no longer resolves its boot table");
+            var bootData = N64RomArchive.ExtractTable(rom, bootTable);
+            var bootHash = Convert.ToHexString(SHA256.HashData(bootData));
+            N64CompiledSfxAliasMap? compiledAliasMap = null;
+            N64SfxCueEffectBankBindingProvenance? effectBankBinding = null;
+            if (bootHash is N64SoundToolsRuntimeProfileResolver.Thps2BootSha256
+                or N64SoundToolsRuntimeProfileResolver.Thps3BootSha256
+                or N64SoundToolsRuntimeProfileResolver.SpiderManBootSha256)
+            {
+                var fxSources = N64SoundToolsFxInputResolver.SelectCarvedSources(assets);
+                if (!N64CompiledSfxAliasMapResolver.TryResolve(
+                        bootData, fxSources.FxBank.EffectCount, out compiledAliasMap))
+                {
+                    throw new InvalidDataException(
+                        "known compiled SFX alias build did not resolve its pinned alias table");
+                }
+                effectBankBinding = N64SfxCueEffectBankBindingProvenance.Create(
+                    fxSources.PointerBindingBasis,
+                    fxSources.FxBankSource,
+                    fxSources.FxBankData,
+                    fxSources.PointerSource,
+                    fxSources.PointerData);
+            }
+
             return new N64SfxCueInputSources(
                 Path.GetFileName(input),
                 N64SfxCueBankJsonExporter.StrictRomStructuralScanSelection,
-                SelectCarvedBanks(assets));
+                SelectCarvedBanks(assets),
+                compiledAliasMap,
+                effectBankBinding);
         }
 
         if (classification is not null)
@@ -117,7 +170,9 @@ public static class N64SfxInspectCommand
         return new N64SfxCueInputSources(
             source,
             N64SfxCueBankJsonExporter.ExplicitFileSelection,
-            [new N64SfxCueBankSource(source, bank)]);
+            [new N64SfxCueBankSource(source, bank)],
+            null,
+            null);
     }
 
     internal static IReadOnlyList<N64SfxCueBankSource> SelectCarvedBanks(
@@ -143,4 +198,6 @@ public static class N64SfxInspectCommand
 internal sealed record N64SfxCueInputSources(
     string InputSource,
     string SelectionBasis,
-    IReadOnlyList<N64SfxCueBankSource> Banks);
+    IReadOnlyList<N64SfxCueBankSource> Banks,
+    N64CompiledSfxAliasMap? CompiledAliasMap,
+    N64SfxCueEffectBankBindingProvenance? EffectBankBinding);

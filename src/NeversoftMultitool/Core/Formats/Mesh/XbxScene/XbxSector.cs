@@ -18,6 +18,15 @@ public sealed class XbxSector
     public Vector3 BsphereCenter { get; init; }
     public float BsphereRadius { get; init; }
 
+    /// <summary>Vertex count in a shared planar source pool, when the source format has one.</summary>
+    public int SourceVertexCount { get; init; }
+
+    /// <summary>Serialized source stride metadata, retained even for planar pools.</summary>
+    public uint SourceVertexStride { get; init; }
+
+    /// <summary>Number of planar UV sets stored for each source vertex.</summary>
+    public int SourceUvSetCount { get; init; }
+
     // Per-mesh data (each mesh has its own vertex buffer)
     public required XbxMesh[] Meshes { get; init; }
 

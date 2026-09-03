@@ -108,6 +108,14 @@ public static class PakArchive
         [0x777DB6D3] = ".skiv", // QbKey(".skiv")
         [0x43904241] = ".table", // QbKey(".table")
         [0xEA151F1C] = ".tvx", // QbKey(".tvx")
+        [0x1CD4C0A7] = ".vtex", // QbKey(".vtex")
+        [0x692F8667] = ".vstex", // QbKey(".vstex")
+        [0x4DFB7779] = ".vimg", // QbKey(".vimg")
+        [0x26349877] = ".vskin", // QbKey(".vskin")
+        [0x0CE2BD64] = ".vmdl", // QbKey(".vmdl")
+        [0x3C828389] = ".vgeom", // QbKey(".vgeom")
+        [0xE9342259] = ".vfnt", // QbKey(".vfnt")
+        [0x9A16AE4F] = ".mhkc", // QbKey(".mhkc")
         [0x0A6808D4] = ".wav", // QbKey(".wav")
         [0xFDC939B7] = ".fnc", // QbKey(".fnc")
         [0x9014DD5C] = ".fnv", // QbKey(".fnv")
@@ -439,7 +447,12 @@ public static class PakArchive
             if (parsed is null)
                 break;
 
-            output.Add(parsed.Value.Typed);
+            // A handful of shipped tables contain a legitimate zero-byte
+            // placeholder between ordinary entries (Project 8 PS3 cas_fem is
+            // one). It occupies a table slot but has no extractable payload.
+            // Keep walking without exposing an unusable ArchiveEntry.
+            if (parsed.Value.Typed.Entry.Size != 0)
+                output.Add(parsed.Value.Typed);
             current += parsed.Value.EntrySize;
         }
     }
@@ -460,7 +473,7 @@ public static class PakArchive
         var length = ReadU32(data, current + 0x08, bigEndian);
         var inCompanion = IsCompanionResident(flags, context);
         var resolved = inCompanion ? offset : current + offset;
-        if (length == 0 || (!inCompanion && resolved <= sentinelPos))
+        if (!inCompanion && resolved <= sentinelPos)
             return null;
 
         var hasFilename = HasEmbeddedFilename(flags);
@@ -717,8 +730,17 @@ public static class PakArchive
             var entrySize = hasFilename ? FullEntrySize : CompactEntrySize;
             var inCompanion = IsCompanionResident(flags, context);
             var resolved = inCompanion ? offset : current + offset;
-            if (length == 0 || (!inCompanion && resolved <= sentinelPos))
+            if (!inCompanion && resolved <= sentinelPos)
                 break;
+
+            // Zero-byte table records are placeholders, not terminators. They
+            // still consume their compact/full table slot and later entries are
+            // valid. Skip the record itself because it has no file to extract.
+            if (length == 0)
+            {
+                current += entrySize;
+                continue;
+            }
 
             var (name, directory) = hasFilename && current + CompactEntrySize + 160 <= data.Length
                 ? ParseFilename(data, current + CompactEntrySize)
@@ -756,9 +778,6 @@ public static class PakArchive
         }
 
         var offset = ReadU32(data, pos + 0x04, bigEndian);
-        var length = ReadU32(data, pos + 0x08, bigEndian);
-        if (length == 0)
-            return false;
 
         // Offsets are relative to the entry header; resolved data must land past
         // the following table region (data always follows the sentinel). GC

@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using NeversoftMultitool.Core;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Archives;
+using NeversoftMultitool.Core.Formats.Texture;
+using NeversoftMultitool.Core.Formats.Texture.XbxScene;
 
 namespace NeversoftMultitool;
 
@@ -69,6 +71,7 @@ internal static class TextureTabFileScanner
         // inside .pre entries of SKATE3.WAD; THAW zone textures inside pak
         // entries of DATAP.WAD.
         var entries = new List<PsxFileEntry>();
+        var unsupported = new List<ScanSummaryDialog.UnsupportedFile>();
         var pending = new Queue<ArchiveAssetBackend>();
         pending.Enqueue(backend);
 
@@ -83,10 +86,67 @@ internal static class TextureTabFileScanner
 
                 if (TextureTabTextureOperations.IsTextureFile(archiveEntry.Name))
                 {
+                    var source = new ArchiveAssetSource(current, archiveEntry);
+                    // Generic DAT names are safe only after the complete Aspyr
+                    // dictionary has been consumed. Loose scans get this same
+                    // gate from FormatProbeTexture; archive entries need it here.
+                    if (Thps4PcDatTextureFile.IsCandidateFileName(archiveEntry.Name))
+                    {
+                        Ps2TexResult parsed;
+                        try
+                        {
+                            parsed = Thps4PcDatTextureFile.Parse(source.ReadBytes());
+                        }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or
+                                                   UnauthorizedAccessException)
+                        {
+                            unsupported.Add(new ScanSummaryDialog.UnsupportedFile(
+                                archiveEntry.Name,
+                                $"Could not read THPS4 PC TEX dictionary: {ex.Message}"));
+                            progress?.Report(entries.Count + unsupported.Count);
+                            continue;
+                        }
+
+                        if (!parsed.Success)
+                        {
+                            unsupported.Add(new ScanSummaryDialog.UnsupportedFile(
+                                archiveEntry.Name,
+                                parsed.ErrorMessage ?? "Not a complete THPS4 PC TEX dictionary"));
+                            progress?.Report(entries.Count + unsupported.Count);
+                            continue;
+                        }
+                    }
+                    else if (Thps4PcDatImageFile.IsCandidateFileName(archiveEntry.Name))
+                    {
+                        Ps2TexResult parsed;
+                        try
+                        {
+                            parsed = Thps4PcDatImageFile.Parse(source.ReadBytes());
+                        }
+                        catch (Exception ex) when (ex is IOException or InvalidDataException or
+                                                   UnauthorizedAccessException)
+                        {
+                            unsupported.Add(new ScanSummaryDialog.UnsupportedFile(
+                                archiveEntry.Name,
+                                $"Could not read THPS4 PC IMG image: {ex.Message}"));
+                            progress?.Report(entries.Count + unsupported.Count);
+                            continue;
+                        }
+
+                        if (!parsed.Success)
+                        {
+                            unsupported.Add(new ScanSummaryDialog.UnsupportedFile(
+                                archiveEntry.Name,
+                                parsed.ErrorMessage ?? "Not a complete THPS4 PC IMG image"));
+                            progress?.Report(entries.Count + unsupported.Count);
+                            continue;
+                        }
+                    }
+
                     entries.Add(new PsxFileEntry
                     {
                         FileName = archiveEntry.Name,
-                        Source = new ArchiveAssetSource(current, archiveEntry),
+                        Source = source,
                         RelativePath = $"{current.DisplayPath}::{archiveEntry.FullName}",
                         Format = TextureTabTextureOperations.ClassifyFormat(archiveEntry.Name)
                     });
@@ -109,7 +169,9 @@ internal static class TextureTabFileScanner
 
         entries.Sort(static (left, right) =>
             StringComparer.OrdinalIgnoreCase.Compare(left.RelativePath, right.RelativePath));
-        return new ScanResult(entries, []);
+        unsupported.Sort(static (left, right) =>
+            StringComparer.OrdinalIgnoreCase.Compare(left.FileName, right.FileName));
+        return new ScanResult(entries, unsupported);
     }
 
     /// <summary>Catches double extensions like .pak.ps2 / .apk.ngc that the plain suffix list misses.</summary>

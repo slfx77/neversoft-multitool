@@ -115,7 +115,8 @@ internal static class RwGeometryWriter
         ModelDocument document,
         RwMaterial material,
         MeshNamedTextureResolver? textureProvider,
-        bool forBsp)
+        bool forBsp,
+        string? textureNamePrefix = null)
     {
         var renderMaterial = new RenderMaterial
         {
@@ -128,7 +129,7 @@ internal static class RwGeometryWriter
             material.IsSubtractive,
             material.IsBlend,
             material.TextureName));
-        ApplyRwMaterial(document, renderMaterial, material, textureProvider, forBsp);
+        ApplyRwMaterial(document, renderMaterial, material, textureProvider, forBsp, textureNamePrefix);
         return ModelDocumentGeometryAdapter.AddMaterial(document, renderMaterial);
     }
 
@@ -137,7 +138,8 @@ internal static class RwGeometryWriter
         RenderMaterial renderMaterial,
         RwMaterial material,
         MeshNamedTextureResolver? textureProvider,
-        bool forBsp)
+        bool forBsp,
+        string? textureNamePrefix = null)
     {
         renderMaterial.BaseColor = new Vector4(
             material.R / 255f,
@@ -174,7 +176,10 @@ internal static class RwGeometryWriter
                 }
 
                 renderMaterial.TextureIndex ??=
-                    ModelDocumentGeometryAdapter.AddTexture(document, material.TextureName, pngBytes);
+                    ModelDocumentGeometryAdapter.AddTexture(
+                        document,
+                        (textureNamePrefix ?? string.Empty) + material.TextureName,
+                        pngBytes);
             }
         }
 

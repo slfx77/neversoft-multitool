@@ -237,7 +237,8 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
                     var outputFile = Path.Combine(outputDir, outputPlans[index].RelativePngPath);
                     // Mip-chain TIFFs also write their lower levels as
                     // _mipN.png companions (the N64 exporter's convention).
-                    BitmapFile.SavePngWithMipLevels(result, data, entry.FileName, outputFile);
+                    if (!BitmapOutputPathPlanner.IsInPlaceFileSystemOutput(entry.Source, outputFile))
+                        BitmapFile.SavePngWithMipLevels(result, data, entry.FileName, outputFile);
                 }
 
                 var status = result.Success ? ExtractionStatus.Done : ExtractionStatus.Error;
@@ -273,7 +274,7 @@ public sealed partial class BitmapConverterTab : UserControl, IDisposable
             _suppressWidthEvents = true;
 
             // Width detection/override only applies to headerless Neversoft
-            // formats; BMP/TGA carry their own dimensions.
+            // formats; standard images carry their own dimensions.
             var selfDescribed = BitmapFile.HasSelfDescribedDimensions(entry.FileName);
             AutoWidthCheckbox.IsEnabled = !selfDescribed;
 

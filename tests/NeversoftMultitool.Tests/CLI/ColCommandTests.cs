@@ -3,8 +3,10 @@ using NeversoftMultitool.Core.Formats.Mesh.Conversion;
 
 namespace NeversoftMultitool.Tests.CLI;
 
-public sealed class ColCommandTests
+public sealed class ColCommandTests(TestPaths paths)
 {
+    private const string XenBuild = "Tony Hawk's American Wasteland (2005-10-29, X360 - Final)";
+
     [Fact]
     public void Execute_ExplicitMalformedColReturnsFailureWithoutOutput()
     {
@@ -52,6 +54,23 @@ public sealed class ColCommandTests
             blenderHelperPath: null,
             cancellationToken: new CancellationToken(canceled: true)));
         Assert.False(Directory.Exists(output));
+    }
+
+    [CorpusFact]
+    public void Execute_XenCollision_RoutesThroughThePublicCommand()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var input = paths.FindSampleFile(XenBuild, "4214D375.col.xen");
+        Assert.SkipWhen(input is null, "4214D375.col.xen not found");
+        using var temp = new TempDirectory();
+        var output = Path.Combine(temp.Path, "output");
+
+        var result = Execute(input, output);
+
+        Assert.Equal(0, result);
+        var glb = Assert.Single(Directory.EnumerateFiles(output, "*.glb", SearchOption.AllDirectories));
+        Assert.Equal("4214D375.glb", Path.GetFileName(glb), ignoreCase: true);
+        Assert.True(new FileInfo(glb).Length > 12);
     }
 
     private static int Execute(string input, string output)

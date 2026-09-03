@@ -4,6 +4,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using NeversoftMultitool.CLI;
 using NeversoftMultitool.Core.Formats;
 using NeversoftMultitool.Core.Formats.Animation;
 using NeversoftMultitool.Core.Formats.Mesh.Ps2Scene.Skeleton;
@@ -1585,8 +1586,7 @@ public sealed partial class MeshConverterTab : UserControl, IDisposable
 
     private static string StripAnimExtension(string fileName)
     {
-        var idx = fileName.IndexOf(".ska", StringComparison.OrdinalIgnoreCase);
-        return idx > 0 ? fileName[..idx] : Path.GetFileNameWithoutExtension(fileName);
+        return SkaCommand.GetOutputStem(fileName);
     }
 
     private void MeshConverterTab_Unloaded(object sender, RoutedEventArgs e)

@@ -302,6 +302,7 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         ConvertButton.IsEnabled = checkedCount > 0 && SelectedOutputFormat() != null;
         UpdateWorldzoneExportSettingsVisibility();
         UpdateLevelObjectExportSettingsVisibility();
+        UpdateCollisionOverlayExportSettingsVisibility();
         UpdateOutputSizeText();
         UpdateRenderButtons();
     }
@@ -364,6 +365,16 @@ public sealed partial class LevelsTab : UserControl, IDisposable
             : Visibility.Collapsed;
     }
 
+    private void UpdateCollisionOverlayExportSettingsVisibility()
+    {
+        if (ExportIncludeCollisionOverlayCheckbox == null) return;
+
+        ExportIncludeCollisionOverlayCheckbox.Visibility = _items.Any(static entry =>
+            entry.IsChecked && entry.HasSupportedCollisionOverlayCompanion)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
     private void UpdateDisplaySettingsVisibility(MeshFileEntry? entry)
     {
         WorldzoneViewportSettingsSection.Visibility = entry?.IsPakWorldzone == true
@@ -371,6 +382,10 @@ public sealed partial class LevelsTab : UserControl, IDisposable
             : Visibility.Collapsed;
         DisplayIncludeLevelObjectsCheckbox.Visibility =
             entry?.HasSupportedLevelObjectCompanion == true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        DisplayIncludeCollisionOverlayCheckbox.Visibility =
+            entry?.HasSupportedCollisionOverlayCompanion == true
                 ? Visibility.Visible
                 : Visibility.Collapsed;
     }
@@ -392,6 +407,12 @@ public sealed partial class LevelsTab : UserControl, IDisposable
 
     private bool ShouldIncludeLevelObjectsInPreview() =>
         DisplayIncludeLevelObjectsCheckbox.IsChecked != false;
+
+    private bool ShouldIncludeCollisionOverlayInExport() =>
+        ExportIncludeCollisionOverlayCheckbox.IsChecked == true;
+
+    private bool ShouldIncludeCollisionOverlayInPreview() =>
+        DisplayIncludeCollisionOverlayCheckbox.IsChecked == true;
 
     /// <summary>The preview time of day for one entry: only a worldzone has one.</summary>
     private WorldzoneTimeOfDay PreviewTimeFor(MeshFileEntry entry) =>
@@ -428,6 +449,17 @@ public sealed partial class LevelsTab : UserControl, IDisposable
             {
                 HasSupportedLevelObjectCompanion: true
             } entry)
+        {
+            return;
+        }
+
+        await ReloadPreviewAsync(entry, preserveCamera: true);
+    }
+
+    private async void DisplayIncludeCollisionOverlayCheckbox_Click(object sender, RoutedEventArgs e)
+    {
+        if (FilesListView.SelectedItem is not MeshFileEntry entry ||
+            !entry.HasSupportedCollisionOverlayCompanion)
         {
             return;
         }
@@ -770,7 +802,8 @@ public sealed partial class LevelsTab : UserControl, IDisposable
             PreviewTimeFor(entry),
             _visibilityOverrides.Count == 0 ? null : _visibilityOverrides,
             preserveCamera,
-            ShouldIncludeLevelObjectsInPreview());
+            ShouldIncludeLevelObjectsInPreview(),
+            includeCollisionOverlay: ShouldIncludeCollisionOverlayInPreview());
         if (groups != null) PopulateVisibilityGroups(groups);
         UpdateRenderButtons();
     }
@@ -831,7 +864,8 @@ public sealed partial class LevelsTab : UserControl, IDisposable
             entries, outputDir, GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, format.Value,
             visibilityEntry: _visibilityEntry,
             visibilityOverrides: _visibilityOverrides.Count == 0 ? null : _visibilityOverrides,
-            includeLevelObjects: ShouldIncludeLevelObjectsInExport());
+            includeLevelObjects: ShouldIncludeLevelObjectsInExport(),
+            includeCollisionOverlay: ShouldIncludeCollisionOverlayInExport());
     }
 
     private async void Cancel_Click(object sender, RoutedEventArgs e)
@@ -855,6 +889,7 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         var selected = FilesListView.SelectedItem as MeshFileEntry;
         var overrides = _visibilityOverrides.Count == 0 ? null : _visibilityOverrides;
         var includeLevelObjects = ShouldIncludeLevelObjectsInExport();
+        var includeCollisionOverlay = ShouldIncludeCollisionOverlayInExport();
 
         IEnumerable<MeshFileEntry> scope = checkedEntries;
         if (checkedEntries.Count <= 1 && selected != null) scope = [selected];
@@ -872,7 +907,8 @@ public sealed partial class LevelsTab : UserControl, IDisposable
             await _batchRunner.RenderPngBatchAsync(
                 checkedEntries, outputDir, size, azimuth, elevation, false,
                 GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, selected, overrides,
-                includeLevelObjects: includeLevelObjects);
+                includeLevelObjects: includeLevelObjects,
+                includeCollisionOverlay: includeCollisionOverlay);
             return;
         }
 
@@ -891,13 +927,15 @@ public sealed partial class LevelsTab : UserControl, IDisposable
         // settings rather than reusing the preview GLB.
         if (MeshGuiRenderPolicy.RequiresEntryRebuild(
                 entry.IsPakWorldzone, entry.HasSupportedLevelObjectCompanion,
-                entry.SupportsExplicitXbxSkeleton)
+                entry.SupportsExplicitXbxSkeleton,
+                entry.HasSupportedCollisionOverlayCompanion)
             || ModelViewer.LastGlbBytes is not { Length: > 0 } glb)
         {
             await _batchRunner.RenderPngEntryAsync(
                 entry, dir, saveStem, size, azimuth, elevation, false,
                 GetSelectedExportWorldzoneTimeOfDay(), worldzoneScale, overrides,
-                includeLevelObjects: includeLevelObjects);
+                includeLevelObjects: includeLevelObjects,
+                includeCollisionOverlay: includeCollisionOverlay);
             return;
         }
 

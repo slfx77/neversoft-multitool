@@ -125,6 +125,27 @@ public class MeshFileEntry : BaseFileEntry
 
     internal bool IsPakWorldzone => Ps2SubFormat == Ps2SceneSubFormat.PakWorldzone;
 
+    /// <summary>
+    ///     True only for an inline or exact-owner collision surface whose
+    ///     coordinate contract is proven. NGC scenes additionally require an
+    ///     exact source-order render-pool binding before the overlay is offered.
+    /// </summary>
+    internal bool HasSupportedCollisionOverlayCompanion =>
+        CollisionOverlayResolver.HasSupportedCompanion(
+            Source,
+            FileName,
+            HasPlacedPsxCompanion
+                ? ModelSourceKind.Ddm
+                : IsPsx
+                    ? ModelSourceKind.Psx
+                    : IsRwBsp
+                        ? ModelSourceKind.RenderWareBsp
+                        : IsPs2Geom
+                            ? ModelSourceKind.Ps2Geom
+                            : IsXbxScene
+                                ? ModelSourceKind.XbxScene
+                                : ModelSourceKind.Generic);
+
     // Skeleton resolution cache for the Animations panel (probed once per entry).
     internal int? SkeletonBoneCount { get; set; }
     internal bool SkeletonProbed { get; set; }
@@ -153,7 +174,8 @@ public class MeshFileEntry : BaseFileEntry
 
     internal bool IsXbxScene => Format.StartsWith("Xbox (", StringComparison.Ordinal)
                                 || Format.StartsWith("PC (", StringComparison.Ordinal)
-                                || Format.StartsWith("GameCube (", StringComparison.Ordinal);
+                                || Format.StartsWith("GameCube (", StringComparison.Ordinal)
+                                || Format.StartsWith("PSP (", StringComparison.Ordinal);
 
     internal bool SupportsExplicitXbxSkeleton =>
         XbxSkeletonEligibility.Supports(Format, XbxHasSkinnedSectors);

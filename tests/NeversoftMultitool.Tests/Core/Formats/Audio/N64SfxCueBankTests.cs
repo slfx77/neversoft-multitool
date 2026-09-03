@@ -122,22 +122,22 @@ public sealed class N64SfxCueBankTests(TestPaths paths)
     }
 
     [Fact]
-    public void Parse_EmptyBankAndRecordBeginningWithFFFFFFFF_AreStructurallyValid()
+    public void Parse_EmptyBankIsValid_AndEarlyTerminatorRejectsUnreachableRecords()
     {
         var empty = N64SfxCueBank.Parse([0xFF, 0xFF, 0xFF, 0xFF]);
         Assert.Equal(4, empty.SerializedSize);
         Assert.Equal(0, empty.TerminatorOffset);
         Assert.Empty(empty.Records);
 
-        var prefixed = BuildBank(
-            new SyntheticRecord(0xFF, 0xFF, 0xFF, 0xFF, 0x1234, 0x5678, 0x9ABC_DEF0));
-        var bank = N64SfxCueBank.Parse(prefixed);
-        var record = Assert.Single(bank.Records);
-        Assert.Equal("FFFFFFFF123456789ABCDEF000000000", Convert.ToHexString(record.RecordRaw.ToArray()));
-        Assert.Equal(0xFF, record.LoopFlagRaw);
-        Assert.Equal(0xFF, record.ProgramRaw);
-        Assert.Equal(0xFF, record.CategoryRaw);
-        Assert.Equal(0xFF, record.NoteRaw);
+        var earlyTerminator = BuildBank(
+            new SyntheticRecord(0xFF, 0xFF, 0xFF, 0xFF, 0x1234, 0x5678, 0x9ABC_DEF0),
+            new SyntheticRecord(0x00, 1, 2, 3, 4, 5, 6));
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            N64SfxCueBank.Parse(earlyTerminator));
+        Assert.Contains("early FFFFFFFF terminator at record 0", exception.Message,
+            StringComparison.Ordinal);
+        Assert.False(N64SfxCueBank.TryParse(earlyTerminator, out var rejected));
+        Assert.Null(rejected);
     }
 
     [Fact]
@@ -191,6 +191,166 @@ public sealed class N64SfxCueBankTests(TestPaths paths)
             record.GetProperty("recordRawHex").GetString());
         Assert.Equal("3E2815C2BABA4D4D3EB7E2C032E648268AFF5E8596401AE70C419D105DC4E339",
             record.GetProperty("recordSha256").GetString());
+    }
+
+    [Fact]
+    public void Json_StateDependentUnknownCountTracksResolvedBankContext_NotGlobalRuleMetadata()
+    {
+        const string source = "sfx/001.sfx.n64";
+        var bank = N64SfxCueBank.Parse(BuildBank(
+            new SyntheticRecord(0x00, 1, 2, 3, 4, 5, 1)));
+        N64SfxCueBankSource[] sources = [new(source, bank)];
+        var effectBankBinding = N64SfxCueEffectBankBindingProvenance.Create(
+            "testFixture",
+            "effects.bfx.n64",
+            [0x01, 0x02, 0x03],
+            "sounds.ptr.n64",
+            [0x04, 0x05]);
+        var globalRule = new N64CompiledSfxDynamicAliasRule(
+            1,
+            "synthetic global selector",
+            [
+                new N64CompiledSfxDynamicAliasCase("selector == 0", 0),
+                new N64CompiledSfxDynamicAliasCase("otherwise", null)
+            ]);
+        var dynamicRules = new Dictionary<uint, N64CompiledSfxDynamicAliasRule>
+        {
+            [1] = globalRule
+        };
+
+        N64CompiledSfxAliasMap BuildMap(
+            IReadOnlyDictionary<N64CompiledSfxCueContextKey, N64CompiledSfxCueContextResolution>
+                contexts) =>
+            new(
+                "synthetic build",
+                new string('A', 64),
+                0,
+                4,
+                new string('B', 64),
+                4,
+                new string('C', 64),
+                1,
+                1,
+                sizeof(ushort),
+                ushort.MaxValue,
+                ushort.MaxValue,
+                N64CompiledSfxAliasMapResolver.EffectIndexMask,
+                N64CompiledSfxAliasMapResolver.RoutingFlagsMask,
+                null,
+                [],
+                null,
+                contexts,
+                dynamicRules,
+                [0, ushort.MaxValue]);
+
+        var globalMap = BuildMap(new Dictionary<
+            N64CompiledSfxCueContextKey,
+            N64CompiledSfxCueContextResolution>());
+        Assert.Throws<ArgumentException>(() => N64SfxCueBankJsonExporter.Serialize(
+            "game.z64",
+            N64SfxCueBankJsonExporter.StrictRomStructuralScanSelection,
+            sources,
+            globalMap));
+        Assert.Throws<ArgumentException>(() => N64SfxCueBankJsonExporter.Serialize(
+            "game.z64",
+            N64SfxCueBankJsonExporter.StrictRomStructuralScanSelection,
+            sources,
+            compiledAliasMap: null,
+            effectBankBinding: effectBankBinding));
+
+        using (var global = JsonDocument.Parse(N64SfxCueBankJsonExporter.Serialize(
+                   "game.z64",
+                   N64SfxCueBankJsonExporter.StrictRomStructuralScanSelection,
+                   sources,
+                   globalMap,
+                   effectBankBinding)))
+        {
+            var root = global.RootElement;
+            Assert.Equal("partialStateDependentOutcomeNotEstablished",
+                root.GetProperty("cueMappingStatus").GetString());
+            Assert.Equal(1, root.GetProperty("dynamicOverrideCount").GetInt32());
+            Assert.Equal(1, root.GetProperty("stateDependentUnknownCount").GetInt32());
+            Assert.Equal(0, root.GetProperty("outsidePinnedTableCount").GetInt32());
+            var binding = root.GetProperty("compiledAliasMap")
+                .GetProperty("effectBankBinding");
+            Assert.Equal("testFixture", binding.GetProperty("bindingBasis").GetString());
+            Assert.Equal("effects.bfx.n64", binding.GetProperty("bfxSource").GetString());
+            Assert.Equal(3, binding.GetProperty("bfxSerializedSize").GetInt32());
+            Assert.Equal(
+                "039058C6F2C0CB492C533B0A4D14EF77CC0F78ABCCCED5287D84A1A2011CFB81",
+                binding.GetProperty("bfxSha256").GetString());
+            Assert.Equal("sounds.ptr.n64", binding.GetProperty("pointerSource").GetString());
+            Assert.Equal(2, binding.GetProperty("pointerSerializedSize").GetInt32());
+            Assert.Equal(
+                "2FA1B377BF67309F65E5E7BC9D924345CA648DEC4E601A398A9CB497DCBA3765",
+                binding.GetProperty("pointerSha256").GetString());
+
+            var resolution = root.GetProperty("banks")[0].GetProperty("records")[0]
+                .GetProperty("compiledAliasResolution");
+            Assert.Equal(N64CompiledSfxAliasMapResolver.DynamicOverrideStatus,
+                resolution.GetProperty("status").GetString());
+            var unknown = Assert.Single(
+                resolution.GetProperty("stateDependentRule").GetProperty("cases").EnumerateArray(),
+                static item => item.GetProperty("compiledTargetRaw").ValueKind == JsonValueKind.Null);
+            Assert.Equal("runtimeOutcomeNotEstablished",
+                unknown.GetProperty("outcome").GetString());
+        }
+
+        var contextualRule = new N64CompiledSfxDynamicAliasRule(
+            1,
+            "exact synthetic owner",
+            [
+                new N64CompiledSfxDynamicAliasCase("gate passes", 0),
+                new N64CompiledSfxDynamicAliasCase("gate fails", ushort.MaxValue)
+            ]);
+        var key = new N64CompiledSfxCueContextKey(source, bank.SerializedSha256, 1);
+        var contexts = new Dictionary<
+            N64CompiledSfxCueContextKey,
+            N64CompiledSfxCueContextResolution>
+        {
+            [key] = new(
+                source,
+                bank.SerializedSha256,
+                1,
+                N64CompiledSfxAliasMapResolver.ContextualOwnerBranchBasis,
+                0,
+                0,
+                null,
+                "synthetic owner state",
+                null,
+                contextualRule)
+        };
+
+        using var contextual = JsonDocument.Parse(N64SfxCueBankJsonExporter.Serialize(
+            "game.z64",
+            N64SfxCueBankJsonExporter.StrictRomStructuralScanSelection,
+            sources,
+            BuildMap(contexts),
+            effectBankBinding));
+        var contextualRoot = contextual.RootElement;
+        Assert.Equal("resolvedIncludingStateDependentChoicesAndExplicitNoTarget",
+            contextualRoot.GetProperty("cueMappingStatus").GetString());
+        Assert.Equal(1, contextualRoot.GetProperty("dynamicOverrideCount").GetInt32());
+        Assert.Equal(0, contextualRoot.GetProperty("stateDependentUnknownCount").GetInt32());
+
+        // The global fallback still contains its unknown branch; the aggregate
+        // count is intentionally based on the rule selected for this exact bank.
+        Assert.Contains(
+            contextualRoot.GetProperty("compiledAliasMap").GetProperty("stateDependentRules")[0]
+                .GetProperty("cases").EnumerateArray(),
+            static item => item.GetProperty("compiledTargetRaw").ValueKind == JsonValueKind.Null);
+        var contextualCases = contextualRoot.GetProperty("banks")[0].GetProperty("records")[0]
+            .GetProperty("compiledAliasResolution").GetProperty("stateDependentRule")
+            .GetProperty("cases").EnumerateArray().ToArray();
+        Assert.Equal(2, contextualCases.Length);
+        Assert.DoesNotContain(contextualCases,
+            static item => item.GetProperty("compiledTargetRaw").ValueKind == JsonValueKind.Null);
+        Assert.Contains(contextualCases,
+            static item => item.GetProperty("outcome").GetString() == "target" &&
+                           item.GetProperty("compiledTargetRaw").GetUInt32() == 0);
+        Assert.Contains(contextualCases,
+            static item => item.GetProperty("outcome").GetString() == "explicitNoTarget" &&
+                           item.GetProperty("compiledTargetRaw").GetUInt32() == ushort.MaxValue);
     }
 
     [Fact]

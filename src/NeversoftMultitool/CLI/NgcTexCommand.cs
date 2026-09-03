@@ -9,14 +9,15 @@ namespace NeversoftMultitool.CLI;
 
 public static class NgcTexCommand
 {
-    private static readonly string[] SupportedSuffixes = [".tex.ngc", ".img.ngc"];
+    private static readonly string[] SupportedSuffixes =
+        [".tex.stex.ngc", ".stex.ngc", ".tex.ngc", ".img.ngc"];
 
     public static Command Create()
     {
         var inputArgument = new Argument<string>("input")
         {
             Description =
-                "Path to a GameCube texture file (.tex.ngc/.img.ngc) or directory containing them"
+                "Path to a GameCube texture file (.tex.ngc/.img.ngc/.stex.ngc) or directory containing them"
         };
         var outputOption = new Option<string>("-o", "--output")
         {
@@ -28,7 +29,7 @@ public static class NgcTexCommand
             Description = "Enable verbose output"
         };
 
-        var command = new Command("ngctex", "Extract textures from GameCube TEX/IMG files to PNG");
+        var command = new Command("ngctex", "Extract textures from GameCube TEX/IMG/STEX files to PNG");
         command.Arguments.Add(inputArgument);
         command.Options.Add(outputOption);
         command.Options.Add(verboseOption);
@@ -170,6 +171,6 @@ public static class NgcTexCommand
 
     private static bool IsNgcTextureFile(string path)
     {
-        return OrdinalFileName.HasAnySuffix(Path.GetFileName(path), SupportedSuffixes);
+        return FormatProbeTexture.IsNgcTextureFileName(Path.GetFileName(path));
     }
 }

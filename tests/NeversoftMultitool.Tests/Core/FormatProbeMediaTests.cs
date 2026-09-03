@@ -153,6 +153,74 @@ public sealed class FormatProbeMediaTests
         }
     }
 
+    [Theory]
+    [InlineData(".tgr")]
+    [InlineData(".TgR")]
+    public void ProbeVideo_Thps4TgrBink_IsContentGated(string extension)
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(extension, "BIKi"u8.ToArray());
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("BIK Video (THPS4 PC)", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeVideo_NonBinkTgr_IsUnsupported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".tgr", "TGR data"u8.ToArray());
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("Bink", result.UnsupportedReason!);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Theory]
+    [InlineData(".smo")]
+    [InlineData(".SmO")]
+    public void ProbeVideo_Thps4PcSmo_IsStrictlyContentGated(string extension)
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(extension, BuildSmoProbe());
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Supported, result.Support);
+            Assert.Equal("BIK SMO Soundtrack (THPS4 PC)", result.FormatName);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ProbeVideo_GenericBinkNamedSmo_IsUnsupported()
+    {
+        var tempFile = FormatProbeTestHelper.CreateTempFile(".smo", "BIKi"u8.ToArray());
+        try
+        {
+            var result = FormatProbe.ProbeVideo(tempFile);
+            Assert.Equal(FormatProbe.FormatSupport.Unsupported, result.Support);
+            Assert.Contains("BIKi soundtrack", result.UnsupportedReason!);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
     [Fact]
     public void ProbeVideo_StrInvalidSize_Unsupported()
     {
@@ -339,6 +407,28 @@ public sealed class FormatProbeMediaTests
         writer.Write((byte)0x01);
         writer.Write((byte)0x24);
         return stream.ToArray();
+    }
+
+    private static byte[] BuildSmoProbe()
+    {
+        const int length = 128;
+        const uint frameCount = 4;
+        var data = new byte[length];
+        "BIKi"u8.CopyTo(data);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), length - 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), frameCount);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12), 16);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), frameCount);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(20), 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(28), 15);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(40), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(44), 4096);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(48), 48_000);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(50), 0x7000);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(56), 77);
+        return data;
     }
 
     private static byte[] BuildStrSector(ushort chunkCount = 1)

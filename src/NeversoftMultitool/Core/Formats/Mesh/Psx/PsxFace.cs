@@ -39,6 +39,15 @@ public sealed class PsxFace
     public uint Index2 { get; init; }
     public uint Index3 { get; init; }
     public uint NormalIndex { get; init; }
+
+    /// <summary>
+    ///     Raw per-face collision/surface flags stored immediately after the
+    ///     face normal index. This is distinct from <see cref="Flags"/>, which
+    ///     controls the PSX render primitive. The same collision word is carried
+    ///     in THPS3's RenderWare BSP per-triangle side table.
+    /// </summary>
+    public ushort CollisionFlags { get; init; }
+
     public byte R { get; init; }
     public byte G { get; init; }
     public byte B { get; init; }

@@ -152,13 +152,16 @@ internal static class ModelDocumentGeometryAdapter
         ModelTextureWrap wrapU = ModelTextureWrap.Repeat,
         ModelTextureWrap wrapV = ModelTextureWrap.Repeat,
         bool distinguishChecksumVariantsByContent = false,
-        bool nearestFilter = false)
+        bool nearestFilter = false,
+        bool distinguishChecksumVariantsByName = false)
     {
         for (var i = 0; i < document.Textures.Count; i++)
         {
             var texture = document.Textures[i];
             if (checksum.HasValue &&
                 texture.NativeChecksum == checksum &&
+                (!distinguishChecksumVariantsByName ||
+                 string.Equals(texture.Name, name, StringComparison.Ordinal)) &&
                 (!distinguishChecksumVariantsByContent ||
                  (texture.WrapU == wrapU &&
                   texture.WrapV == wrapV &&

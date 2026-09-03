@@ -1,3 +1,4 @@
+using NeversoftMultitool.Core.Formats.Audio;
 using NeversoftMultitool.Core.Formats.Vid1;
 using NeversoftMultitool.Core.Formats.Video;
 
@@ -19,17 +20,51 @@ internal static class FormatProbeVideo
                     FormatProbe.FormatSupport.Unsupported, "BIK Video", "Not a Bink stream");
         }
 
+        // THPS4 PC stores ordinary BIKi movies under an overloaded .tgr
+        // extension, so this route must remain content-gated.
+        if (OrdinalFileName.HasSuffix(name, ".tgr"))
+        {
+            return FfmpegVideoFormats.IsBink(filePath)
+                ? new FormatProbe.FormatProbeResult(FormatProbe.FormatSupport.Supported, "BIK Video (THPS4 PC)")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported, "TGR", "Not a Bink stream");
+        }
+
+        // THPS4 PC stores its soundtrack as BIKi containers with a 4x4
+        // placeholder video track. SMO is overloaded elsewhere, so admit only
+        // the exact corpus-proven carrier structure.
+        if (OrdinalFileName.HasSuffix(name, ".smo"))
+        {
+            return FfmpegVideoFormats.IsThps4PcSmo(filePath)
+                ? new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Supported,
+                    "BIK SMO Soundtrack (THPS4 PC)")
+                : new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "SMO",
+                    "Not a THPS4 PC BIKi soundtrack carrier");
+        }
+
         if (OrdinalFileName.HasSuffix(name, ".pmf"))
         {
-            // PSMF carries ATRAC3+ audio ffmpeg cannot decode, so the video
-            // converts but the soundtrack does not — partial, not supported.
-            return FfmpegVideoFormats.IsPsmf(filePath)
+            if (!FfmpegVideoFormats.IsPsmf(filePath))
+            {
+                return new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Unsupported,
+                    "PSMF Video",
+                    "Not a valid PSMF container");
+            }
+
+            // Valid private audio must pass the strict ATRAC3+ stream parser.
+            // A PSMF may also intentionally be video-only (ICON1.PMF).
+            return PsmfAudioExtractor.Probe(filePath) != null
                 ? new FormatProbe.FormatProbeResult(
+                    FormatProbe.FormatSupport.Supported,
+                    "PSMF Video (PSP)")
+                : new FormatProbe.FormatProbeResult(
                     FormatProbe.FormatSupport.PartiallySupported,
                     "PSMF Video (PSP)",
-                    "Video converts; ATRAC3+ audio is not decodable")
-                : new FormatProbe.FormatProbeResult(
-                    FormatProbe.FormatSupport.Unsupported, "PSMF Video", "Not a valid PSMF container");
+                    "Video is valid, but the private audio stream is malformed or unsupported");
         }
 
         var ext = Path.GetExtension(filePath);

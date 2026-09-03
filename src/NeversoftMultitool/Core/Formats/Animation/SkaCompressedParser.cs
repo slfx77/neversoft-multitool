@@ -8,7 +8,8 @@ internal static class SkaCompressedParser
 {
     internal static SkaAnimation ParseCompressed(
         ReadOnlySpan<byte> data, uint version, uint flags, float duration,
-        SkaCompressTable? compressTable)
+        SkaCompressTable? compressTable,
+        bool requireExactContainer = false)
     {
         const int platformHeaderOffset = 12;
         const int allocationHeaderOffset = platformHeaderOffset + 16;
@@ -20,11 +21,14 @@ internal static class SkaCompressedParser
         var off = 12;
 
         // Platform header (16 bytes): numBones, numQKeys@+4, numTKeys@+8,
-        // numCustomAnimKeys@+12 — only numBones drives the parse; the key
-        // totals are recomputed from the per-bone size tables below.
+        // numCustomAnimKeys@+12.
         var numBonesRaw = BitConverter.ToUInt32(data[off..]);
+        var numQKeysRaw = BitConverter.ToUInt32(data[(off + 4)..]);
+        var numTKeysRaw = BitConverter.ToUInt32(data[(off + 8)..]);
+        var numCustomKeys = BitConverter.ToUInt32(data[(off + 12)..]);
         var sizeTablesEnd = (long)sizeTablesOffset + 4L * numBonesRaw;
-        if (numBonesRaw > int.MaxValue || sizeTablesEnd > data.Length)
+        if (numBonesRaw > int.MaxValue || numQKeysRaw > int.MaxValue ||
+            numTKeysRaw > int.MaxValue || sizeTablesEnd > data.Length)
         {
             throw new InvalidDataException(
                 $"SKA compressed: {numBonesRaw}-bone Q/T size tables overrun file");
@@ -61,16 +65,18 @@ internal static class SkaCompressedParser
 
         var qSizeTotal = perBoneQSize.Sum(static size => (long)size);
         var tSizeTotal = perBoneTSize.Sum(static size => (long)size);
-        if (qSizeTotal > qAllocSize)
+        if (qSizeTotal > qAllocSize || requireExactContainer && qSizeTotal != qAllocSize)
         {
             throw new InvalidDataException(
-                $"SKA compressed: Q size table totals {qSizeTotal} bytes, exceeding declared allocation {qAllocSize}");
+                $"SKA compressed: Q size table totals {qSizeTotal} bytes, " +
+                $"not compatible with declared allocation {qAllocSize}");
         }
 
-        if (tSizeTotal > tAllocSize)
+        if (tSizeTotal > tAllocSize || requireExactContainer && tSizeTotal != tAllocSize)
         {
             throw new InvalidDataException(
-                $"SKA compressed: T size table totals {tSizeTotal} bytes, exceeding declared allocation {tAllocSize}");
+                $"SKA compressed: T size table totals {tSizeTotal} bytes, " +
+                $"not compatible with declared allocation {tAllocSize}");
         }
 
         var streamsEnd = (long)off + qAllocSize + tAllocSize;
@@ -91,6 +97,8 @@ internal static class SkaCompressedParser
         var tracks = new SkaBoneTrack[numBones];
         var qOff = qDataStart;
         var tOff = tDataStart;
+        long decodedQKeys = 0;
+        long decodedTKeys = 0;
 
         for (var bone = 0; bone < numBones; bone++)
         {
@@ -99,6 +107,8 @@ internal static class SkaCompressedParser
 
             var tEnd = tOff + perBoneTSize[bone];
             var transKeys = SkaCompressedKeyDecoders.DecodeCompressedTKeys(data, ref tOff, tEnd, compressTable);
+            decodedQKeys += rotKeys.Length;
+            decodedTKeys += transKeys.Length;
 
             tracks[bone] = new SkaBoneTrack
             {
@@ -108,12 +118,32 @@ internal static class SkaCompressedParser
             };
         }
 
+        if (requireExactContainer && (qOff != qDataEnd || tOff != streamsEnd))
+            throw new InvalidDataException("SKA compressed: per-bone sizes did not consume the declared Q/T streams");
+
+        if (requireExactContainer && decodedQKeys != numQKeysRaw)
+        {
+            throw new InvalidDataException(
+                $"SKA compressed: decoded {decodedQKeys} Q keys, not the declared {numQKeysRaw}");
+        }
+
+        if (requireExactContainer && decodedTKeys != numTKeysRaw)
+        {
+            throw new InvalidDataException(
+                $"SKA compressed: decoded {decodedTKeys} T keys, not the declared {numTKeysRaw}");
+        }
+
+        var customKeys = SkaCustomKeyParser.ParseLittleEndianExact(
+            data, checked((int)streamsEnd), numCustomKeys, "SKA compressed",
+            allowTerminalAlignmentPadding: !requireExactContainer);
+
         return new SkaAnimation
         {
             Version = version,
             Flags = flags,
             Duration = duration,
-            BoneTracks = tracks
+            BoneTracks = tracks,
+            CustomKeys = customKeys
         };
     }
 }

@@ -1,5 +1,9 @@
 using System.Buffers.Binary;
 using NeversoftMultitool.Core.Formats.Rle;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Gif;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Rle;
 
@@ -72,6 +76,10 @@ public class BitmapFileTests(TestPaths paths)
     [Theory]
     [InlineData("foo.bmp", true)]
     [InlineData("FOO.TGA", true)]
+    [InlineData("foo.png", true)]
+    [InlineData("FOO.JPG", true)]
+    [InlineData("foo.jpeg", true)]
+    [InlineData("FOO.GIF", true)]
     [InlineData("foo.rle", false)]
     [InlineData("foo.bmr", false)]
     [InlineData("foo.zlb", false)]
@@ -88,6 +96,75 @@ public class BitmapFileTests(TestPaths paths)
         // (magic check), not the ImageSharp path.
         var result = BitmapFile.Convert([0x00, 0x01, 0x02, 0x03], "garbage.rle");
         Assert.False(result.Success);
+    }
+
+    [Theory]
+    [InlineData("image.png")]
+    [InlineData("image.jpg")]
+    [InlineData("image.jpeg")]
+    [InlineData("image.gif")]
+    public void Convert_StandardWebImage_DecodesWithExtensionSpecificDecoder(string name)
+    {
+        var data = EncodeStandardImage(name);
+
+        Assert.Equal(2, BitmapFile.DetectWidth(data, name));
+        var result = BitmapFile.Convert(data, name);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(2, result.Width);
+        Assert.Equal(1, result.Height);
+        Assert.Equal(8, result.RgbaPixels!.Length);
+    }
+
+    [Fact]
+    public void Convert_MislabeledStandardWebImage_FailsClosed()
+    {
+        var png = EncodeStandardImage("image.png");
+
+        Assert.Equal(0, BitmapFile.DetectWidth(png, "image.jpg"));
+        Assert.False(BitmapFile.Convert(png, "image.jpg").Success);
+    }
+
+    [CorpusFact]
+    public void Convert_AllNonEmptyStandardWebImagesAndRejectsEmptyCorpusRecords()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+
+        var files = Directory.EnumerateDirectories(paths.SampleBuildsDir!)
+            .Where(static build => !Path.GetFileName(build).Contains(", GBA -", StringComparison.OrdinalIgnoreCase))
+            .SelectMany(static build => new[] { "*.png", "*.jpg", "*.jpeg", "*.gif" }
+                .SelectMany(pattern => Directory.EnumerateFiles(build, pattern, SearchOption.AllDirectories)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Assert.Equal(4_477, files.Length);
+        var failures = new List<string>();
+        var emptyRejected = 0;
+        foreach (var file in files)
+        {
+            var data = File.ReadAllBytes(file);
+            var result = BitmapFile.Convert(data, file);
+            if (data.Length == 0)
+            {
+                if (!result.Success && BitmapFile.DetectWidth(data, file) == 0)
+                    emptyRejected++;
+                else
+                    failures.Add($"{Path.GetRelativePath(paths.SampleBuildsDir!, file)}: empty file was accepted");
+                continue;
+            }
+
+            if (!result.Success || result.Width <= 0 || result.Height <= 0
+                || BitmapFile.DetectWidth(data, file) != result.Width)
+            {
+                failures.Add($"{Path.GetRelativePath(paths.SampleBuildsDir!, file)}: " +
+                             (result.ErrorMessage ?? $"invalid {result.Width}x{result.Height} result"));
+            }
+        }
+
+        Assert.Equal(22, emptyRejected);
+        Assert.True(failures.Count == 0,
+            $"Failed {failures.Count}/{files.Length}: {string.Join(" | ", failures.Take(20))}");
     }
 
     [Fact]
@@ -149,5 +226,18 @@ public class BitmapFileTests(TestPaths paths)
         BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(48), 0xF801);
         data[50] = 0;
         return data;
+    }
+
+    private static byte[] EncodeStandardImage(string name)
+    {
+        using var image = new Image<Rgba32>(2, 1, new Rgba32(20, 40, 60, 128));
+        using var stream = new MemoryStream();
+        if (name.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            image.SaveAsPng(stream);
+        else if (name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+            image.Save(stream, new GifEncoder());
+        else
+            image.Save(stream, new JpegEncoder());
+        return stream.ToArray();
     }
 }

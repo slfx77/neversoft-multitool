@@ -19,9 +19,11 @@ public class PspImgFileTests(TestPaths paths)
 {
     private const string RemixBuild = "Tony Hawk's Underground 2 Remix (2005-2-15, PSP - Final)";
     private const string Thug2XboxBuild = "Tony Hawk's Underground 2 (2004-10-4, Xbox - Final)";
+    private const string Project8FinalBuild = "Tony Hawk's Project 8 (2006-10-14, PSP - Final)";
+    private const string Project8Rev1Build = "Tony Hawk's Project 8 (2007-2-16, PSP - Rev1)";
 
     [Fact]
-    public void IsPspImg_RequiresVersion2AndBuildWord()
+    public void IsPspImg_RequiresAShippedVersionAndBuildWordPair()
     {
         var header = new byte[32];
         BitConverter.GetBytes(2u).CopyTo(header, 0);
@@ -33,9 +35,40 @@ public class PspImgFileTests(TestPaths paths)
 
         BitConverter.GetBytes(PspImgFile.PspBuildWord).CopyTo(header, 4);
         BitConverter.GetBytes(4u).CopyTo(header, 0);
-        Assert.False(PspImgFile.IsPspImg(header)); // P8 PSP v4 family
+        BitConverter.GetBytes(PspImgFile.Project8FinalBuildWord).CopyTo(header, 4);
+        Assert.True(PspImgFile.IsPspImg(header));
+
+        BitConverter.GetBytes(PspImgFile.Project8Rev1BuildWord).CopyTo(header, 4);
+        Assert.True(PspImgFile.IsPspImg(header));
+
+        BitConverter.GetBytes(0xDEADBEEFu).CopyTo(header, 4);
+        Assert.False(PspImgFile.IsPspImg(header));
+
+        BitConverter.GetBytes(PspImgFile.Project8FinalBuildWord).CopyTo(header, 4);
+        BitConverter.GetBytes(3u).CopyTo(header, 0);
+        Assert.False(PspImgFile.IsPspImg(header));
 
         Assert.False(PspImgFile.IsPspImg(header.AsSpan(0, 16))); // truncated
+    }
+
+    [Fact]
+    public void Parse_OversizedLogicalDimensions_FailsWithoutThrowing()
+    {
+        var data = new byte[32];
+        BitConverter.GetBytes(4u).CopyTo(data, 0);
+        BitConverter.GetBytes(PspImgFile.Project8FinalBuildWord).CopyTo(data, 4);
+        BitConverter.GetBytes(12u).CopyTo(data, 8);
+        BitConverter.GetBytes(12u).CopyTo(data, 12);
+        BitConverter.GetBytes(0u).CopyTo(data, 16);
+        BitConverter.GetBytes((ushort)32768).CopyTo(data, 28);
+        BitConverter.GetBytes((ushort)32768).CopyTo(data, 30);
+
+        var exception = Record.Exception(() => PspImgFile.Parse(data));
+
+        Assert.Null(exception);
+        var result = PspImgFile.Parse(data);
+        Assert.False(result.Success);
+        Assert.Contains("dimensions", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -158,6 +191,69 @@ public class PspImgFileTests(TestPaths paths)
 
         Assert.True(viaDispatch.Success, viaDispatch.ErrorMessage);
         Assert.True(direct.Success, direct.ErrorMessage);
+        Assert.Equal(direct.Textures[0].Pixels, viaDispatch.Textures[0].Pixels);
+    }
+
+    [CorpusTheory]
+    [InlineData(Project8FinalBuild, PspImgFile.Project8FinalBuildWord)]
+    [InlineData(Project8Rev1Build, PspImgFile.Project8Rev1BuildWord)]
+    public void Parse_AllProject8ImgPsp_DecodeCleanly(string build, uint expectedBuildWord)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var root = Path.Combine(paths.SampleBuildsDir!, build, "PSP_GAME", "USRDIR", "datap");
+        Assert.SkipWhen(!Directory.Exists(root), $"{build} not present");
+        var files = Directory.EnumerateFiles(root, "*.img.psp", SearchOption.AllDirectories)
+            .OrderBy(static file => file, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(3141, files.Length);
+
+        foreach (var file in files)
+        {
+            var data = File.ReadAllBytes(file);
+            Assert.Equal(4u, BitConverter.ToUInt32(data, 0));
+            Assert.Equal(expectedBuildWord, BitConverter.ToUInt32(data, 4));
+            Assert.True(PspImgFile.IsPspImg(data), $"Discriminator rejected {file}");
+            var result = PspImgFile.Parse(data);
+            Assert.True(result.Success, $"{file}: {result.ErrorMessage}");
+            Assert.NotNull(Assert.Single(result.Textures).Pixels);
+        }
+    }
+
+    [CorpusTheory]
+    [InlineData(Project8FinalBuild)]
+    [InlineData(Project8Rev1Build)]
+    public void Parse_Project8PaddedLinearTitleBar_MatchesPinnedPs2Pixels(string build)
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var path = Path.Combine(
+            paths.SampleBuildsDir!, build,
+            "PSP_GAME", "USRDIR", "datap", "images", "titlebar_x360.img.psp");
+        Assert.SkipWhen(!File.Exists(path), $"{build} titlebar_x360.img.psp not present");
+
+        var result = PspImgFile.Parse(File.ReadAllBytes(path));
+
+        Assert.True(result.Success, result.ErrorMessage);
+        var texture = Assert.Single(result.Textures);
+        Assert.Equal((420, 95), (texture.Width, texture.Height));
+        Assert.Equal(
+            "B2225B3960B6CE1728E2655F2581498D3BAAF06CFB2CBF2C283F17A0BD85E5BA",
+            Convert.ToHexString(SHA256.HashData(texture.Pixels!)));
+    }
+
+    [CorpusFact]
+    public void Ps2TexFile_Version4Dispatch_RoutesProject8PspImgByBuildWord()
+    {
+        Assert.SkipWhen(!paths.HasSampleBuilds, "Sample builds not available");
+        var path = Path.Combine(
+            paths.SampleBuildsDir!, Project8FinalBuild,
+            "PSP_GAME", "USRDIR", "datap", "images", "videophone_s.img.psp");
+        Assert.SkipWhen(!File.Exists(path), "Project 8 PSP videophone fixture not present");
+
+        var direct = PspImgFile.Parse(File.ReadAllBytes(path));
+        var viaDispatch = NeversoftMultitool.Core.Formats.Texture.Ps2.Ps2TexFile.Parse(path);
+
+        Assert.True(direct.Success, direct.ErrorMessage);
+        Assert.True(viaDispatch.Success, viaDispatch.ErrorMessage);
         Assert.Equal(direct.Textures[0].Pixels, viaDispatch.Textures[0].Pixels);
     }
 }

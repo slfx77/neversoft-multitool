@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using NeversoftMultitool.CLI;
 using NeversoftMultitool.Core.Formats.Video;
 
@@ -14,11 +15,15 @@ namespace NeversoftMultitool.Tests.Core.Formats.Video;
 /// </summary>
 public sealed class FfmpegVideoFormatsTests : IDisposable
 {
+    private const string Thps4PcBuild = "Tony Hawk's Pro Skater 4 (2003-7-18, PC - Final)";
+
+    private readonly TestPaths _paths;
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "nmt-ffmpeg-video-" + Guid.NewGuid().ToString("N"));
 
-    public FfmpegVideoFormatsTests()
+    public FfmpegVideoFormatsTests(TestPaths paths)
     {
+        _paths = paths;
         Directory.CreateDirectory(_root);
     }
 
@@ -44,6 +49,110 @@ public sealed class FfmpegVideoFormatsTests : IDisposable
         Assert.False(FfmpegVideoFormats.IsFfmpegVideo(notBink));
     }
 
+    [Fact]
+    public void IsFfmpegVideo_Tgr_RequiresBinkMagic()
+    {
+        var bink = Write("movie.TgR", Bink(64));
+        var notBink = Write("script.tgr", new byte[64]);
+        var disguisedPsmf = Write(
+            "psmf.tgr",
+            Psmf(headerSize: 16, streamSize: 16, totalLength: 32));
+
+        Assert.True(FfmpegVideoFormats.IsFfmpegVideo(bink));
+        Assert.False(FfmpegVideoFormats.IsFfmpegVideo(notBink));
+        Assert.False(FfmpegVideoFormats.IsFfmpegVideo(disguisedPsmf));
+    }
+
+    [Fact]
+    public void IsFfmpegVideo_Smo_RequiresExactThps4PcCarrierStructure()
+    {
+        var valid = Write("music.SmO", Smo());
+        var genericBink = Write("movie.smo", Bink(128));
+        var wrongRevision = Smo();
+        wrongRevision[3] = (byte)'k';
+        var wrongRevisionPath = Write("revision.smo", wrongRevision);
+        var wrongSize = Smo();
+        BinaryPrimitives.WriteUInt32LittleEndian(wrongSize.AsSpan(4), 12);
+        var wrongSizePath = Write("size.smo", wrongSize);
+        var wrongShape = Smo();
+        BinaryPrimitives.WriteUInt32LittleEndian(wrongShape.AsSpan(20), 640);
+        var wrongShapePath = Write("shape.smo", wrongShape);
+
+        Assert.True(FfmpegVideoFormats.IsFfmpegVideo(valid));
+        Assert.True(FfmpegVideoFormats.IsThps4PcSmo(File.ReadAllBytes(valid)));
+        Assert.False(FfmpegVideoFormats.IsFfmpegVideo(genericBink));
+        Assert.False(FfmpegVideoFormats.IsFfmpegVideo(wrongRevisionPath));
+        Assert.False(FfmpegVideoFormats.IsFfmpegVideo(wrongSizePath));
+        Assert.False(FfmpegVideoFormats.IsFfmpegVideo(wrongShapePath));
+    }
+
+    [Fact]
+    public void IsFfmpegVideo_PpvAndVlcRemainOutOfScopeEvenWithSmoPayload()
+    {
+        var ppv = Write("foreign.ppv", Smo());
+        var vlc = Write("foreign.vlc", Smo());
+
+        Assert.False(FfmpegVideoFormats.IsFfmpegVideo(ppv));
+        Assert.False(FfmpegVideoFormats.IsFfmpegVideo(vlc));
+    }
+
+    [Theory]
+    [InlineData("BIKb")]
+    [InlineData("BIKf")]
+    [InlineData("BIKg")]
+    [InlineData("BIKh")]
+    [InlineData("BIKi")]
+    [InlineData("BIKk")]
+    [InlineData("KB2a")]
+    [InlineData("KB2d")]
+    [InlineData("KB2f")]
+    [InlineData("KB2g")]
+    [InlineData("KB2h")]
+    [InlineData("KB2i")]
+    [InlineData("KB2j")]
+    [InlineData("KB2k")]
+    public void IsBink_AcceptsEveryFfmpegFourCcRevision(string fourCc)
+    {
+        Assert.True(FfmpegVideoFormats.IsBink(System.Text.Encoding.ASCII.GetBytes(fourCc)));
+    }
+
+    [Theory]
+    [InlineData("BIKx")]
+    [InlineData("BIK0")]
+    [InlineData("KB2b")]
+    [InlineData("KB2z")]
+    [InlineData("biki")]
+    public void IsBink_RejectsThreeBytePrefixWithUnknownRevision(string fourCc)
+    {
+        Assert.False(FfmpegVideoFormats.IsBink(System.Text.Encoding.ASCII.GetBytes(fourCc)));
+    }
+
+    [CorpusFact]
+    public void Thps4Pc_AllTgrMoviesAreContentGatedBink()
+    {
+        var files = _paths.FindSampleFiles(Thps4PcBuild, "*.tgr").ToArray();
+        Assert.Equal(27, files.Length);
+
+        foreach (var file in files)
+        {
+            Assert.True(FfmpegVideoFormats.IsBink(file), Path.GetFileName(file));
+            Assert.True(FfmpegVideoFormats.IsFfmpegVideo(file), Path.GetFileName(file));
+        }
+    }
+
+    [CorpusFact]
+    public void Thps4Pc_AllSmoSoundtracksUseStrictBikiCarrierRoute()
+    {
+        var files = _paths.FindSampleFiles(Thps4PcBuild, "*.smo").ToArray();
+        Assert.Equal(47, files.Length);
+
+        foreach (var file in files)
+        {
+            Assert.True(FfmpegVideoFormats.IsThps4PcSmo(file), Path.GetFileName(file));
+            Assert.True(FfmpegVideoFormats.IsFfmpegVideo(file), Path.GetFileName(file));
+        }
+    }
+
     /// <summary>
     ///     PSMF's own size identity (headerSize + streamSize == file length) is
     ///     exact for 334/334 corpus files with zero false positives across
@@ -57,7 +166,9 @@ public sealed class FfmpegVideoFormatsTests : IDisposable
         var notPsmf = Write("plain.pmf", new byte[32]);
 
         Assert.True(FfmpegVideoFormats.IsFfmpegVideo(valid));
+        Assert.True(FfmpegVideoFormats.IsPsmf(File.ReadAllBytes(valid)));
         Assert.False(FfmpegVideoFormats.IsFfmpegVideo(wrongIdentity));
+        Assert.False(FfmpegVideoFormats.IsPsmf(File.ReadAllBytes(wrongIdentity)));
         Assert.False(FfmpegVideoFormats.IsFfmpegVideo(notPsmf));
     }
 
@@ -77,6 +188,8 @@ public sealed class FfmpegVideoFormatsTests : IDisposable
     [InlineData("CREDITS.BIK.XEN", "CREDITS")]
     [InlineData("credits.bik", "credits")]
     [InlineData("movie.pmf", "movie")]
+    [InlineData("data001.tgr", "data001")]
+    [InlineData("ACDC.smo", "ACDC")]
     [InlineData("clip.sfd", "clip")]
     public void GetOutputStem_StripsTheWholeCompoundSuffix(string fileName, string expected)
     {
@@ -105,20 +218,16 @@ public sealed class FfmpegVideoFormatsTests : IDisposable
     {
         var bink = Write("movie.bik.xen", Bink(64));
         var junk = Write("junk.bik.xen", new byte[64]);
+        var tgr = Write("data001.tgr", Bink(64));
+        var nonBinkTgr = Write("goals.tgr", new byte[64]);
+        var smo = Write("music.smo", Smo());
+        var nonBinkSmo = Write("mesh.smo", new byte[128]);
         var legacy = Path.Combine(_root, "legacy.bik");
 
-        var selected = SfdCommand.SelectCandidatePaths([bink, junk, legacy]);
+        var selected = SfdCommand.SelectCandidatePaths(
+            [bink, junk, tgr, nonBinkTgr, smo, nonBinkSmo, legacy]);
 
-        Assert.Equal([bink, legacy], selected);
-    }
-
-    [Fact]
-    public void IsAudioUndecodable_OnlyPmf()
-    {
-        // PSP PSMF audio is ATRAC3+ in a private stream that ffmpeg cannot
-        // decode, so those convert video-only instead of failing the file.
-        Assert.True(FfmpegVideoFormats.IsAudioUndecodable(Path.Combine("in", "a.pmf")));
-        Assert.False(FfmpegVideoFormats.IsAudioUndecodable(Path.Combine("in", "a.bik.xen")));
+        Assert.Equal([bink, tgr, smo, legacy], selected);
     }
 
     private string Write(string name, byte[] content)
@@ -132,6 +241,35 @@ public sealed class FfmpegVideoFormatsTests : IDisposable
     {
         var data = new byte[length];
         "BIKi"u8.CopyTo(data);
+        return data;
+    }
+
+    private static byte[] Smo()
+    {
+        const int length = 128;
+        const uint frameCount = 4;
+        var data = new byte[length];
+        "BIKi"u8.CopyTo(data);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(4), length - 8);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(8), frameCount);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(12), 16);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(16), frameCount);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(20), 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(24), 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(28), 15);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(32), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(40), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(44), 4096);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(48), 48_000);
+        BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(50), 0x7000);
+
+        // 44-byte fixed header + 12 bytes of one-track metadata + five
+        // frame-offset words. Low bit marks the first frame as a key frame.
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(56), 77);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(60), 88);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(64), 100);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(68), 112);
+        BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(72), length);
         return data;
     }
 

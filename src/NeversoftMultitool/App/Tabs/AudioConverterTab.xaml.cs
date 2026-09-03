@@ -209,7 +209,45 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
                 var current = pending.Dequeue();
                 foreach (var archiveEntry in current.Entries)
                 {
-                    if (AudioConverterTabOperations.IsAudioFile(archiveEntry.Name))
+                    var source = new ArchiveAssetSource(current, archiveEntry);
+                    var extension = Path.GetExtension(archiveEntry.Name);
+                    var needsContentProbe = extension.Equals(
+                                                ".dee", StringComparison.OrdinalIgnoreCase)
+                                            || extension.Equals(
+                                                ".smo", StringComparison.OrdinalIgnoreCase)
+                                            || extension.Equals(
+                                                ".pmf", StringComparison.OrdinalIgnoreCase)
+                                            || LatePlatformAudio.HasSupportedFileName(
+                                                archiveEntry.Name);
+                    var isNamedAudio = false;
+                    try
+                    {
+                        // Overloaded names and compound suffixes must prove their
+                        // complete carrier structure before entering the tab.
+                        isNamedAudio = AudioConverterTabOperations.IsAudioFile(
+                            archiveEntry.Name,
+                            needsContentProbe ? source.ReadBytes() : null);
+                    }
+                    catch when (needsContentProbe)
+                    {
+                        // One unreadable strict candidate cannot abort the scan.
+                    }
+                    var isHeaderlessAudio = false;
+                    if (!isNamedAudio && string.IsNullOrEmpty(Path.GetExtension(archiveEntry.Name)))
+                    {
+                        try
+                        {
+                            isHeaderlessAudio = AudioConverterTabOperations.IsWiiDspAudioData(
+                                source.ReadBytes());
+                        }
+                        catch
+                        {
+                            // An unreadable extensionless entry is neither audio nor a reason
+                            // to abort the rest of the archive scan.
+                        }
+                    }
+
+                    if (isNamedAudio || isHeaderlessAudio)
                     {
                         var entryPath = archiveEntry.FullName;
                         assets.Add(new AudioScanAsset(
@@ -217,7 +255,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
                             EntryLeaf(entryPath),
                             $"{current.DisplayPath}::{entryPath}",
                             archiveEntry.Size,
-                            new ArchiveAssetSource(current, archiveEntry)));
+                            source));
                         continue;
                     }
 
@@ -263,7 +301,7 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
         // A bank has no truthful aggregate timeline; its independent child
         // durations resolve lazily when the bank is expanded.
         var entries = _parentFiles
-            .Where(static parent => parent.AudioFormat is not ("VAB" or "KAT"))
+            .Where(static parent => parent.AudioFormat is not ("VAB" or "KAT" or "FSB3" or "THAW XMA"))
             .ToList();
         if (entries.Count == 0) return;
 
@@ -390,7 +428,13 @@ public sealed partial class AudioConverterTab : UserControl, IDisposable
             entries.Add(new AudioFileEntry
             {
                 FileName = asset.FileName,
-                AudioFormat = AudioConverterTabOperations.DetectFormat(extension),
+                AudioFormat = AudioConverterTabOperations.DetectFormat(
+                    asset.FileName,
+                    string.IsNullOrEmpty(extension)
+                    || extension is ".dee" or ".smo"
+                    || LatePlatformAudio.HasSupportedFileName(asset.FileName)
+                        ? asset.Source.ReadBytes()
+                        : null),
                 Source = asset.Source,
                 RelativePath = asset.RelativePath,
                 Size = asset.Size,

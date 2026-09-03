@@ -3,10 +3,10 @@ using System.Buffers.Binary;
 namespace NeversoftMultitool.Core.Formats.Texture.Psp;
 
 /// <summary>
-///     Parses THUG2 Remix PSP single-texture IMG files (.img.psp) — the v2 IMG
-///     family re-encoded for the PSP GE. Same 32-byte header as the PS2 v2
-///     layout, discriminated by the constant 0x0012FC7C at +4 (present in all
-///     4,515 Remix files, absent from all 12,558 PS2 v2 files measured).
+///     Parses THUG2 Remix and Project 8 PSP single-texture IMG files (.img.psp).
+///     Both use the same 32-byte PSP GE payload layout; Remix identifies it with
+///     version 2 plus 0x0012FC7C at +4, while Project 8 uses version 4 and one
+///     build word per retail revision.
 ///     Differences from PS2 v2, each proven by a pixel-exact sweep against the
 ///     PS2/Xbox siblings (926/926 comparable twins exact, plus the three
 ///     VRAM-padded swizzled files exact against their Xbox twins):
@@ -26,42 +26,80 @@ public static class PspImgFile
     /// <summary>Constant at header +4 in every Remix PSP IMG; never present in PS2 v2 files.</summary>
     public const uint PspBuildWord = 0x0012FC7C;
 
+    /// <summary>Project 8 PSP final-build word (<c>"seSV"</c> in file order).</summary>
+    public const uint Project8FinalBuildWord = 0x56536573;
+
+    /// <summary>Project 8 PSP Rev1 build word.</summary>
+    public const uint Project8Rev1BuildWord = 0x5C3A433B;
+
     private const uint GeSwizzledFlag = 0x00100000;
     private const uint PsmCt32 = 0x00;
     private const uint PsmT8 = 0x13;
     private const uint PsmT4 = 0x14;
 
     /// <summary>
-    ///     Returns true when the bytes carry the PSP v2 IMG discriminator
-    ///     (version 2 + the PSP build word at +4).
+    ///     Returns true when the bytes carry one of the shipped PSP IMG
+    ///     version/build-word pairs.
     /// </summary>
     public static bool IsPspImg(ReadOnlySpan<byte> data)
     {
-        return data.Length >= 32
-               && BinaryPrimitives.ReadUInt32LittleEndian(data) == 2
-               && BinaryPrimitives.ReadUInt32LittleEndian(data[4..]) == PspBuildWord;
+        if (data.Length < 32)
+            return false;
+
+        var version = BinaryPrimitives.ReadUInt32LittleEndian(data);
+        var buildWord = BinaryPrimitives.ReadUInt32LittleEndian(data[4..]);
+        return version == 2 && buildWord == PspBuildWord
+               || version == 4
+               && buildWord is Project8FinalBuildWord or Project8Rev1BuildWord;
     }
 
     public static Ps2TexResult Parse(byte[] data)
+    {
+        try
+        {
+            return ParseCore(data);
+        }
+        catch (Exception ex) when (ex is ArgumentException or ArithmeticException
+                                   or IndexOutOfRangeException)
+        {
+            return Ps2TexResult.Fail($"Invalid PSP IMG: {ex.Message}");
+        }
+    }
+
+    private static Ps2TexResult ParseCore(byte[] data)
     {
         if (data.Length < 32)
             return Ps2TexResult.Fail("PSP IMG header is truncated");
 
         var version = BitConverter.ToUInt32(data, 0);
         var buildWord = BitConverter.ToUInt32(data, 4);
-        if (version != 2 || buildWord != PspBuildWord)
-            return Ps2TexResult.Fail($"Not a PSP v2 IMG (version {version}, word 0x{buildWord:X8})");
+        if (!IsPspImg(data))
+            return Ps2TexResult.Fail($"Not a supported PSP IMG (version {version}, word 0x{buildWord:X8})");
 
-        var tw = (int)BitConverter.ToUInt32(data, 8);
-        var th = (int)BitConverter.ToUInt32(data, 12);
+        var isProject8 = version == 4;
+
+        var rawTw = BitConverter.ToUInt32(data, 8);
+        var rawTh = BitConverter.ToUInt32(data, 12);
+        if (rawTw > 12 || rawTh > 12)
+            return Ps2TexResult.Fail($"Implausible PSP IMG storage exponents {rawTw},{rawTh}");
+
+        var tw = (int)rawTw;
+        var th = (int)rawTh;
+        var storageWidth = 1 << tw;
+        var storageHeight = 1 << th;
         var psm = BitConverter.ToUInt32(data, 16);
         var cpsm = BitConverter.ToUInt32(data, 20);
         var flags = BitConverter.ToUInt32(data, 24);
         int width = BitConverter.ToUInt16(data, 28);
         int height = BitConverter.ToUInt16(data, 30);
-        if (width == 0) width = 1 << tw;
-        if (height == 0) height = 1 << th;
-        if (tw > 12 || th > 12 || width <= 0 || height <= 0)
+        if (width == 0) width = storageWidth;
+        if (height == 0) height = storageHeight;
+        // Logical art can be wider than the exponent-derived GE surface width
+        // (the shipped 3,240-pixel font strips are the important example), so
+        // do not compare those fields directly. Bound the authored dimensions
+        // independently before doing any row/output-size arithmetic.
+        if (width <= 0 || height <= 0 || width > 8_192 || height > 8_192
+            || (long)width * height * 4 > Array.MaxLength)
             return Ps2TexResult.Fail($"Implausible PSP IMG dimensions {width}x{height} (tw={tw}, th={th})");
 
         var bpp = psm switch
@@ -112,10 +150,10 @@ public static class PspImgFile
             return Ps2TexResult.Fail("PSP IMG pixel region is missing");
         var available = data.Length - pixelOffset;
 
-        var tightRow = (width * bpp + 7) / 8;
-        var tightBytes = tightRow * height;
-        var vramRow = (1 << tw) * bpp / 8;
-        var vramBytes = vramRow * (1 << th);
+        var tightRow = checked((width * bpp + 7) / 8);
+        var tightBytes = checked(tightRow * height);
+        var vramRow = checked(storageWidth * bpp / 8);
+        var vramBytes = checked(vramRow * storageHeight);
 
         byte[] tightPixels;
         if (flags == GeSwizzledFlag)
@@ -131,7 +169,7 @@ public static class PspImgFile
             else if (vramRow >= 16 && th >= 3 && available == vramBytes)
             {
                 // POT VRAM buffer: unswizzle at the VRAM stride, art = last tight bytes.
-                var linear = GeUnswizzle(data.AsSpan(pixelOffset, available), vramRow, 1 << th);
+                var linear = GeUnswizzle(data.AsSpan(pixelOffset, available), vramRow, storageHeight);
                 tightPixels = linear[^tightBytes..];
             }
             else
@@ -146,6 +184,23 @@ public static class PspImgFile
             if (available == tightBytes)
             {
                 tightPixels = data[pixelOffset..];
+            }
+            else if (isProject8)
+            {
+                // Project 8's titlebar_x360 is a linear surface padded to a
+                // 16-pixel width and 8-row height. It is the sole padded-linear
+                // identity in each 3,141-file retail revision and matches the
+                // PS2 sibling byte-for-byte after stripping this padding.
+                var paddedStride = (Align(width, 16) * bpp + 7) / 8;
+                var paddedRows = Align(height, 8);
+                if (available == paddedStride * paddedRows)
+                    tightPixels = ExtractRows(data[pixelOffset..], paddedStride, tightRow, height, 0);
+                else if (available == vramBytes && vramBytes > tightBytes)
+                    tightPixels = data[^tightBytes..];
+                else
+                    return Ps2TexResult.Fail(
+                        $"PSP IMG linear pixel region ({available} bytes) matches neither the tight " +
+                        $"({tightBytes}), padded ({paddedStride * paddedRows}) nor VRAM ({vramBytes}) identity");
             }
             else if (available == vramBytes && vramBytes > tightBytes)
             {
@@ -164,7 +219,7 @@ public static class PspImgFile
         }
 
         // Rows are stored top-down; PSMT4 packs the left pixel in the low nibble.
-        var rgba = new byte[width * height * 4];
+        var rgba = new byte[checked(width * height * 4)];
         for (var y = 0; y < height; y++)
         {
             var rowStart = y * tightRow;
@@ -198,7 +253,7 @@ public static class PspImgFile
 
     private static int Align(int value, int alignment)
     {
-        return (value + alignment - 1) & ~(alignment - 1);
+        return checked((value + alignment - 1) & ~(alignment - 1));
     }
 
     /// <summary>
@@ -207,7 +262,7 @@ public static class PspImgFile
     /// </summary>
     private static byte[] GeUnswizzle(ReadOnlySpan<byte> swizzled, int stride, int rows)
     {
-        var output = new byte[stride * rows];
+        var output = new byte[checked(stride * rows)];
         var source = 0;
         for (var blockY = 0; blockY < rows; blockY += 8)
         for (var blockX = 0; blockX < stride; blockX += 16)
@@ -224,7 +279,7 @@ public static class PspImgFile
 
     private static byte[] ExtractRows(byte[] buffer, int stride, int rowBytes, int rows, int firstRow)
     {
-        var output = new byte[rowBytes * rows];
+        var output = new byte[checked(rowBytes * rows)];
         for (var y = 0; y < rows; y++)
             Array.Copy(buffer, (firstRow + y) * stride, output, y * rowBytes, rowBytes);
         return output;
