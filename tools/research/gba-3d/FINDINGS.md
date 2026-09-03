@@ -1632,6 +1632,62 @@ and the median distance to the nearest centre-line point is 71.2 units against a
 control median of 1,607-8,613. There is **no along-track distance field** — the
 ordering is carried by the referencing chunk index, not by anything in the record.
 
+## MEASURED (2026-09-03): three follow-ups after the THPS3 rider shipped
+
+### THPS3's rider texture page is assembled at runtime
+
+The page the textured rasterizer reads is IWRAM `0x03004880` in the retained
+frame-8400 capture: 4,096 bytes, exactly 128 distinct values, 99.8% of them in
+`{0} ∪ [128, 255]`, and it holds every one of the 78 palette indices the live
+sprite uses (the only other windows that do are the raster buffer `0x030057E0` and
+its VRAM copy). Rendered through the live OBJ palette it is unmistakably the
+skater's skin atlas — face, white shirt with a logo, jeans, red sleeves/shoes.
+Neither the page nor the page minus the 128 palette offset occurs in the ROM raw
+(no 16-byte window) or inside ANY BIOS-LZ77 stream, and the OBJ palette entries
+128–255 are likewise absent raw and compressed — so both are composited/generated
+at load (the 45 × 1,024-byte and 8 × 4,096-byte LZ77 streams are plausible pieces:
+32×32 and 64×64 8bpp art). Locating the compositor is the remaining appearance
+item; until then the export carries the authored UVs with diagnostic materials.
+
+### THPS4's `S3D` v6 rider is THPS3's mesh in a section-table wrapper — the poses are not
+
+Header `S3D\x06` at `0x080C8550` followed by words that are S3D-relative section
+offsets/counts: `[3]` = 202 clips at `[7]` (`+0x1C308E`, `{u16 tickStart, u16
+tickCount}` — entries 1–4 are THPS3's own `(62,10) (100,31) (156,21) (177,36)`),
+`[6]` = the tick→frame remap (`+0x1B84AC`, u16, values ≤ 5,843), `[2]` = 22,001 =
+exactly the remap's length INCLUDING the 744-byte zero pad that `[5]` points into
+(`(0x28B5DE − 0x2809FC)/2`), `[8]` = 0x4C = the face bank (267 twelve-byte faces
+of THPS3's exact grammar; face 0 is THPS3's face 0 byte for byte bar the flag), `[11]`
+= 0xCD0 = its end, then three static vertex blocks — 24 verts at 0xCD0, THPS3's
+24-vertex deck byte-identical at `[12]` = 0xD18, and 20 more (two 8-vertex boxes)
+at `[18]` = 0xD60 — with `[9]` = 0xD9C. The pose stream at `[4]` (`+0x18185D`, an
+ODD offset) runs 224,335 bytes for 5,844 frames: **38.4 bytes per frame**, so THPS4
+does not store per-frame vertex sets; it is a compact (per-part transform or delta)
+encoding that needs the renderer walk. No THPS3 frame occurs raw in THPS4. The
+string table just before the S3D (`0x0C84C8`: "Bluntslide", "Nose Bluntslide",
+"Smith", "Tailslide", "Feeble", "Crooked", "5050", "5-0", "Nosegrind" …) is
+referenced from EWRAM `0x02000510` — a trick-name source for THPS4's clips.
+
+### The later carts' art origin is not a stored pair near the level record
+
+A silhouette fit (intersection-over-union between the collision mesh's projected
+footprint and the art's drawn region, every integer origin at once by FFT;
+`TestOutput/gba-origin/origin_iou.py`) recovers THPS2's stored Hangar origin to
+(−7, −3) px, biased by the rim of art drawn past the collision floor — coverage
+alone saturates, and the lower-silhouette cue lands 40 px off at 35σ because of
+that same rim. Applied to all 46 THPS3–Sk8land levels (median IoU 0.56), a field
+search over every 2-byte alignment of the parent record, every struct it points
+at and every struct those point at, in s16/u16/s32/24.8 and ×2/×4/×8/×16/×48
+scalings, finds NO pair within 40 px of the fit on more than 2 of 9 levels (the
+same search recovers THPS2's `+0x64/+0x68` from its fit exactly). THPS4's parent
+record tail is `{ptr?, ptr small-struct, ptr shared, ptr collision complex, ptr
+art record, u16 pair, u16 pair}`, the collision header is `{w, h, 10 ptrs}`, and
+the art record's sixth pointer is a list of `{u16 type, s16, s16, s16, s16}`
+records — none carries the origin. Exact registration therefore needs THPS2's
+route: the engine's world→screen code (skater world position at the collision
+query chained to the OAM position), not a data fit. The fitted origins are kept
+under `TestOutput/gba-origin/iou_results.json` as search keys only.
+
 ## Next steps (current, in order)
 
 1. **THPS4-through-Sk8land rider models, and the THPS3 texture page.** THPS3's
