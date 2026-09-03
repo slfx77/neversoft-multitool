@@ -1,6 +1,8 @@
 using NeversoftMultitool.Core.Formats;
+using NeversoftMultitool.Core.Formats.ArchiveFs;
 using NeversoftMultitool.Core.Formats.Gba;
 using NeversoftMultitool.Core.Formats.Mesh.Conversion;
+using NeversoftMultitool.Core.Formats.Mesh.Detection;
 
 namespace NeversoftMultitool.Tests.Core.Formats.Gba;
 
@@ -259,6 +261,37 @@ public sealed class GbaThps3RiderModelTests(TestPaths paths)
         Assert.Equal(239, clips.Count);
         Assert.Equal(139, GbaRiderClips.TryGetVertexCount(rom));
         Assert.Equal("anim_13", GbaRiderClips.ExportName(rom, 13));
+    }
+
+    /// <summary>
+    ///     The seam the Meshes &amp; Characters tab opens a raw ROM through: the
+    ///     carve happens in memory, and the rider entry is the exact record length
+    ///     the GUI scanner gates on (App/** is outside the test project, so this
+    ///     Core seam is the only place the tab's open path can be pinned).
+    /// </summary>
+    [CorpusFact]
+    public void ArchiveFileSystemOpensTheRomWithItsRider()
+    {
+        var romPath = RomPath;
+        Assert.SkipWhen(romPath == null, "THPS3 GBA ROM sample not available");
+
+        using var fs = ArchiveFileSystem.TryOpen(romPath!);
+        Assert.NotNull(fs);
+        Assert.Equal(12, fs.Entries.Count); // 9 levels + the rider + two ROM companions
+
+        var rider = fs.FindByName("00_rider.chr.gba");
+        Assert.NotNull(rider);
+        Assert.Equal(GbaThps3RiderModel.DirectoryRecordSize, fs.ReadEntry(rider).Length);
+        Assert.Equal("models", rider.Directory);
+
+        var level = fs.FindByName("0_level.lvl.gba");
+        Assert.NotNull(level);
+        Assert.Equal(GbaThps3LevelArt.LevelRecordStride, fs.ReadEntry(level).Length);
+
+        // Both record kinds route by NAME, like an N64 bundle — a plain .gba is an
+        // archive, never a mesh.
+        Assert.Equal(MeshFileKind.GbaModel, MeshTypeDetector.DetectByName("00_rider.chr.gba").Kind);
+        Assert.Equal(MeshFileKind.GbaLevel, MeshTypeDetector.DetectByName("0_level.lvl.gba").Kind);
     }
 
     private sealed class TempDirectory : IDisposable
