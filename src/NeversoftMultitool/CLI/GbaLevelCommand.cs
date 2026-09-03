@@ -98,7 +98,8 @@ public static class GbaLevelCommand
         AnsiConsole.MarkupLine(
             "[grey]Each level: the full-colour isometric surface (level_NN_colour, the actual "
             + "game appearance), the tile-detail render (level_NN), the geometry heightfield "
-            + "(level_NN_iso), and the palette (level_NN_palette).[/]");
+            + "(level_NN_iso), the collision drawn over the art at the stored origin "
+            + "(level_NN_overlay), and the palette (level_NN_palette).[/]");
         return 0;
     }
 
