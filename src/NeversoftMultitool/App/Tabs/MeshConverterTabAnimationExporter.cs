@@ -62,7 +62,9 @@ internal sealed class MeshConverterTabAnimationExporter(
             if (character.IsGbaModel)
             {
                 var written = await Task.Run(
-                    () => ExportGbaClipFiles(character, animations, outputPath, cts.Token), cts.Token);
+                    () => ExportGbaClipFiles(
+                        character, animations, outputPath, MeshOutputFormat.Glb, cts.Token),
+                    cts.Token);
                 MainWindow.Instance?.SetStatus(written > 0
                     ? $"Exported {written} clip(s) beside {Path.GetFileName(outputPath)}"
                     : "No GBA clips could be exported.");
@@ -124,6 +126,22 @@ internal sealed class MeshConverterTabAnimationExporter(
         var cts = BeginOperation("Exporting .blend");
         try
         {
+            // Same reason as the GLB path: a GBA rider animates by morphing and a
+            // weights track addresses every target of the mesh, so a document
+            // carries ONE clip. Building all of them into one document silently
+            // wrote only the first while reporting the checked count.
+            if (character.IsGbaModel)
+            {
+                var writtenClips = await Task.Run(
+                    () => ExportGbaClipFiles(
+                        character, animations, outputPath, MeshOutputFormat.Blend, cts.Token),
+                    cts.Token);
+                MainWindow.Instance?.SetStatus(writtenClips > 0
+                    ? $"Exported {writtenClips} clip(s) beside {Path.GetFileName(outputPath)}"
+                    : "No GBA clips could be exported.");
+                return;
+            }
+
             var result = await Task.Run(() =>
             {
                 var (document, error) = CharacterAnimationConverter.BuildDocument(
@@ -159,14 +177,21 @@ internal sealed class MeshConverterTabAnimationExporter(
     }
 
     /// <summary>
-    ///     Writes one GLB per selected GBA clip, named after the picked file plus
+    ///     Writes one file per selected GBA clip, named after the picked file plus
     ///     the clip. A clip that fails to build is skipped rather than aborting
     ///     the others. Returns how many files were written.
     /// </summary>
+    /// <remarks>
+    ///     Both output formats come through here because the reason is the format's,
+    ///     not the writer's: a GBA rider (THPS2's skater, THPS3's rider) has no
+    ///     skeleton, so a clip is a set of morph targets and a weights track that
+    ///     addresses every one of them — a document carries exactly one clip.
+    /// </remarks>
     private static int ExportGbaClipFiles(
         MeshFileEntry character,
         IReadOnlyList<AnimationProbe> animations,
         string outputPath,
+        MeshOutputFormat format,
         CancellationToken token)
     {
         var directory = Path.GetDirectoryName(outputPath);
@@ -182,13 +207,28 @@ internal sealed class MeshConverterTabAnimationExporter(
             if (document == null)
                 continue;
 
-            var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
-            if (glb == null || triangles == 0)
-                continue;
-
             var name = SanitizeClipName(document.Animations[0].Name);
-            File.WriteAllBytes(Path.Combine(directory, $"{stem}__{name}.glb"), glb);
-            written++;
+            if (format == MeshOutputFormat.Glb)
+            {
+                // The GLB path writes the bytes itself so the file lands beside the
+                // picked path with the clip suffix, exactly as before.
+                var (glb, triangles) = ModelExportService.BuildGlbBytes(document);
+                if (glb == null || triangles == 0)
+                    continue;
+                File.WriteAllBytes(Path.Combine(directory, $"{stem}__{name}.glb"), glb);
+                written++;
+                continue;
+            }
+
+            var result = ModelExportService.Export(document, new MeshExportRequest
+            {
+                OutputDirectory = directory,
+                Format = format,
+                OutputStem = $"{stem}__{name}",
+                CancellationToken = token
+            });
+            if (result.OutputPaths.Count > 0)
+                written++;
         }
 
         return written;
