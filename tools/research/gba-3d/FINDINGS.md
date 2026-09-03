@@ -1634,20 +1634,33 @@ ordering is carried by the referencing chunk index, not by anything in the recor
 
 ## MEASURED (2026-09-03): three follow-ups after the THPS3 rider shipped
 
-### THPS3's rider texture page is assembled at runtime
+### The rider texture page is a RENDER-JOB field, and it is built at load
 
-The page the textured rasterizer reads is IWRAM `0x03004880` in the retained
-frame-8400 capture: 4,096 bytes, exactly 128 distinct values, 99.8% of them in
-`{0} ∪ [128, 255]`, and it holds every one of the 78 palette indices the live
-sprite uses (the only other windows that do are the raster buffer `0x030057E0` and
-its VRAM copy). Rendered through the live OBJ palette it is unmistakably the
-skater's skin atlas — face, white shirt with a logo, jeans, red sleeves/shoes.
-Neither the page nor the page minus the 128 palette offset occurs in the ROM raw
-(no 16-byte window) or inside ANY BIOS-LZ77 stream, and the OBJ palette entries
-128–255 are likewise absent raw and compressed — so both are composited/generated
-at load (the 45 × 1,024-byte and 8 × 4,096-byte LZ77 streams are plausible pieces:
-32×32 and 64×64 8bpp art). Locating the compositor is the remaining appearance
-item; until then the export carries the authored UVs with diagnostic materials.
+Both carts state the page. An IWRAM **render job** holds
+`{u32 rasterBuffer, u32 count, u32 pageBase, face records…}`: THPS3 at
+`0x03006E88` = `{0x030057E0, 0x7E, 0x03004800, …}` and THPS4 at `0x03006EDC` =
+`{…, 0x41, 0x030033E4, …}` — the same struct at almost the same IWRAM address in
+both. The face records that follow are the ROM's own 12-byte faces with **byte 3
+overwritten by the depth-sort link** (`0xFF` live vs `0x00` in ROM), which is the
+`orr r7, r7, fp, lsl #24` in the cull/sort at `0x087FCBDC` and independently
+confirms both the face grammar and why ROM byte 3 is always zero: it is scratch.
+
+Rendered through the live OBJ palette both pages are unmistakable skin atlases —
+THPS3 face/white shirt/jeans/red board, THPS4 face/plaid shirt/graphic tee/skull.
+Each is 4,096 bytes of 8bpp indices into OBJ palette entries 128-255, arranged as
+16 ramps of 8 shades.
+
+**They are not stored art.** Neither page, nor the page minus the 128 palette
+offset, occurs in the ROM raw or inside ANY BIOS-LZ77 stream, in linear or 8×8
+tile order, whole, by 32×32 quadrant, or **as a single 8×8 tile: 0 of 64 tiles
+per cart are found verbatim anywhere** (THPS3 445 streams, THPS4 53). The OBJ
+palette entries 128-255 are likewise absent. A "4bpp shades plus a per-tile ramp"
+reading — the scheme the level art uses — is refuted too: a page tile carries 2-9
+distinct ramps (median 4), not one. So the loader composites and index-remaps it,
+and the next experiment is a write watch on `0x03004800`-`0x030057FF` (THPS3) or
+`0x030033E4`-`0x030043E3` (THPS4), plus a store watch on the job's `pageBase`
+field, to find the compositor and what it reads. Until then the export carries the
+authored UVs with diagnostic materials.
 
 ### THPS4's `S3D` v6 rider is THPS3's mesh in a section-table wrapper — the poses are not
 
