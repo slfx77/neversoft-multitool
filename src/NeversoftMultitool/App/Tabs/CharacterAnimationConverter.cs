@@ -131,11 +131,10 @@ internal static class CharacterAnimationConverter
 
             if (character.IsGbaModel)
             {
-                // The synthesised rig is one bone per unique model vertex, and
-                // every GBA character shares the one skater mesh.
+                // A GBA rider is a morph model with no skeleton; the pane's rig
+                // size is its vertex count, and every clip fits it.
                 var rom = character.Source.TryReadCompanion(GbaLevelCarver.RomEntryName);
-                var model = rom == null ? null : GbaSkaterModel.TryLocate(rom);
-                return model?.VertCounts.Sum(count => count);
+                return rom == null ? null : GbaRiderClips.TryGetVertexCount(rom);
             }
 
             if (character.IsNdsGeometry)

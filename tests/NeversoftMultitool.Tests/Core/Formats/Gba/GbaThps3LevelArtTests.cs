@@ -76,7 +76,10 @@ public sealed class GbaThps3LevelArtTests(TestPaths paths)
 
         Assert.True(GbaLevelCarver.IsVvLevelRom(rom));
         var carve = GbaLevelCarver.Carve(rom);
-        Assert.Equal(10, carve.Count); // nine level records plus rom.gbarom
+        // Nine level records, the rider record with its own ROM companion, and
+        // the levels' rom.gbarom.
+        Assert.Equal(12, carve.Count);
+        Assert.Equal("models/00_rider.chr.gba", carve[9].Path);
         Assert.Equal(GbaLevelCarver.RomEntryPath, carve[^1].Path);
 
         var rendered = 0;

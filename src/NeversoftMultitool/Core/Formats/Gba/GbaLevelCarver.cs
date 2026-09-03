@@ -169,6 +169,18 @@ public static class GbaLevelCarver
                     rom.AsSpan(offset, GbaThps3LevelArt.LevelRecordStride).ToArray()));
             }
 
+            // The 3D rider: its 0x14-byte directory record (the whole complex —
+            // mesh, deck, pose bank, clip tables — resolves through the ROM
+            // companion; see GbaThps3RiderModel). THPS3 has one rider, not a
+            // roster, so there is one record.
+            var rider = GbaThps3RiderModel.TryLocate(rom);
+            if (rider != null)
+            {
+                result.Add(("models/00_rider.chr.gba",
+                    rom.AsSpan(rider.DirectoryOffset, GbaThps3RiderModel.DirectoryRecordSize).ToArray()));
+                result.Add(("models/" + RomEntryName, rom));
+            }
+
             result.Add((RomEntryPath, rom));
             return result;
         }

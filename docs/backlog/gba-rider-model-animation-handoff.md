@@ -1,6 +1,6 @@
 # GBA rider models and animation: Claude handoff
 
-Last audited: 2026-08-31
+Last audited: 2026-09-02
 
 This document is the continuation point for **rider mesh and animation work only**.
 It covers THPS3, THPS4, THUG, THUG2, American Sk8land, and the unfinished rider
@@ -47,7 +47,7 @@ time. Run `git status --short` before editing and preserve unrelated work.
 
 | Cart | Code | Source mesh | Animation | Appearance | Shipping route |
 |---|---|---|---|---|---|
-| THPS3 | `AT3E` | **CLOSED**: 6-entry directory 0x08161CA4; rec0 = 139 verts / 243 faces | **Bank closed**: 5,024 pose frames; clip TABLE not closed | Unknown | None yet |
+| THPS3 | `AT3E` | **SHIPPED**: 6-entry directory 0x08161CA4; rec0 = 139 verts / 243 faces, faces carry 64×64-page UVs | **SHIPPED**: 5,024 pose frames; clip table CLOSED as tick ranges into the remap after the bank (239 clips, 7 empty); deck translation proven | Texture page NOT located; materials diagnostic | `archive` carves `models/00_rider.chr.gba`; `mesh [--gba-animation(s)]`; Meshes & Characters + Animations pane |
 | THPS4 | `AT6E` | Real-time 3D proven; `S3D` v6 model at 0x080C8550, not closed | Unknown | Unknown | None |
 | THUG | `BTOE` | Unknown | Unknown | Unknown | None |
 | THUG2 | `B2TE` | Unknown; an old loose header-like hit did not close | Unknown | Unknown | None |
@@ -153,7 +153,34 @@ claiming a THPS3-through-Sk8land format, require all of the following:
 
 Only then add carving, generic Mesh/GUI routing, or broad cross-title reuse.
 
-## THPS3 (`AT3E`): current evidence
+## THPS3 (`AT3E`): shipped 2026-09-02
+
+`GbaThps3RiderModel` locates the six-record directory by shape and closes it
+three ways; `GbaThps3RiderGeometryWriter` / `GbaThps3RiderAnimatedWriter` export
+the rider exactly as the THPS2 skater is exported (morph targets, one clip per
+file), and the carve, `mesh`, the Animations pane and `GbaRiderClips` route it.
+What closed since the previous audit, in the order it mattered:
+
+- The clip table is THPS2's grammar: `{u16 tickStart, u16 tickCount}` into a
+  **tick→frame remap** that fills record 0's trailing region (`w2` up to
+  record 1's mesh). Every one of its 8,507 entries is a pool frame, every clip
+  addresses it in range, and the furthest tick aligned to 4 bytes is exactly the
+  region — the earlier "entry 13 exceeds the bank" contradiction was the table
+  read as frame ranges. Entries continue past `(0,0)` authored-empty clips: 239
+  clips, 7 empty, holds of two ticks per frame throughout.
+- The 12-byte face record is `{v0,v1,v2,0; u0,v0,u1,v1,u2,v2; material; flag}`:
+  the library's textured rasterizer packs `(v & 0x3F) << 6 | u` and reads a
+  **64×64 8bpp page** from `r3`, the bytes are 6.2 fixed-point texels, and the
+  flat rasterizer stores `r3 + material` instead. The page pointer is passed by
+  the caller and is NOT in the live render descriptor; no 4 KB RAM or ROM window
+  holds the sprite's palette-index set, and the eight 4,096-byte LZ77 streams
+  are sprites. Locating the page is the remaining appearance item.
+- Frame header bytes 4–6 are the deck translation, proven against the retained
+  capture (the EWRAM deck copy equals the stored deck plus those bytes on all
+  24 vertices at frame 686). Bytes 0–2 are not the AABB centre and bytes 8–10
+  are ignored by that copy, so both stay undecoded.
+
+The evidence trail below is retained as written before the container closed.
 
 ### Proven negative: it is not the THPS2 model complex
 
@@ -663,9 +690,11 @@ BizHawk 2.6.3 caveats are recorded in `tools/vendor/bizhawk/README.md`:
 ## Recommended work order
 
 1. **THPS4 renderer walk:** start at proven OBJ destination `0x060109A0`; turn
-   the retained capture into the first source-bank anchor outside DHJ.
-2. **THPS3 renderer walk:** move backward from the proven EWRAM raster output;
-   explicitly avoid the rejected level-row pointer lattices.
+   the retained capture into the first source-bank anchor outside DHJ. THPS4
+   shares THPS3's library, so expect the same directory/mesh/face grammar.
+2. **THPS3 texture page:** find the caller that hands the bucket walk its `r3`
+   (the textured page base) — the rider's caller is `0x0802951A` — and bind the
+   64×64 page plus the OBJ palette; then replace the diagnostic materials.
 3. **Capture and anchor THUG/THUG2/Sk8land:** do not static-scan blind, and do not
    assume one shared VV rider format before consumer evidence.
 4. **Close one VV-era format end to end:** source mesh, faces, pose/animation,

@@ -645,10 +645,14 @@ internal static class MeshConverterTabFileScanner
     ///     character's colours, animated by the ROM's clip table.</summary>
     private static MeshFileEntry? ScanGbaModelFile(AssetSource source, string displayPath, string rootDir)
     {
-        // Every character is the same 8-sub-object mesh, emitted as one mesh node.
+        // THPS2: every character is the same 8-sub-object mesh, emitted as one
+        // mesh node. THPS3: the one rider, two parts (rider + deck), one node.
         return ScanGbaRecord(
-            source, displayPath, rootDir, GbaSkaterModel.CharacterRecordSize, "GBA Character",
-            objectCount: GbaSkaterModel.SubObjectCount, meshCount: 1);
+                   source, displayPath, rootDir, GbaSkaterModel.CharacterRecordSize, "GBA Character",
+                   objectCount: GbaSkaterModel.SubObjectCount, meshCount: 1)
+               ?? ScanGbaRecord(
+                   source, displayPath, rootDir, GbaThps3RiderModel.DirectoryRecordSize, "GBA Character",
+                   objectCount: 2, meshCount: 1);
     }
 
     private static MeshFileEntry? ScanGbaRecord(

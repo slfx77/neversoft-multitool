@@ -19,7 +19,7 @@ export route is claimed.
 | Game | Visible tile/course art | Collision / 3D level mesh | Rider models | GAX samples and music |
 |---|---|---|---|---|
 | Tony Hawk's Pro Skater 2 | **Decoded / tested:** nine full-colour 8bpp isometric surfaces, palettes and tile-detail views. | **Decoded / tested:** cartridge height functions produce the shape-aware collision surface and textured GLB. The stored art origin gives exact art/collision registration. | **Decoded / tested:** shared 266-face skater, 15 character palettes, 4,772 full-pose morph frames and 221 clip slots; static and selected/all non-empty animation exports are available. | **Decoded / tested:** sparse signed-PCM8 banks and 11 sequenced songs. This generation also has byte-exact reference-render and emulator-correlation evidence. |
-| Tony Hawk's Pro Skater 3 | **Decoded / tested:** nine full-colour 8bpp tile surfaces and palettes. | **Decoded with offline-state caveat:** all nine grids and their cartridge height functions parse. Cells driven by live scene/player state are explicitly labelled and use the deterministic empty-scene contribution offline. The art origin is unresolved, so textured-mesh UV registration is **approximate and centred**; collision quads are never removed from that preview. | **Unresolved:** the THPS2 model complex is absent and THPS3's own rider container has not been identified. | **Decoded / tested:** sparse signed-PCM8 banks and 14 sequenced songs; structurally validated, not yet byte-compared with emulator audio. |
+| Tony Hawk's Pro Skater 3 | **Decoded / tested:** nine full-colour 8bpp tile surfaces and palettes. | **Decoded with offline-state caveat:** all nine grids and their cartridge height functions parse. Cells driven by live scene/player state are explicitly labelled and use the deterministic empty-scene contribution offline. The art origin is unresolved, so textured-mesh UV registration is **approximate and centred**; collision quads are never removed from that preview. | **Decoded / tested geometry and animation:** the one 139-vertex / 243-face rider (rider part plus a rigid deck) and all 239 clips (7 authored-empty) export as morph-target GLBs from the carved `models/00_rider.chr.gba` through the common mesh converter and the Meshes & Characters Animations pane. Faces carry authored 64×64-page texture coordinates but the page is not located in the ROM, so materials are diagnostic colours labelled as such; the deck's per-frame translation is proven against a live capture, the other frame-header bytes are not applied. | **Decoded / tested:** sparse signed-PCM8 banks and 14 sequenced songs; structurally validated, not yet byte-compared with emulator audio. |
 | Tony Hawk's Pro Skater 4 | **Decoded / tested:** eight full-colour mixed 4bpp/8bpp tile surfaces and palettes. The one-bit asset is exported separately as an occlusion mask. | **Decoded / tested geometry:** all eight parametric collision grids execute from the ROM. The art origin is unresolved, so textured-mesh UV registration is **approximate and centred** without geometry culling. | **Unresolved:** the THPS2 model complex is absent and this game's rider container has not been identified. | **Decoded / tested:** sparse unsigned-PCM8 banks and 10 sequenced songs; structurally validated, not yet byte-compared with emulator audio. |
 | Tony Hawk's Underground | **Decoded / tested:** ten full-colour mixed 4bpp/8bpp tile surfaces and palettes, plus separately named occlusion masks. | **Decoded / tested geometry:** all ten parametric collision grids execute from the ROM; textured-mesh UV registration is **approximate and centred**. | **Unresolved:** the THPS2 model complex is absent and this game's rider container has not been identified. | **Decoded / tested:** sparse unsigned-PCM8 banks and seven sequenced songs; structurally validated, not yet byte-compared with emulator audio. |
 | Tony Hawk's Underground 2 | **Decoded / tested:** seven full-colour mixed 4bpp/8bpp tile surfaces and palettes, plus separately named occlusion masks. | **Decoded / tested geometry:** all seven parametric collision grids execute from the ROM; textured-mesh UV registration is **approximate and centred**. | **Unresolved:** a loose header-like sequence does not close as a model complex, so no rider parser is claimed. | **Decoded / tested:** sparse unsigned-PCM8 banks and six sequenced songs; structurally validated, not yet byte-compared with emulator audio. |
@@ -83,9 +83,12 @@ NeversoftMultitool mesh carved/models/00_tony_hawk.chr.gba --output rider-glb
 NeversoftMultitool mesh carved/models/00_tony_hawk.chr.gba --output animated-rider --gba-animation 0
 ```
 
-Use `--gba-animations` to export every non-empty THPS2 clip. Downhill Jam has a
-separate, direct posed-rider route and is not accepted by the Vicarious Visions
-level carver:
+Use `--gba-animations` to export every non-empty THPS2 clip. THPS3 carves one
+`models/00_rider.chr.gba` that takes the same `mesh` flags; its clips are
+anonymous (`anim_N`, the cart embeds no trick table), and each clip file is a
+morph-target GLB of the rider with the deck at that frame's translation.
+Downhill Jam has a separate, direct posed-rider route and is not accepted by the
+Vicarious Visions level carver:
 
 ```text
 NeversoftMultitool gba-dhj-model downhill-jam.gba --output dhj-riders
@@ -103,8 +106,8 @@ In the desktop app, the **Archive Extractor** recognizes THPS2 through
 Sk8land and emits the same carved records. Open the extracted directory in the
 mesh browser: `.lvl.gba` entries appear in **Levels**, where the 2D view opens
 on authored art and the layer picker exposes available collision/overlay views;
-the 3D view and export use the collision mesh. THPS2 `.chr.gba` entries appear
-under **Meshes & Characters** and can use the animation panel. GAX audio and the
+the 3D view and export use the collision mesh. THPS2 and THPS3 `.chr.gba`
+entries appear under **Meshes & Characters** and can use the animation panel. GAX audio and the
 Downhill Jam course/rider exporters currently have dedicated CLI routes rather
 than desktop-tab integration.
 
@@ -122,7 +125,8 @@ than desktop-tab integration.
   [`GbaDhjCourse.cs`](../../src/NeversoftMultitool/Core/Formats/Gba/GbaDhjCourse.cs)
   and [`GbaDhjCourseGeometryWriter.cs`](../../src/NeversoftMultitool/Core/Formats/Mesh/Conversion/GbaDhjCourseGeometryWriter.cs).
 - Rider implementations:
-  [`GbaSkaterModel.cs`](../../src/NeversoftMultitool/Core/Formats/Gba/GbaSkaterModel.cs)
+  [`GbaSkaterModel.cs`](../../src/NeversoftMultitool/Core/Formats/Gba/GbaSkaterModel.cs),
+  [`GbaThps3RiderModel.cs`](../../src/NeversoftMultitool/Core/Formats/Gba/GbaThps3RiderModel.cs)
   and [`GbaDhjModel.cs`](../../src/NeversoftMultitool/Core/Formats/Gba/GbaDhjModel.cs).
 - Audio layouts, corpus counts and fidelity limits are detailed in
   [GBA GAX audio support](gba-gax-audio.md).

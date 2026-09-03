@@ -233,14 +233,14 @@ internal static class MeshExportCliOptions
             return [];
 
         var rom = new FileSystemAssetSource(file).TryReadCompanion(GbaLevelCarver.RomEntryName);
-        var model = rom == null ? null : GbaSkaterModel.TryLocate(rom);
-        if (model == null)
+        var clips = rom == null ? null : GbaRiderClips.TryList(rom);
+        if (clips == null)
             return [];
 
         // Only clips that really exist and really play: an out-of-range or
         // authored-empty index falls through to the ordinary static export
         // rather than producing a file named after a clip that has no frames.
-        var playable = GbaSkaterModel.ReadClips(rom, model)
+        var playable = clips
             .Where(static clip => clip.TickCount > 0)
             .Select(static clip => clip.Index)
             .ToHashSet();
@@ -305,10 +305,7 @@ internal static class MeshExportCliOptions
     private static string GbaClipName(string file, int clip)
     {
         var rom = new FileSystemAssetSource(file).TryReadCompanion(GbaLevelCarver.RomEntryName);
-        var model = rom == null ? null : GbaSkaterModel.TryLocate(rom);
-        return model == null
-            ? $"anim_{clip}"
-            : GbaAnimatedModelWriter.GbaTrickClipName(rom, model, model.ClipCount, clip);
+        return rom == null ? $"anim_{clip}" : GbaRiderClips.ExportName(rom, clip);
     }
 
     private static string SafeClipName(string name)

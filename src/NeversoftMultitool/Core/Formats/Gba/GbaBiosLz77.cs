@@ -30,7 +30,8 @@ public static class GbaBiosLz77
     ///     is a 0x10 header and the stream decodes cleanly to its declared size.
     /// </summary>
     public static bool TryDecompress(
-        ReadOnlySpan<byte> data, int offset, out byte[] payload, out int compressedLength)
+        ReadOnlySpan<byte> data, int offset, out byte[] payload, out int compressedLength,
+        int minDecompressedSize = MinDecompressedSize)
     {
         payload = [];
         compressedLength = 0;
@@ -38,8 +39,11 @@ public static class GbaBiosLz77
         if (offset < 0 || offset + 4 > data.Length || data[offset] != 0x10)
             return false;
 
+        // Content SCANS keep the default floor so a stray 0x10 cannot pass as a
+        // tiny stream; a caller whose stream is STATED by a directory (a
+        // 28-byte one-frame mesh bank, say) lowers it.
         var size = data[offset + 1] | (data[offset + 2] << 8) | (data[offset + 3] << 16);
-        if (size is < MinDecompressedSize or > MaxDecompressedSize)
+        if (size < minDecompressedSize || size > MaxDecompressedSize)
             return false;
 
         var outBuf = new byte[size];

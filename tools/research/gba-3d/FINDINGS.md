@@ -1542,13 +1542,55 @@ size, itself an exact multiple of the stride (25/25/28/1/1 frames).
 Vertices are three signed bytes, four per three words, confirmed from the transform's
 own loads at `0x087FCC90`.
 
-**Not closed:** the animation clip table at `0x08163124` reads as
-`{u16 firstFrame, u16 frameCount}` (62 entries, zero-terminated, counts summing to
-1,529, clips tiling with 1-2 frame gaps) — but entry 13 = `(6322, 23)` exceeds the
-bank's 5,024 frames, so the reading is wrong somewhere and must not be implemented as
-stated. Record 0's `w2` region is 17,016 bytes, which is not `4*5024`, so it is not
-the per-frame table records 1-5 use. THPS4's rider is an `S3D` version-6 model at
-`0x080C8550` (that tag occurs in THPS4 alone) and is not closed.
+**Closed the next day (see the SHIPPED section below):** the clip table at
+`0x08163124` is `{u16 tickStart, u16 tickCount}` into a tick→frame remap, and
+record 0's 17,016-byte `w2` region IS that remap. Read as frame ranges, entry 13 =
+`(6322, 23)` exceeded the 5,024-frame bank; read as a tick range it names frames
+3899..3920 then 1275, and the table continues past `(0,0)` authored-empty entries to
+239 clips. THPS4's rider is an `S3D` version-6 model at `0x080C8550` and is not
+closed; `S3D\x06` is THPS4-only, while an `S3D\x0B` header family with the same word
+shape appears in THUG, THUG2 and Sk8land (an unverified lead noted by the 2026-09-02
+audit).
+
+## SHIPPED (2026-09-02): the THPS3 rider
+
+`GbaThps3RiderModel` + `GbaThps3RiderGeometryWriter` / `GbaThps3RiderAnimatedWriter`,
+carved as `models/00_rider.chr.gba` and routed through `mesh`, the Meshes &
+Characters tab and the Animations pane like the THPS2 skater (`GbaRiderClips` is the
+shared clip catalogue). Pinned by `GbaThps3RiderModelTests`.
+
+- **Clip table = THPS2's grammar.** The remap after the bank has 8,507 entries (the
+  region is 17,016 bytes: 8,507 u16 plus 2 bytes of alignment), every entry is a
+  frame below 5,024, every clip's tick range is inside it, and the furthest tick
+  aligned to 4 bytes equals the region exactly — the same closure that fixes the
+  THPS2 clip count. 239 clips, 7 authored-empty, 7,207 of 8,507 ticks referenced;
+  the remap holds each frame for two ticks, so the authored cadence is 30 poses/s.
+- **Faces are textured.** `{u8 v0,v1,v2,0; u8 u0,v0,u1,v1,u2,v2; u8 material; u8
+  flag}`, indices global (part 0 exactly `[0,114]`, deck exactly `[115,138]`). The
+  library's textured rasterizer (`0x087FCFC4`) packs `(v & 0x3F) << 6 | u` and does
+  `ldrb [r3, idx]`: a **64×64 8bpp page** whose base the bucket walk (`0x087FCEC4`)
+  receives in `r3`; the setup shifts each byte by 22, so a byte is a **6.2 fixed-point
+  texel** (max 253 = 63.25). When `r3 <= 0xFF` the walk takes the flat rasterizer
+  (`0x087FD2C4`) with colour `r3 + material`; the flag byte is read by neither, nor
+  by the cull/sort (`0x087FCBDC`). Material takes 14 values (max 22), flag 1..8.
+- **The page is NOT located.** The live IWRAM render descriptor (`0x03004718`) holds
+  the faces (`0x08169B8C`, copied to EWRAM `0x02009900`), the pool base
+  (`0x0816A738`), the current frame's vertices (`0x081A6BF4` = frame 686 + 12) and
+  the deck (`0x0816A6F0`) — no page pointer. No 4 KB window in EWRAM/IWRAM/VRAM
+  scores above 0.90 on the sprite's 78-index set, the only whole-ROM window above
+  0.9 (`0x7FE070`) is zero-fill, and the eight 4,096-byte LZ77 streams are sprites.
+  The export carries the UVs (`TEXCOORD_0 = byte/256`) and diagnostic materials.
+- **Deck translation proven.** The 24 deck vertices are stored once ahead of the
+  pool; the EWRAM copy at `0x0200A484` equals them plus frame 686's header bytes 4–6
+  (`0,0,-9`) on all 24. Bytes 0–2 match the pose AABB centre on only 28/296 frames
+  and bytes 8–10 (`0,1,-2` at 686, nonzero on 4,942 frames) do not move that copy;
+  a rotation-convention search over the deck/feet geometry did not separate from a
+  no-rotation baseline (2.70 vs 2.88), so both stay undecoded and unapplied.
+- **Static records 1–5** LZ77-decompress to 25/25/28/1/1 whole frames of the static
+  layout `{u32, part0, part1}`; their role is not established and they do not export.
+- **Census:** static 243 triangles / 14 materials; `--gba-animations` writes 232
+  files (180 animating, 52 whose every frame is the base pose), 5,295 keys, 35 MB in
+  40 s; the Khronos validator reports 0 errors / 0 warnings on all 232.
 
 ## CLOSED (2026-09-01): three Downhill Jam questions
 
@@ -1592,9 +1634,11 @@ ordering is carried by the referencing chunk index, not by anything in the recor
 
 ## Next steps (current, in order)
 
-1. **THPS3-through-Sk8land rider models.** The THPS2 model complex is absent and
-   each later title's own rider container remains unidentified; reject loose
-   header-like matches unless the complete vertex/face/palette structure closes.
+1. **THPS4-through-Sk8land rider models, and the THPS3 texture page.** THPS3's
+   rider ships (above); its 64×64 page and OBJ palette are the open appearance
+   item. THPS4 shares the library, so its `S3D` v6 model should close under the
+   same directory/mesh/face grammar; THUG/THUG2/Sk8land share an `S3D\x0B` header
+   family. Reject loose header-like matches unless vertex/face/pose closes.
 2. **Exact THPS3-through-Sk8land art/collision registration.** Their visible art
    and collision geometry are both decoded, but no stored art origin has been
    proven. Current GLB UVs centre the isometric projection as an explicitly

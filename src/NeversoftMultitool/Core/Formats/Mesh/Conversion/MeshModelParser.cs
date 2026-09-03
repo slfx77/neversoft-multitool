@@ -331,6 +331,11 @@ public sealed class MeshModelParser : IModelParser
                   ?? throw new InvalidOperationException(
                       $"Missing '{Gba.GbaLevelCarver.RomEntryName}' companion — carved GBA characters " +
                       "must stay beside the ROM they were carved from");
+        // Two carts carve a .chr.gba, told apart by record length: THPS2's 0x4C
+        // roster record and THPS3's 0x14 rider-directory record.
+        if (record.Length == Gba.GbaThps3RiderModel.DirectoryRecordSize)
+            return ParseGbaThps3Rider(request, record, rom);
+
         var model = Gba.GbaSkaterModel.TryLocate(rom)
                     ?? throw new InvalidOperationException("The companion ROM does not carry the skater model");
 
@@ -352,6 +357,28 @@ public sealed class MeshModelParser : IModelParser
         var clip = request.GbaAnimationIndices is { Count: > 0 } selection ? selection[0] : -1;
         if (clip < 0 || !GbaAnimatedModelWriter.TryPopulate(document, native, clip))
             GbaModelGeometryWriter.Populate(document, native);
+        return document;
+    }
+
+    /// <summary>
+    ///     A carved THPS3 rider: the directory record plus the ROM companion. The
+    ///     record must BE the ROM's own rider directory entry, located by content.
+    /// </summary>
+    private static ModelDocument ParseGbaThps3Rider(MeshImportRequest request, byte[] record, byte[] rom)
+    {
+        var model = Gba.GbaThps3RiderModel.TryLocate(rom)
+                    ?? throw new InvalidOperationException("The companion ROM does not carry the THPS3 rider");
+        if (!rom.AsSpan(model.DirectoryOffset, Gba.GbaThps3RiderModel.DirectoryRecordSize).SequenceEqual(record))
+            throw new InvalidOperationException("The rider record does not belong to the companion ROM");
+
+        var native = new GbaThps3RiderNativeSource(record, rom);
+        var document = ModelDocument.CreateNative(request.OutputStem, ModelSourceKind.GbaModel, native);
+
+        // Same fail-closed contract as the THPS2 skater: one clip per document,
+        // and a request naming no exportable clip is the plain static export.
+        var clip = request.GbaAnimationIndices is { Count: > 0 } selection ? selection[0] : -1;
+        if (clip < 0 || !GbaThps3RiderAnimatedWriter.TryPopulate(document, native, clip))
+            GbaThps3RiderGeometryWriter.Populate(document, native);
         return document;
     }
 
